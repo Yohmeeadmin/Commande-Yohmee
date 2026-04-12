@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase/admin';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
 // Vérifie que le requêtant est admin
 async function verifyAdmin(request: NextRequest) {
   const auth = request.headers.get('Authorization');
   if (!auth) return null;
   const token = auth.replace('Bearer ', '');
-  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+  const { data: { user }, error } = await getSupabaseAdmin().auth.getUser(token);
   if (error || !user) return null;
-  const { data: profile } = await supabaseAdmin
+  const { data: profile } = await getSupabaseAdmin()
     .from('profiles')
     .select('role')
     .eq('id', user.id)
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
   const admin = await verifyAdmin(request);
   if (!admin) return NextResponse.json({ error: 'Non autorisé' }, { status: 403 });
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await getSupabaseAdmin()
     .from('profiles')
     .select('*')
     .order('created_at', { ascending: false });
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
   const tempPassword = generatePassword();
 
   // Créer l'utilisateur dans Supabase Auth
-  const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
+  const { data: authUser, error: authError } = await getSupabaseAdmin().auth.admin.createUser({
     email: email.trim().toLowerCase(),
     password: tempPassword,
     email_confirm: true, // pas besoin de confirmation email
@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Créer le profil
-  const { error: profileError } = await supabaseAdmin.from('profiles').insert({
+  const { error: profileError } = await getSupabaseAdmin().from('profiles').insert({
     id: authUser.user.id,
     first_name: first_name.trim(),
     last_name: last_name.trim(),
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
 
   if (profileError) {
     // Rollback : supprimer l'user auth créé
-    await supabaseAdmin.auth.admin.deleteUser(authUser.user.id);
+    await getSupabaseAdmin().auth.admin.deleteUser(authUser.user.id);
     return NextResponse.json({ error: profileError.message }, { status: 500 });
   }
 

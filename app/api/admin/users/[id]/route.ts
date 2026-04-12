@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase/admin';
+import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
 async function verifyAdmin(request: NextRequest) {
   const auth = request.headers.get('Authorization');
   if (!auth) return null;
   const token = auth.replace('Bearer ', '');
-  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+  const { data: { user }, error } = await getSupabaseAdmin().auth.getUser(token);
   if (error || !user) return null;
-  const { data: profile } = await supabaseAdmin
+  const { data: profile } = await getSupabaseAdmin()
     .from('profiles')
     .select('role')
     .eq('id', user.id)
@@ -32,12 +32,12 @@ export async function PATCH(
   if (body.action === 'reset_password') {
     const tempPassword = generatePassword();
 
-    const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(id, {
+    const { error: authError } = await getSupabaseAdmin().auth.admin.updateUserById(id, {
       password: tempPassword,
     });
     if (authError) return NextResponse.json({ error: authError.message }, { status: 500 });
 
-    await supabaseAdmin
+    await getSupabaseAdmin()
       .from('profiles')
       .update({ must_change_password: true })
       .eq('id', id);
@@ -48,7 +48,7 @@ export async function PATCH(
   // Mise à jour du profil
   const { first_name, last_name, role, modules, ateliers, is_active } = body;
 
-  const { error } = await supabaseAdmin
+  const { error } = await getSupabaseAdmin()
     .from('profiles')
     .update({ first_name, last_name, role, modules, ateliers, is_active })
     .eq('id', id);
@@ -57,7 +57,7 @@ export async function PATCH(
 
   // Si désactivé, on peut forcer la déconnexion en révoquant les sessions
   if (is_active === false) {
-    await supabaseAdmin.auth.admin.signOut(id, 'global').catch(() => {});
+    await getSupabaseAdmin().auth.admin.signOut(id, 'global').catch(() => {});
   }
 
   return NextResponse.json({ success: true });
