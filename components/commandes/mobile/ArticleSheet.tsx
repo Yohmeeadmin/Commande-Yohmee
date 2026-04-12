@@ -18,7 +18,7 @@ export default function ArticleSheet({ articles, lines, onAdd, onClose }: Props)
   return (
     <>
       <div className="fixed inset-0 bg-black/50 z-50" onClick={onClose} />
-      <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl safe-area-pb animate-slide-up">
+      <div className="fixed left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl animate-slide-up flex flex-col" style={{ bottom: 56, maxHeight: 'calc(80vh - 56px)' }}>
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-1">
           <div className="w-10 h-1 bg-gray-300 rounded-full" />
@@ -39,7 +39,7 @@ export default function ArticleSheet({ articles, lines, onAdd, onClose }: Props)
         </div>
 
         {/* Options */}
-        <div className="p-4 space-y-3 max-h-[60vh] overflow-y-auto">
+        <div className="p-4 space-y-3 flex-1 overflow-y-auto">
           <p className="text-sm text-gray-400 font-medium">Choisissez un format</p>
           {articles.map(article => {
             const price = calculateArticlePrice(article, article.product_reference);

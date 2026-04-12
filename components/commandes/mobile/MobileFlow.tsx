@@ -68,7 +68,7 @@ export default function MobileFlow({
   };
 
   return (
-    <div className="fixed inset-0 bg-gray-50 z-10 flex flex-col" style={{ top: 56 }}>
+    <div className="fixed inset-0 bg-gray-50 z-10 flex flex-col" style={{ top: 56, bottom: 56 }}>
       {/* Header étape */}
       <div className="flex-shrink-0 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between">
         <div>

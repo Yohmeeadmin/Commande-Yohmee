@@ -150,7 +150,7 @@ export default function StepCatalogue({
       </div>
 
       {/* Liste produits */}
-      <div className="flex-1 overflow-y-auto pb-28">
+      <div className="flex-1 overflow-y-auto" style={{ paddingBottom: '6rem' }}>
 
         {/* Section "Habituellement commandé" */}
         {frequentGroups.length > 0 && !search && activeCat === 'all' && (
@@ -197,7 +197,8 @@ export default function StepCatalogue({
       {totalItems > 0 && (
         <button
           onClick={onOpenCart}
-          className="fixed bottom-0 left-0 right-0 mx-4 mb-6 flex items-center justify-between px-5 py-4 bg-blue-600 text-white rounded-2xl shadow-lg active:scale-98 transition-transform z-40"
+          className="fixed left-0 right-0 mx-4 flex items-center justify-between px-5 py-4 bg-blue-600 text-white rounded-2xl shadow-lg active:scale-98 transition-transform z-30"
+          style={{ bottom: 'calc(56px + 1rem)' }}
         >
           <div className="flex items-center gap-3">
             <div className="relative">

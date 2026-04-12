@@ -103,3 +103,25 @@ textarea:focus {
 .atelier-chocolaterie { background: #fed7aa; color: #78350f; }
 .atelier-traiteur { background: #d1fae5; color: #065f46; }
 .atelier-autre { background: #f3f4f6; color: #6b7280; }
+
+/* Mobile utilities */
+.safe-area-pb {
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
+}
+
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.25s ease-out;
+}

@@ -27,8 +27,8 @@ export default function CartSheet({
   return (
     <>
       <div className="fixed inset-0 bg-black/50 z-50" onClick={onClose} />
-      <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl safe-area-pb flex flex-col"
-        style={{ maxHeight: '92vh' }}>
+      <div className="fixed left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl flex flex-col"
+        style={{ bottom: 56, maxHeight: 'calc(92vh - 56px)' }}>
 
         {/* Handle + header */}
         <div className="flex-shrink-0">
