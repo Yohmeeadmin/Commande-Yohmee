@@ -18,6 +18,7 @@ export interface OrderForm {
   date_livraison: string;
   delivery_slot_id: string;
   note: string;
+  rappel: boolean;
 }
 
 export interface HistoryItem {

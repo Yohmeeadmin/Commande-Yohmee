@@ -1,6 +1,6 @@
 'use client';
 
-import { X, Trash2, CheckCircle, Save, ChevronDown } from 'lucide-react';
+import { X, Trash2, CheckCircle, Save, ChevronDown, Bell } from 'lucide-react';
 import { OrderLine, OrderForm } from './types';
 import { DeliverySlot } from '@/types';
 import { formatPrice } from '@/lib/utils';
@@ -52,38 +52,40 @@ export default function CartSheet({
           {/* Lignes panier */}
           <div className="px-4 pt-4 space-y-3">
             {lines.map(line => (
-              <div key={line.id} className="flex items-center gap-3 bg-gray-50 rounded-2xl p-3">
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-gray-900 text-sm leading-snug">{line.article_display_name}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{formatPrice(line.prix_unitaire)} / unité</p>
-                </div>
-                {/* Contrôle quantité */}
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <button
-                    onClick={() => onUpdateQty(line.id, -1)}
-                    className="w-9 h-9 flex items-center justify-center bg-white border border-gray-200 rounded-full text-lg font-bold text-gray-600 active:scale-90 transition-transform"
-                  >
-                    −
-                  </button>
-                  <span className="w-7 text-center font-bold text-gray-900">{line.quantite}</span>
-                  <button
-                    onClick={() => onUpdateQty(line.id, 1)}
-                    className="w-9 h-9 flex items-center justify-center bg-blue-600 rounded-full text-white text-lg font-bold active:scale-90 transition-transform"
-                  >
-                    +
-                  </button>
-                </div>
-                {/* Prix ligne + delete */}
-                <div className="text-right flex-shrink-0 flex items-center gap-2">
-                  <p className="font-bold text-gray-900 text-sm w-16 text-right">
-                    {formatPrice(line.quantite * line.prix_unitaire)}
-                  </p>
+              <div key={line.id} className="bg-gray-50 rounded-2xl p-3">
+                {/* Ligne 1 : nom + poubelle */}
+                <div className="flex items-start justify-between mb-2.5">
+                  <div className="flex-1 min-w-0 pr-2">
+                    <p className="font-medium text-gray-900 text-sm leading-snug">{line.article_display_name}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{formatPrice(line.prix_unitaire)} / unité</p>
+                  </div>
                   <button
                     onClick={() => onRemove(line.id)}
-                    className="w-8 h-8 flex items-center justify-center text-red-400 active:scale-90 transition-transform"
+                    className="w-7 h-7 flex items-center justify-center text-gray-300 hover:text-red-400 active:scale-90 transition-all flex-shrink-0 -mt-0.5"
                   >
-                    <Trash2 size={16} />
+                    <Trash2 size={15} />
                   </button>
+                </div>
+                {/* Ligne 2 : quantité + prix total */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => onUpdateQty(line.id, -1)}
+                      className="w-8 h-8 flex items-center justify-center bg-white border border-gray-200 rounded-full text-lg font-bold text-gray-600 active:scale-90 transition-transform"
+                    >
+                      −
+                    </button>
+                    <span className="w-7 text-center font-bold text-gray-900">{line.quantite}</span>
+                    <button
+                      onClick={() => onUpdateQty(line.id, 1)}
+                      className="w-8 h-8 flex items-center justify-center bg-blue-600 rounded-full text-white text-lg font-bold active:scale-90 transition-transform"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <p className="font-bold text-gray-900 text-sm">
+                    {formatPrice(line.quantite * line.prix_unitaire)}
+                  </p>
                 </div>
               </div>
             ))}
@@ -136,6 +138,23 @@ export default function CartSheet({
                 placeholder="Instruction particulière…"
                 className="w-full bg-transparent text-gray-900 placeholder-gray-300 focus:outline-none text-sm"
               />
+            </div>
+
+            {/* Rappel */}
+            <div className="flex items-center justify-between bg-gray-50 rounded-2xl px-4 py-3">
+              <div className="flex items-center gap-3">
+                <Bell size={16} className={form.rappel ? 'text-blue-500' : 'text-gray-400'} />
+                <div>
+                  <p className="text-sm font-medium text-gray-700">Rappel client</p>
+                  <p className="text-xs text-gray-400">Notifier avant la livraison</p>
+                </div>
+              </div>
+              <button
+                onClick={() => onFormChange({ rappel: !form.rappel })}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 ${form.rappel ? 'bg-blue-600' : 'bg-gray-200'}`}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ${form.rappel ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
             </div>
           </div>
 

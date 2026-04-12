@@ -31,6 +31,7 @@ export default function NouvelleCommandePage() {
     date_livraison: new Date().toISOString().split('T')[0],
     delivery_slot_id: '',
     note: '',
+    rappel: false,
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -76,6 +77,7 @@ export default function NouvelleCommandePage() {
           delivery_date: form.date_livraison,
           delivery_slot_id: form.delivery_slot_id || null,
           note: form.note || null,
+          rappel: form.rappel,
           status,
         })
         .select()
