@@ -442,7 +442,7 @@ function AtelierCheckboxes({
   const [ateliers, setAteliers] = useState<{ value: string; label: string }[]>([]);
 
   useEffect(() => {
-    supabase.from('ateliers').select('value, label').order('sort_order').then(({ data }) => {
+    supabase.from('ateliers').select('value, label').order('sort_order').then(({ data }: { data: { value: string; label: string }[] | null }) => {
       if (data) setAteliers(data);
     });
   }, []);

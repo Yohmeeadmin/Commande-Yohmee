@@ -7,7 +7,7 @@ export const supabase = supabaseUrl && supabaseAnonKey
   ? createBrowserClient(supabaseUrl, supabaseAnonKey, {
       auth: {
         // Désactive le Web Locks API qui cause des conflits entre requêtes parallèles
-        lock: async (_name: string, _acquireTimeout: number, fn: () => Promise<string | null>) => fn(),
+        lock: async <R>(_name: string, _acquireTimeout: number, fn: () => Promise<R>): Promise<R> => fn(),
       },
     })
   : null as any;

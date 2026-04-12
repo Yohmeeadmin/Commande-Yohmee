@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { ClipboardList, Calendar, Printer, ChevronLeft, ChevronRight, Package, LayoutList, Table2, X, Check, Bell } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { formatDate } from '@/lib/utils';
-import { getProductStateStyle, PACK_TYPES } from '@/types';
+import { getProductStateStyle, PACK_TYPES, ProductState } from '@/types';
 import { useAteliers } from '@/lib/useAteliers';
 import { useUser } from '@/contexts/UserContext';
 
@@ -14,7 +14,7 @@ interface ProductionItem {
   atelier: string;
   packType: string;
   packQuantity: number;
-  productState: string;
+  productState: ProductState;
   displayName: string;
   quantity: number;
   totalUnits: number;

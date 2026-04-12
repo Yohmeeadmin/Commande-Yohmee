@@ -12,7 +12,7 @@ import {
   ChefHat,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
-import { ProductionByAtelier } from '@/types';
+import { Atelier, ProductionByAtelier } from '@/types';
 import { useAteliers } from '@/lib/useAteliers';
 import { formatDate } from '@/lib/utils';
 
