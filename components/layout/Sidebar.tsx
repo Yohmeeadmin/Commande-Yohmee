@@ -12,11 +12,9 @@ import {
   ClipboardList,
   BarChart3,
   ChevronLeft,
-  Menu,
   Settings,
   LogOut,
 } from 'lucide-react';
-import { useState } from 'react';
 import { useUser } from '@/contexts/UserContext';
 import { useSidebar } from '@/contexts/SidebarContext';
 import { AppModule } from '@/types/auth';
@@ -37,7 +35,6 @@ export default function Sidebar() {
   const pathname = usePathname();
   const { profile, signOut } = useUser();
   const { collapsed, setCollapsed } = useSidebar();
-  const [mobileOpen, setMobileOpen] = useState(false);
 
   const navigation = profile
     ? ALL_NAVIGATION.filter(item => profile.modules.includes(item.module))
@@ -55,29 +52,13 @@ export default function Sidebar() {
 
   return (
     <>
-      {/* Mobile menu button */}
-      <button
-        onClick={() => setMobileOpen(true)}
-        className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-white rounded-lg shadow-md"
-      >
-        <Menu size={24} />
-      </button>
-
-      {/* Mobile overlay */}
-      {mobileOpen && (
-        <div
-          className="lg:hidden fixed inset-0 bg-black/50 z-40"
-          onClick={() => setMobileOpen(false)}
-        />
-      )}
-
       {/* Sidebar */}
       <aside
         className={`
           fixed top-0 left-0 h-full bg-white border-r border-gray-200 z-50
           transition-all duration-300 ease-in-out flex flex-col
           ${collapsed ? 'w-20' : 'w-64'}
-          ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+          translate-x-0
         `}
       >
         {/* Logo */}
@@ -119,7 +100,6 @@ export default function Sidebar() {
               <Link
                 key={item.name}
                 href={item.href}
-                onClick={() => setMobileOpen(false)}
                 className={`
                   flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all
                   ${active
