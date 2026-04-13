@@ -31,7 +31,7 @@ export default function NouvelleCommandePage() {
     date_livraison: new Date().toISOString().split('T')[0],
     delivery_slot_id: '',
     note: '',
-    rappel: false,
+    reminder_days: null,
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -77,7 +77,8 @@ export default function NouvelleCommandePage() {
           delivery_date: form.date_livraison,
           delivery_slot_id: form.delivery_slot_id || null,
           note: form.note || null,
-          rappel: form.rappel,
+          rappel: form.reminder_days !== null,
+          reminder_days: form.reminder_days,
           status,
         })
         .select()
@@ -215,6 +216,36 @@ export default function NouvelleCommandePage() {
                     placeholder="Note générale…"
                     className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <Bell size={14} className="inline mr-1.5" />
+                    Rappel client
+                  </label>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={form.reminder_days !== null}
+                        onChange={e => setForm(f => ({ ...f, reminder_days: e.target.checked ? 1 : null }))}
+                        className="w-4 h-4 rounded text-blue-600"
+                      />
+                      <span className="text-sm text-gray-700">Activer</span>
+                    </label>
+                    {form.reminder_days !== null && (
+                      <select
+                        value={form.reminder_days}
+                        onChange={e => setForm(f => ({ ...f, reminder_days: parseInt(e.target.value) }))}
+                        className="px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm"
+                      >
+                        <option value={1}>Veille (1 jour avant)</option>
+                        <option value={2}>2 jours avant</option>
+                        <option value={3}>3 jours avant</option>
+                        <option value={5}>5 jours avant</option>
+                        <option value={7}>1 semaine avant</option>
+                      </select>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

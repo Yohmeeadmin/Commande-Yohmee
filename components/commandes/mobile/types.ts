@@ -18,7 +18,7 @@ export interface OrderForm {
   date_livraison: string;
   delivery_slot_id: string;
   note: string;
-  rappel: boolean;
+  reminder_days: number | null;
 }
 
 export interface HistoryItem {

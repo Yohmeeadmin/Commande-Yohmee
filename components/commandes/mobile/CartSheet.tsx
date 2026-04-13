@@ -141,20 +141,42 @@ export default function CartSheet({
             </div>
 
             {/* Rappel */}
-            <div className="flex items-center justify-between bg-gray-50 rounded-2xl px-4 py-3">
-              <div className="flex items-center gap-3">
-                <Bell size={16} className={form.rappel ? 'text-blue-500' : 'text-gray-400'} />
-                <div>
-                  <p className="text-sm font-medium text-gray-700">Rappel client</p>
-                  <p className="text-xs text-gray-400">Notifier avant la livraison</p>
+            <div className="bg-gray-50 rounded-2xl px-4 py-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Bell size={16} className={form.reminder_days !== null ? 'text-blue-500' : 'text-gray-400'} />
+                  <div>
+                    <p className="text-sm font-medium text-gray-700">Rappel client</p>
+                    <p className="text-xs text-gray-400">Notifier avant la livraison</p>
+                  </div>
                 </div>
+                <button
+                  onClick={() => onFormChange({ reminder_days: form.reminder_days !== null ? null : 1 })}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 ${form.reminder_days !== null ? 'bg-blue-600' : 'bg-gray-200'}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ${form.reminder_days !== null ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
               </div>
-              <button
-                onClick={() => onFormChange({ rappel: !form.rappel })}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 ${form.rappel ? 'bg-blue-600' : 'bg-gray-200'}`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ${form.rappel ? 'translate-x-6' : 'translate-x-1'}`} />
-              </button>
+
+              {form.reminder_days !== null && (
+                <div>
+                  <p className="text-xs text-gray-400 mb-2">Envoyer le rappel</p>
+                  <div className="flex gap-2 flex-wrap">
+                    {[1, 2, 3, 5, 7].map(d => (
+                      <button
+                        key={d}
+                        onClick={() => onFormChange({ reminder_days: d })}
+                        className={`px-3 py-1.5 rounded-xl text-sm font-semibold transition-colors
+                          ${form.reminder_days === d
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-white border border-gray-200 text-gray-600'}`}
+                      >
+                        {d === 1 ? 'Veille' : `${d} j avant`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
