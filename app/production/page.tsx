@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
-import { ClipboardList, Calendar, Printer, ChevronLeft, ChevronRight, Package, X, Check, Bell } from 'lucide-react';
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
+import { ClipboardList, Calendar, Printer, ChevronLeft, ChevronRight, Package, X, Check, Bell, CheckCircle2, RotateCcw } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { formatDate } from '@/lib/utils';
 import { getProductStateStyle, PACK_TYPES, ProductState } from '@/types';
@@ -84,6 +84,75 @@ function applyFilters(
   return result;
 }
 
+function SwipeableRow({ children, onSwipeLeft }: { children: React.ReactNode; onSwipeLeft: () => void }) {
+  const startX = useRef(0);
+  const currentX = useRef(0);
+  const innerRef = useRef<HTMLDivElement>(null);
+  const swiping = useRef(false);
+
+  const snapBack = () => {
+    if (innerRef.current) {
+      innerRef.current.style.transition = 'transform 0.25s ease';
+      innerRef.current.style.transform = 'translateX(0)';
+    }
+  };
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    startX.current = e.touches[0].clientX;
+    currentX.current = 0;
+    swiping.current = false;
+    if (innerRef.current) {
+      innerRef.current.style.transition = 'none';
+    }
+  };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    const delta = e.touches[0].clientX - startX.current;
+    if (delta > 0) return; // ignore swipe droite
+    currentX.current = delta;
+    swiping.current = true;
+    const clamped = Math.max(delta, -90);
+    if (innerRef.current) {
+      innerRef.current.style.transform = `translateX(${clamped}px)`;
+    }
+  };
+
+  const onTouchEnd = () => {
+    if (currentX.current < -60) {
+      // Déclencher la confirmation
+      if (innerRef.current) {
+        innerRef.current.style.transition = 'transform 0.15s ease';
+        innerRef.current.style.transform = 'translateX(-80px)';
+      }
+      setTimeout(() => {
+        snapBack();
+        onSwipeLeft();
+      }, 120);
+    } else {
+      snapBack();
+    }
+  };
+
+  return (
+    <div className="relative overflow-hidden">
+      {/* Fond vert révélé par le swipe */}
+      <div className="absolute inset-y-0 right-0 w-20 bg-emerald-500 flex items-center justify-center">
+        <CheckCircle2 size={28} className="text-white" />
+      </div>
+      {/* Contenu swipeable */}
+      <div
+        ref={innerRef}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        className="relative bg-white"
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export default function ProductionPage() {
   const { ateliers, getStyle: getAtelierStyle } = useAteliers();
   const { profile } = useUser();
@@ -98,6 +167,17 @@ export default function ProductionPage() {
   const [activeTab, setActiveTab] = useState<'production' | 'rappel'>('production');
   const [rappelOrders, setRappelOrders] = useState<any[]>([]);
   const [rappelLoading, setRappelLoading] = useState(false);
+
+  // Suivi des articles terminés (reset si on change de date)
+  const [completedKeys, setCompletedKeys] = useState<Set<string>>(new Set());
+  const [confirmItem, setConfirmItem] = useState<{ key: string; name: string; pieces: number } | null>(null);
+  const [showCompleted, setShowCompleted] = useState(false);
+
+  // Reset completed quand on change de date
+  useEffect(() => { setCompletedKeys(new Set()); setShowCompleted(false); }, [date]);
+
+  const itemKey = (atelierCode: string, item: ProductionItem) =>
+    `${atelierCode}|${item.refCode}|${item.packType}|${item.packQuantity}|${item.productState}`;
 
   // Modal impression
   const [showPrintModal, setShowPrintModal] = useState(false);
@@ -489,18 +569,28 @@ export default function ProductionPage() {
       {activeTab === 'production' && <>
 
       {/* Tuiles stats */}
-      <div className="grid grid-cols-2 gap-3 print:hidden">
-        <div className="bg-blue-600 rounded-2xl p-4 text-white">
-          <p className="text-blue-200 text-xs font-medium uppercase tracking-wide mb-1">Pièces</p>
-          <p className="text-4xl font-black leading-none">{totalPieces}</p>
-          <p className="text-blue-200 text-xs mt-2">à produire</p>
-        </div>
-        <div className="bg-white rounded-2xl border border-gray-100 p-4">
-          <p className="text-gray-400 text-xs font-medium uppercase tracking-wide mb-1">Lots</p>
-          <p className="text-4xl font-black text-gray-900 leading-none">{totalItems}</p>
-          <p className="text-gray-400 text-xs mt-2">commandes</p>
-        </div>
-      </div>
+      {(() => {
+        const remainingPieces = displayProduction.reduce((sum, g) =>
+          sum + g.items.filter(i => !completedKeys.has(itemKey(g.atelier, i))).reduce((s, i) => s + i.quantity * i.packQuantity, 0), 0);
+        const remainingLots = displayProduction.reduce((sum, g) =>
+          sum + g.items.filter(i => !completedKeys.has(itemKey(g.atelier, i))).reduce((s, i) => s + i.quantity, 0), 0);
+        const doneCount = completedKeys.size;
+        return (
+          <div className="grid grid-cols-2 gap-3 print:hidden">
+            <div className={`rounded-2xl p-4 text-white ${remainingPieces === 0 && totalPieces > 0 ? 'bg-emerald-500' : 'bg-blue-600'}`}>
+              <p className="text-white/70 text-xs font-medium uppercase tracking-wide mb-1">Pièces restantes</p>
+              <p className="text-4xl font-black leading-none">{remainingPieces}</p>
+              {doneCount > 0 && <p className="text-white/60 text-xs mt-2">{doneCount} article{doneCount > 1 ? 's' : ''} terminé{doneCount > 1 ? 's' : ''}</p>}
+              {doneCount === 0 && <p className="text-white/60 text-xs mt-2">à produire</p>}
+            </div>
+            <div className="bg-white rounded-2xl border border-gray-100 p-4">
+              <p className="text-gray-400 text-xs font-medium uppercase tracking-wide mb-1">Lots restants</p>
+              <p className="text-4xl font-black text-gray-900 leading-none">{remainingLots}</p>
+              <p className="text-gray-400 text-xs mt-2">sur {totalItems} total</p>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Filtre ateliers — chips scroll horizontal */}
       {production.length > 0 && (
@@ -581,59 +671,175 @@ export default function ProductionPage() {
         </div>
       ) : (
         <div className="space-y-3 print:hidden">
-          {displayProduction.map((group) => (
-            <div key={group.atelier} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-              {/* Header atelier */}
-              <div
-                className="px-4 py-3 flex items-center justify-between"
-                style={{ backgroundColor: group.atelierBgColor }}
+          {displayProduction.map((group) => {
+            const activeItems = group.items.filter(i => !completedKeys.has(itemKey(group.atelier, i)));
+            const doneItems = group.items.filter(i => completedKeys.has(itemKey(group.atelier, i)));
+            if (activeItems.length === 0 && doneItems.length === 0) return null;
+            const remainingPcs = activeItems.reduce((s, i) => s + i.quantity * i.packQuantity, 0);
+            return (
+              <div key={group.atelier} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                {/* Header atelier */}
+                <div
+                  className="px-4 py-3 flex items-center justify-between"
+                  style={{ backgroundColor: group.atelierBgColor }}
+                >
+                  <span className="font-bold text-sm uppercase tracking-wide" style={{ color: group.atelierColor }}>
+                    {group.atelierLabel}
+                  </span>
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-white/60" style={{ color: group.atelierColor }}>
+                    {activeItems.length === 0
+                      ? '✓ Terminé'
+                      : `${remainingPcs} pièce${remainingPcs > 1 ? 's' : ''} restante${remainingPcs > 1 ? 's' : ''}`}
+                  </span>
+                </div>
+                {/* Items actifs — swipeables */}
+                <div className="divide-y divide-gray-50">
+                  {activeItems.map((item, idx) => {
+                    const stateStyle = getProductStateStyle(item.productState);
+                    const pieces = item.quantity * item.packQuantity;
+                    const key = itemKey(group.atelier, item);
+                    return (
+                      <SwipeableRow
+                        key={key}
+                        onSwipeLeft={() => setConfirmItem({ key, name: item.refName, pieces })}
+                      >
+                        <div className="flex items-center px-4 py-3 gap-3">
+                          <div className="w-14 h-14 bg-gray-50 rounded-xl flex flex-col items-center justify-center flex-shrink-0 border border-gray-100">
+                            <span className="text-2xl font-black text-gray-900 leading-none">{pieces}</span>
+                            <span className="text-gray-400 text-xs mt-0.5">pcs</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-gray-900 truncate">{item.refName}</p>
+                            <p className="text-sm text-gray-500">{getPackLabel(item.packType)} × {item.packQuantity}</p>
+                            <span className="inline-block mt-1 text-xs px-2 py-0.5 rounded-md font-medium" style={{ backgroundColor: stateStyle.bgColor, color: stateStyle.color }}>
+                              {stateStyle.label}
+                            </span>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <span className="text-sm font-bold text-gray-400">{item.quantity}</span>
+                            <p className="text-xs text-gray-300">lot{item.quantity > 1 ? 's' : ''}</p>
+                          </div>
+                        </div>
+                      </SwipeableRow>
+                    );
+                  })}
+                </div>
+                {/* Items terminés (collapsable) */}
+                {doneItems.length > 0 && (
+                  <div className="border-t border-gray-50">
+                    <button
+                      type="button"
+                      onClick={() => setShowCompleted(v => !v)}
+                      className="w-full px-4 py-2 flex items-center gap-2 text-xs text-emerald-600 font-semibold bg-emerald-50 hover:bg-emerald-100 transition-colors"
+                    >
+                      <CheckCircle2 size={14} />
+                      {doneItems.length} terminé{doneItems.length > 1 ? 's' : ''}
+                      <span className="ml-auto text-emerald-400">{showCompleted ? '▲' : '▼'}</span>
+                    </button>
+                    {showCompleted && (
+                      <div className="divide-y divide-gray-50">
+                        {doneItems.map((item) => {
+                          const pieces = item.quantity * item.packQuantity;
+                          const key = itemKey(group.atelier, item);
+                          return (
+                            <div key={key} className="flex items-center px-4 py-3 gap-3 opacity-40">
+                              <div className="w-14 h-14 bg-emerald-50 rounded-xl flex flex-col items-center justify-center flex-shrink-0 border border-emerald-100">
+                                <CheckCircle2 size={22} className="text-emerald-500" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-semibold text-gray-700 truncate line-through">{item.refName}</p>
+                                <p className="text-sm text-gray-400">{pieces} pcs · {item.quantity} lot{item.quantity > 1 ? 's' : ''}</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setCompletedKeys(prev => { const n = new Set(prev); n.delete(key); return n; })}
+                                className="p-1.5 text-gray-400 hover:text-gray-600"
+                              >
+                                <RotateCcw size={16} />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {/* Total restant */}
+          {(() => {
+            const remainingPieces = displayProduction.reduce((sum, g) =>
+              sum + g.items.filter(i => !completedKeys.has(itemKey(g.atelier, i))).reduce((s, i) => s + i.quantity * i.packQuantity, 0), 0);
+            const remainingLots = displayProduction.reduce((sum, g) =>
+              sum + g.items.filter(i => !completedKeys.has(itemKey(g.atelier, i))).reduce((s, i) => s + i.quantity, 0), 0);
+            const allDone = remainingPieces === 0 && totalPieces > 0;
+            return (
+              <div className={`rounded-2xl p-5 text-white flex items-center justify-between ${allDone ? 'bg-gradient-to-r from-emerald-500 to-teal-500' : 'bg-gradient-to-r from-blue-600 to-indigo-600'}`}>
+                <div>
+                  {allDone ? (
+                    <>
+                      <p className="text-white/80 text-sm">Production terminée</p>
+                      <p className="text-3xl font-black">Tout est prêt !</p>
+                      <p className="text-white/60 text-xs mt-1">{totalPieces} pièces produites</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-blue-200 text-sm">Reste à produire</p>
+                      <p className="text-3xl font-black">{remainingPieces} pièces</p>
+                      <p className="text-blue-200 text-xs mt-1">{remainingLots} lot{remainingLots > 1 ? 's' : ''}</p>
+                    </>
+                  )}
+                </div>
+                {allDone ? <CheckCircle2 size={40} className="text-white/60" /> : <Package size={40} className="text-blue-300" />}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* ──────────────────────────────────────── */}
+      {/* MODAL CONFIRMATION ARTICLE TERMINÉ */}
+      {/* ──────────────────────────────────────── */}
+      {confirmItem && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center print:hidden" onClick={() => setConfirmItem(null)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div
+            className="relative w-full max-w-lg bg-white rounded-t-3xl p-6 pb-8 animate-slide-up"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Poignée */}
+            <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-6" />
+            {/* Icône */}
+            <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <CheckCircle2 size={32} className="text-emerald-600" />
+            </div>
+            <h2 className="text-lg font-bold text-gray-900 text-center mb-1">Article terminé ?</h2>
+            <p className="text-gray-500 text-center text-sm mb-2">
+              <span className="font-semibold text-gray-800">{confirmItem.name}</span>
+            </p>
+            <p className="text-gray-400 text-center text-sm mb-6">
+              {confirmItem.pieces} pièce{confirmItem.pieces > 1 ? 's' : ''} produites
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmItem(null)}
+                className="flex-1 py-3 rounded-2xl border border-gray-200 text-gray-600 font-semibold text-sm"
               >
-                <span className="font-bold text-sm uppercase tracking-wide" style={{ color: group.atelierColor }}>
-                  {group.atelierLabel}
-                </span>
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-white/60" style={{ color: group.atelierColor }}>
-                  {group.items.reduce((s, i) => s + i.quantity * i.packQuantity, 0)} pièces
-                </span>
-              </div>
-              {/* Rows */}
-              <div className="divide-y divide-gray-50">
-                {group.items.map((item, idx) => {
-                  const stateStyle = getProductStateStyle(item.productState);
-                  const pieces = item.quantity * item.packQuantity;
-                  return (
-                    <div key={idx} className="flex items-center px-4 py-3 gap-3">
-                      {/* Pièces — dominant */}
-                      <div className="w-14 h-14 bg-gray-50 rounded-xl flex flex-col items-center justify-center flex-shrink-0 border border-gray-100">
-                        <span className="text-2xl font-black text-gray-900 leading-none">{pieces}</span>
-                        <span className="text-gray-400 text-xs mt-0.5">pcs</span>
-                      </div>
-                      {/* Infos produit */}
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-gray-900 truncate">{item.refName}</p>
-                        <p className="text-sm text-gray-500">{getPackLabel(item.packType)} × {item.packQuantity}</p>
-                        <span className="inline-block mt-1 text-xs px-2 py-0.5 rounded-md font-medium" style={{ backgroundColor: stateStyle.bgColor, color: stateStyle.color }}>
-                          {stateStyle.label}
-                        </span>
-                      </div>
-                      {/* Lots */}
-                      <div className="text-right flex-shrink-0">
-                        <span className="text-sm font-bold text-gray-400">{item.quantity}</span>
-                        <p className="text-xs text-gray-300">lot{item.quantity > 1 ? 's' : ''}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCompletedKeys(prev => new Set([...prev, confirmItem.key]));
+                  setConfirmItem(null);
+                }}
+                className="flex-1 py-3 rounded-2xl bg-emerald-500 text-white font-bold text-sm"
+              >
+                Oui, c'est fait !
+              </button>
             </div>
-          ))}
-          {/* Total */}
-          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-5 text-white flex items-center justify-between">
-            <div>
-              <p className="text-blue-200 text-sm">Total à produire</p>
-              <p className="text-3xl font-black">{totalPieces} pièces</p>
-              <p className="text-blue-200 text-xs mt-1">{totalItems} lot{totalItems > 1 ? 's' : ''}</p>
-            </div>
-            <Package size={40} className="text-blue-300" />
           </div>
         </div>
       )}
