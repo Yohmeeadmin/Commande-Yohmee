@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   Settings,
   LogOut,
+  RefreshCw,
 } from 'lucide-react';
 import Image from 'next/image';
 import { useUser } from '@/contexts/UserContext';
@@ -26,6 +27,7 @@ const ALL_NAVIGATION: { name: string; href: string; icon: React.ComponentType<{ 
   { name: 'Catalogue',    href: '/catalogue',   icon: Package,         module: 'catalogue' },
   { name: 'Clients',      href: '/clients',     icon: Users,           module: 'clients' },
   { name: 'Commandes',    href: '/commandes',   icon: ShoppingCart,    module: 'commandes' },
+  { name: 'Récurrentes',  href: '/recurrences', icon: RefreshCw,       module: 'recurrences' },
   { name: 'Planning',     href: '/planning',    icon: Calendar,        module: 'planning' },
   { name: 'Livraisons',   href: '/livraisons',  icon: Truck,           module: 'livraisons' },
   { name: 'Production',   href: '/production',  icon: ClipboardList,   module: 'production' },

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import Link from 'next/link';
 import { Client } from '@/types';
@@ -20,6 +20,13 @@ export default function MobileFlow({
   const [step, setStep] = useState<Step>('client');
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [localClients, setLocalClients] = useState<Client[]>(clients);
+
+  // Sync quand les clients arrivent (chargement async)
+  useEffect(() => {
+    setLocalClients(prev =>
+      prev.length === 0 ? clients : prev
+    );
+  }, [clients]);
   const [cartOpen, setCartOpen] = useState(false);
   const [deliveryHint, setDeliveryHint] = useState<{ mode: 'heure' | 'creneau'; label: string } | null>(null);
 
