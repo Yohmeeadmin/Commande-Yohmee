@@ -3,13 +3,14 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Save, Plus, Trash2, Search, CheckCircle, Bell } from 'lucide-react';
+import { ArrowLeft, Save, Plus, Trash2, Search, CheckCircle, Bell, X, UserPlus, Clock, Calendar } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import {
   Client, Category, ProductArticle, ProductReference,
   DeliverySlot, calculateArticlePrice, getProductStateStyle,
 } from '@/types';
 import { useAteliers } from '@/lib/useAteliers';
+import { useAppSettings } from '@/lib/useAppSettings';
 import { formatPrice } from '@/lib/utils';
 import MobileFlow from '@/components/commandes/mobile/MobileFlow';
 import type { ArticleWithRef, OrderLine, OrderForm } from '@/components/commandes/mobile/types';
@@ -17,6 +18,7 @@ import type { ArticleWithRef, OrderLine, OrderForm } from '@/components/commande
 export default function NouvelleCommandePage() {
   const router = useRouter();
   const { getStyle: getAtelierStyle } = useAteliers();
+  const { settings } = useAppSettings();
 
   // ─── Data ───────────────────────────────────────────────
   const [clients, setClients] = useState<Client[]>([]);
@@ -30,6 +32,7 @@ export default function NouvelleCommandePage() {
     client_id: '',
     date_livraison: new Date().toISOString().split('T')[0],
     delivery_slot_id: '',
+    delivery_time: '',
     note: '',
     reminder_days: null,
   });
@@ -38,8 +41,33 @@ export default function NouvelleCommandePage() {
   // ─── Desktop only ────────────────────────────────────────
   const [searchProduct, setSearchProduct] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [quickAddForm, setQuickAddForm] = useState({ nom: '', telephone: '' });
+  const [quickAddLoading, setQuickAddLoading] = useState(false);
+  const [deliveryHint, setDeliveryHint] = useState<{ mode: 'heure' | 'creneau'; label: string } | null>(null);
 
   useEffect(() => { loadData(); }, []);
+
+  useEffect(() => {
+    if (!form.client_id) { setDeliveryHint(null); return; }
+    const client = clients.find(c => c.id === form.client_id);
+    if (!client) { setDeliveryHint(null); return; }
+
+    const typeCfg = settings.client_type_settings?.[client.type_client];
+    if (!typeCfg) { setDeliveryHint(null); return; }
+
+    if (typeCfg.mode === 'creneau') {
+      const slotId = typeCfg.creneau_id ?? '';
+      setForm(f => ({ ...f, delivery_slot_id: slotId, delivery_time: '' }));
+      const slot = deliverySlots.find(s => s.id === slotId);
+      setDeliveryHint({ mode: 'creneau', label: slot ? `${slot.name} (${slot.start_time.slice(0, 5)}–${slot.end_time.slice(0, 5)})` : 'Livraison par créneau' });
+    } else {
+      // Mode heure — vider le créneau, pré-remplir l'heure
+      const defaultTime = client.horaire_livraison || typeCfg.heure || '';
+      setForm(f => ({ ...f, delivery_slot_id: '', delivery_time: defaultTime }));
+      setDeliveryHint({ mode: 'heure', label: '' });
+    }
+  }, [form.client_id, clients, settings.client_type_settings, deliverySlots]);
 
   async function loadData() {
     const [
@@ -76,6 +104,7 @@ export default function NouvelleCommandePage() {
           client_id: form.client_id,
           delivery_date: form.date_livraison,
           delivery_slot_id: form.delivery_slot_id || null,
+          delivery_time: form.delivery_time || null,
           note: form.note || null,
           rappel: form.reminder_days !== null,
           reminder_days: form.reminder_days,
@@ -103,6 +132,35 @@ export default function NouvelleCommandePage() {
       alert(`Erreur: ${msg}`);
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  // ─── Quick add client ────────────────────────────────────
+  async function handleQuickAddClient() {
+    if (!quickAddForm.nom.trim()) return;
+    setQuickAddLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('clients')
+        .insert({
+          nom: quickAddForm.nom.trim(),
+          telephone: quickAddForm.telephone.trim() || null,
+          type_client: 'autre',
+          jours_livraison: [],
+          is_active: true,
+          note_interne: '⚠️ À compléter — créé rapidement depuis une commande',
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      setClients(prev => [...prev, data as Client].sort((a, b) => a.nom.localeCompare(b.nom)));
+      setForm(f => ({ ...f, client_id: data.id }));
+      setQuickAddOpen(false);
+      setQuickAddForm({ nom: '', telephone: '' });
+    } catch (err) {
+      console.error('Erreur création client:', err);
+    } finally {
+      setQuickAddLoading(false);
     }
   }
 
@@ -150,6 +208,7 @@ export default function NouvelleCommandePage() {
           setForm={setForm}
           onSubmit={handleSubmit}
           submitting={submitting}
+          clientTypeSettings={settings.client_type_settings ?? {}}
         />
       </div>
 
@@ -174,15 +233,25 @@ export default function NouvelleCommandePage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Client *</label>
-                  <select
-                    value={form.client_id}
-                    onChange={e => setForm(f => ({ ...f, client_id: e.target.value }))}
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                    required
-                  >
-                    <option value="">Sélectionner un client</option>
-                    {clients.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
-                  </select>
+                  <div className="flex gap-2">
+                    <select
+                      value={form.client_id}
+                      onChange={e => setForm(f => ({ ...f, client_id: e.target.value }))}
+                      className="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      required
+                    >
+                      <option value="">Sélectionner un client</option>
+                      {clients.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => setQuickAddOpen(true)}
+                      className="px-3 py-3 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors"
+                      title="Ajouter un client rapidement"
+                    >
+                      <UserPlus size={20} />
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Date livraison *</label>
@@ -195,17 +264,40 @@ export default function NouvelleCommandePage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Créneau</label>
-                  <select
-                    value={form.delivery_slot_id}
-                    onChange={e => setForm(f => ({ ...f, delivery_slot_id: e.target.value }))}
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                  >
-                    <option value="">Sans créneau</option>
-                    {deliverySlots.map(s => (
-                      <option key={s.id} value={s.id}>{s.name} ({s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)})</option>
-                    ))}
-                  </select>
+                  {deliveryHint?.mode === 'heure' ? (
+                    <>
+                      <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-1.5">
+                        <Clock size={14} className="text-purple-500" />
+                        Heure de livraison
+                      </label>
+                      <input
+                        type="time"
+                        value={form.delivery_time}
+                        onChange={e => setForm(f => ({ ...f, delivery_time: e.target.value }))}
+                        className="w-full px-4 py-3 border border-purple-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-1.5">
+                        <Calendar size={14} className="text-blue-500" />
+                        Créneau
+                        {deliveryHint?.mode === 'creneau' && (
+                          <span className="text-xs font-normal text-blue-500">— {deliveryHint.label}</span>
+                        )}
+                      </label>
+                      <select
+                        value={form.delivery_slot_id}
+                        onChange={e => setForm(f => ({ ...f, delivery_slot_id: e.target.value }))}
+                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      >
+                        <option value="">Sans créneau</option>
+                        {deliverySlots.map(s => (
+                          <option key={s.id} value={s.id}>{s.name} ({s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)})</option>
+                        ))}
+                      </select>
+                    </>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Note</label>
@@ -356,6 +448,64 @@ export default function NouvelleCommandePage() {
           </div>
         </div>
       </div>
+      {/* Modale ajout rapide client */}
+      {quickAddOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-gray-900">Nouveau client rapide</h3>
+                <p className="text-xs text-gray-400 mt-0.5">À compléter plus tard dans Clients</p>
+              </div>
+              <button onClick={() => setQuickAddOpen(false)} className="p-1.5 hover:bg-gray-100 rounded-lg">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Nom / Société *</label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={quickAddForm.nom}
+                  onChange={e => setQuickAddForm(f => ({ ...f, nom: e.target.value }))}
+                  onKeyDown={e => e.key === 'Enter' && handleQuickAddClient()}
+                  placeholder="Ex: Hôtel Atlas"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Téléphone</label>
+                <input
+                  type="tel"
+                  value={quickAddForm.telephone}
+                  onChange={e => setQuickAddForm(f => ({ ...f, telephone: e.target.value }))}
+                  onKeyDown={e => e.key === 'Enter' && handleQuickAddClient()}
+                  placeholder="+212 6XX XXX XXX"
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={() => setQuickAddOpen(false)}
+                className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-gray-700 text-sm font-medium hover:bg-gray-50"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleQuickAddClient}
+                disabled={!quickAddForm.nom.trim() || quickAddLoading}
+                className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+              >
+                {quickAddLoading ? 'Création…' : 'Créer et sélectionner'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { ArrowLeft, Save } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { CLIENT_TYPES, JOURS_SEMAINE } from '@/types';
+import { VILLES_MAROC, QUARTIERS_PAR_VILLE } from '@/lib/maroc-geo';
 
 export default function NouveauClientPage() {
   const router = useRouter();
@@ -15,7 +16,8 @@ export default function NouveauClientPage() {
     contact_nom: '',
     telephone: '',
     email: '',
-    adresse: '',
+    ville: '',
+    quartier: '',
     adresse_livraison: '',
     type_client: 'autre',
     jours_livraison: [] as string[],
@@ -23,6 +25,8 @@ export default function NouveauClientPage() {
     note_interne: '',
     is_active: true,
   });
+
+  const quartiersDisponibles = form.ville ? (QUARTIERS_PAR_VILLE[form.ville] || []) : [];
 
   const toggleJour = (jour: string) => {
     setForm({
@@ -44,7 +48,8 @@ export default function NouveauClientPage() {
         contact_nom: form.contact_nom || null,
         telephone: form.telephone || null,
         email: form.email || null,
-        adresse: form.adresse || null,
+        ville: form.ville || null,
+        quartier: form.quartier || null,
         adresse_livraison: form.adresse_livraison || null,
         type_client: form.type_client,
         jours_livraison: form.jours_livraison,
@@ -54,7 +59,6 @@ export default function NouveauClientPage() {
       });
 
       if (error) throw error;
-
       router.push('/clients');
       router.refresh();
     } catch (error) {
@@ -67,12 +71,8 @@ export default function NouveauClientPage() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
-      {/* Header */}
       <div className="flex items-center gap-4">
-        <Link
-          href="/clients"
-          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-        >
+        <Link href="/clients" className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
           <ArrowLeft size={24} />
         </Link>
         <div>
@@ -81,14 +81,10 @@ export default function NouveauClientPage() {
         </div>
       </div>
 
-      {/* Formulaire */}
       <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-gray-100 p-6 space-y-6">
-        {/* Infos principales */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="sm:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Nom / Société *
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Nom / Société *</label>
             <input
               type="text"
               value={form.nom}
@@ -100,9 +96,7 @@ export default function NouveauClientPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Nom du contact
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Nom du contact</label>
             <input
               type="text"
               value={form.contact_nom}
@@ -113,9 +107,7 @@ export default function NouveauClientPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Type de client
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Type de client</label>
             <select
               value={form.type_client}
               onChange={(e) => setForm({ ...form, type_client: e.target.value })}
@@ -128,9 +120,7 @@ export default function NouveauClientPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Téléphone
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Téléphone</label>
             <input
               type="tel"
               value={form.telephone}
@@ -141,9 +131,7 @@ export default function NouveauClientPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Email
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
             <input
               type="email"
               value={form.email}
@@ -154,29 +142,53 @@ export default function NouveauClientPage() {
           </div>
         </div>
 
-        {/* Adresses */}
-        <div className="space-y-4">
+        {/* Localisation */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Adresse
-            </label>
-            <textarea
-              value={form.adresse}
-              onChange={(e) => setForm({ ...form, adresse: e.target.value })}
-              placeholder="Adresse principale..."
-              rows={2}
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-            />
+            <label className="block text-sm font-medium text-gray-700 mb-2">Ville</label>
+            <select
+              value={form.ville}
+              onChange={(e) => setForm({ ...form, ville: e.target.value, quartier: '' })}
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+            >
+              <option value="">— Choisir une ville —</option>
+              {VILLES_MAROC.map(v => (
+                <option key={v} value={v}>{v}</option>
+              ))}
+            </select>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Adresse de livraison
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Quartier</label>
+            {quartiersDisponibles.length > 0 ? (
+              <select
+                value={form.quartier}
+                onChange={(e) => setForm({ ...form, quartier: e.target.value })}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+              >
+                <option value="">— Choisir un quartier —</option>
+                {quartiersDisponibles.map(q => (
+                  <option key={q} value={q}>{q}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={form.quartier}
+                onChange={(e) => setForm({ ...form, quartier: e.target.value })}
+                placeholder={form.ville ? 'Saisir le quartier...' : 'Choisir une ville d\'abord'}
+                disabled={!form.ville}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-400"
+              />
+            )}
+          </div>
+
+          <div className="sm:col-span-2">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Adresse de livraison</label>
             <textarea
               value={form.adresse_livraison}
               onChange={(e) => setForm({ ...form, adresse_livraison: e.target.value })}
-              placeholder="Si différente de l'adresse principale..."
+              placeholder="Rue, numéro, complément d'adresse..."
               rows={2}
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
             />
@@ -186,9 +198,7 @@ export default function NouveauClientPage() {
         {/* Livraison */}
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-3">
-              Jours habituels de livraison
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-3">Jours habituels de livraison</label>
             <div className="flex flex-wrap gap-2">
               {JOURS_SEMAINE.map((jour) => (
                 <button
@@ -209,23 +219,29 @@ export default function NouveauClientPage() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Horaire de livraison habituel
+              {form.type_client === 'particulier' ? 'Heure de livraison' : 'Horaire de livraison habituel'}
             </label>
-            <input
-              type="text"
-              value={form.horaire_livraison}
-              onChange={(e) => setForm({ ...form, horaire_livraison: e.target.value })}
-              placeholder="Ex: 07:00-09:00"
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
+            {form.type_client === 'particulier' ? (
+              <input
+                type="time"
+                value={form.horaire_livraison}
+                onChange={(e) => setForm({ ...form, horaire_livraison: e.target.value })}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            ) : (
+              <input
+                type="text"
+                value={form.horaire_livraison}
+                onChange={(e) => setForm({ ...form, horaire_livraison: e.target.value })}
+                placeholder="Ex: 07:00-09:00"
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            )}
           </div>
         </div>
 
-        {/* Note interne */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Note interne
-          </label>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Note interne</label>
           <textarea
             value={form.note_interne}
             onChange={(e) => setForm({ ...form, note_interne: e.target.value })}
@@ -235,7 +251,6 @@ export default function NouveauClientPage() {
           />
         </div>
 
-        {/* Options */}
         <div className="pt-4 border-t border-gray-100">
           <label className="flex items-center gap-3 cursor-pointer">
             <input
@@ -251,12 +266,8 @@ export default function NouveauClientPage() {
           </label>
         </div>
 
-        {/* Actions */}
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
-          <Link
-            href="/clients"
-            className="px-6 py-3 text-gray-600 font-medium hover:bg-gray-100 rounded-xl transition-colors"
-          >
+          <Link href="/clients" className="px-6 py-3 text-gray-600 font-medium hover:bg-gray-100 rounded-xl transition-colors">
             Annuler
           </Link>
           <button

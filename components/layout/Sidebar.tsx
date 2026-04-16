@@ -15,8 +15,10 @@ import {
   Settings,
   LogOut,
 } from 'lucide-react';
+import Image from 'next/image';
 import { useUser } from '@/contexts/UserContext';
 import { useSidebar } from '@/contexts/SidebarContext';
+import { useAppSettings } from '@/lib/useAppSettings';
 import { AppModule } from '@/types/auth';
 
 const ALL_NAVIGATION: { name: string; href: string; icon: React.ComponentType<{ size?: number; className?: string }>; module: AppModule }[] = [
@@ -35,6 +37,7 @@ export default function Sidebar() {
   const pathname = usePathname();
   const { profile, signOut } = useUser();
   const { collapsed, setCollapsed } = useSidebar();
+  const { settings } = useAppSettings();
 
   const navigation = profile
     ? ALL_NAVIGATION.filter(item => profile.modules.includes(item.module))
@@ -64,19 +67,31 @@ export default function Sidebar() {
         {/* Logo */}
         <div className="h-16 flex items-center justify-between px-4 border-b border-gray-100 flex-shrink-0">
           {!collapsed && (
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
-                <span className="text-white font-bold text-lg">B</span>
+            settings.logo_url ? (
+              <Image src={settings.logo_url} alt="Logo" width={200} height={64} className="h-14 w-auto object-contain" unoptimized />
+            ) : (
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
+                  <span className="text-white font-bold text-lg">{settings.company_name.charAt(0)}</span>
+                </div>
+                <div>
+                  <h1 className="font-bold text-gray-900">{settings.company_name}</h1>
+                  {settings.company_tagline && (
+                    <p className="text-xs text-gray-500 truncate max-w-[120px]">{settings.company_tagline}</p>
+                  )}
+                </div>
               </div>
-              <div>
-                <h1 className="font-bold text-gray-900">BDK</h1>
-                <p className="text-xs text-gray-500">Commandes</p>
-              </div>
-            </div>
+            )
           )}
           {collapsed && (
-            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center mx-auto">
-              <span className="text-white font-bold text-lg">B</span>
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center mx-auto overflow-hidden">
+              {settings.logo_url ? (
+                <Image src={settings.logo_url} alt="Logo" width={40} height={40} className="w-full h-full object-contain" unoptimized />
+              ) : (
+                <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
+                  <span className="text-white font-bold text-lg">{settings.company_name.charAt(0)}</span>
+                </div>
+              )}
             </div>
           )}
           <button

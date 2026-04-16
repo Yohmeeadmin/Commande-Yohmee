@@ -12,7 +12,6 @@ interface RecurrenceLine {
   product_id: string;
   product_nom: string;
   quantite: number;
-  delivery_slot_id: string;
   note: string;
 }
 
@@ -27,18 +26,17 @@ export default function NouvelleRecurrencePage() {
   const [form, setForm] = useState({
     client_id: '',
     nom: '',
-    type_recurrence: 'hebdo' as 'quotidien' | 'hebdo' | 'personnalise',
+    type_recurrence: 'hebdo' as 'quotidien' | 'hebdo',
     jours_semaine: [] as string[],
     date_debut: new Date().toISOString().split('T')[0],
+    delivery_slot_id: '',
     note: '',
     is_active: true,
   });
 
   const [lines, setLines] = useState<RecurrenceLine[]>([]);
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  useEffect(() => { loadData(); }, []);
 
   async function loadData() {
     const [{ data: clientsData }, { data: articlesData }, { data: slotsData }] = await Promise.all([
@@ -66,7 +64,6 @@ export default function NouvelleRecurrencePage() {
       product_id: article.id,
       product_nom: article.display_name,
       quantite: 1,
-      delivery_slot_id: '',
       note: '',
     }]);
     setSearchProduct('');
@@ -98,6 +95,7 @@ export default function NouvelleRecurrencePage() {
 
     setLoading(true);
     try {
+      // 1. Créer la récurrence
       const { data: recurrence, error: recurrenceError } = await supabase
         .from('recurring_orders')
         .insert({
@@ -106,6 +104,7 @@ export default function NouvelleRecurrencePage() {
           type_recurrence: form.type_recurrence,
           jours_semaine: form.type_recurrence === 'quotidien' ? [] : form.jours_semaine,
           date_debut: form.date_debut,
+          delivery_slot_id: form.delivery_slot_id || null,
           note: form.note || null,
           is_active: form.is_active,
         })
@@ -114,6 +113,7 @@ export default function NouvelleRecurrencePage() {
 
       if (recurrenceError) throw recurrenceError;
 
+      // 2. Insérer les articles directement
       const { error: itemsError } = await supabase
         .from('recurring_order_items')
         .insert(lines.map(l => ({
@@ -121,7 +121,6 @@ export default function NouvelleRecurrencePage() {
           product_article_id: l.product_id,
           product_nom: l.product_nom,
           quantite: l.quantite,
-          delivery_slot_id: l.delivery_slot_id || null,
           note: l.note || null,
         })));
 
@@ -139,7 +138,6 @@ export default function NouvelleRecurrencePage() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      {/* Header */}
       <div className="flex items-center gap-4">
         <Link href="/recurrences" className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
           <ArrowLeft size={24} />
@@ -151,7 +149,7 @@ export default function NouvelleRecurrencePage() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Client et nom */}
+        {/* Client, libellé, créneau */}
         <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">Client</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -177,10 +175,25 @@ export default function NouvelleRecurrencePage() {
                 type="text"
                 value={form.nom}
                 onChange={(e) => setForm({ ...form, nom: e.target.value })}
-                placeholder="Ex: Pains journaliers, Viennoiseries..."
+                placeholder="Ex: Pains journaliers..."
                 className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Créneau de livraison</label>
+            <select
+              value={form.delivery_slot_id}
+              onChange={(e) => setForm({ ...form, delivery_slot_id: e.target.value })}
+              className="w-full sm:w-72 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+            >
+              <option value="">Sans créneau</option>
+              {deliverySlots.map((slot) => (
+                <option key={slot.id} value={slot.id}>
+                  {slot.name} ({slot.start_time.slice(0, 5)})
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
@@ -207,7 +220,7 @@ export default function NouvelleRecurrencePage() {
             ))}
           </div>
 
-          {form.type_recurrence !== 'quotidien' && (
+          {form.type_recurrence === 'hebdo' && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-3">Jours de livraison *</label>
               <div className="flex flex-wrap gap-2">
@@ -230,7 +243,7 @@ export default function NouvelleRecurrencePage() {
           )}
 
           <div className="max-w-xs pt-2">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Date début *</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Date de début *</label>
             <input
               type="date"
               value={form.date_debut}
@@ -245,7 +258,6 @@ export default function NouvelleRecurrencePage() {
         <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">Articles *</h2>
 
-          {/* Recherche */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
             <input
@@ -276,7 +288,6 @@ export default function NouvelleRecurrencePage() {
             </div>
           )}
 
-          {/* Lignes */}
           {lines.length > 0 && (
             <div className="space-y-3">
               {lines.map((line) => (
@@ -291,44 +302,28 @@ export default function NouvelleRecurrencePage() {
                       <Trash2 size={16} />
                     </button>
                   </div>
-                  <div className="flex items-center gap-3 flex-wrap">
-                    {/* Quantité */}
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => updateLine(line.id, { quantite: Math.max(1, line.quantite - 1) })}
-                        className="w-8 h-8 flex items-center justify-center bg-white border border-gray-200 rounded-lg hover:bg-gray-100 font-medium"
-                      >
-                        -
-                      </button>
-                      <input
-                        type="number"
-                        min="1"
-                        value={line.quantite}
-                        onChange={(e) => updateLine(line.id, { quantite: parseInt(e.target.value) || 1 })}
-                        className="w-20 text-center px-2 py-1.5 border border-gray-200 rounded-lg bg-white"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => updateLine(line.id, { quantite: line.quantite + 1 })}
-                        className="w-8 h-8 flex items-center justify-center bg-white border border-gray-200 rounded-lg hover:bg-gray-100 font-medium"
-                      >
-                        +
-                      </button>
-                    </div>
-                    {/* Créneau */}
-                    <select
-                      value={line.delivery_slot_id}
-                      onChange={(e) => updateLine(line.id, { delivery_slot_id: e.target.value })}
-                      className="flex-1 min-w-0 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-sm"
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => updateLine(line.id, { quantite: Math.max(1, line.quantite - 1) })}
+                      className="w-8 h-8 flex items-center justify-center bg-white border border-gray-200 rounded-lg hover:bg-gray-100 font-medium"
                     >
-                      <option value="">Sans créneau</option>
-                      {deliverySlots.map((slot) => (
-                        <option key={slot.id} value={slot.id}>
-                          {slot.name} ({slot.start_time.slice(0, 5)})
-                        </option>
-                      ))}
-                    </select>
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      min="1"
+                      value={line.quantite}
+                      onChange={(e) => updateLine(line.id, { quantite: parseInt(e.target.value) || 1 })}
+                      className="w-20 text-center px-2 py-1.5 border border-gray-200 rounded-lg bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => updateLine(line.id, { quantite: line.quantite + 1 })}
+                      className="w-8 h-8 flex items-center justify-center bg-white border border-gray-200 rounded-lg hover:bg-gray-100 font-medium"
+                    >
+                      +
+                    </button>
                   </div>
                 </div>
               ))}
@@ -352,7 +347,6 @@ export default function NouvelleRecurrencePage() {
           />
         </div>
 
-        {/* Actions */}
         <div className="flex items-center justify-end gap-3">
           <Link href="/recurrences" className="px-6 py-3 text-gray-600 font-medium hover:bg-gray-100 rounded-xl transition-colors">
             Annuler

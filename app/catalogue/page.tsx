@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plus, Search, Package, ChevronDown, ChevronRight, Edit2, Archive, Layers, LayoutGrid, Table2, Settings, X, Trash2 } from 'lucide-react';
+import { Plus, Search, Package, ChevronDown, ChevronRight, Edit2, Archive, Layers, LayoutGrid, Table2, Settings, X, Trash2, ChevronUp, ChevronsUpDown } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import {
   ProductReference,
@@ -39,6 +39,8 @@ export default function CataloguePage() {
   const [expandedRefs, setExpandedRefs] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'cards' | 'tableau'>('cards');
   const [showAteliersModal, setShowAteliersModal] = useState(false);
+  const [sortKey, setSortKey] = useState<string>('name');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [newAtelierLabel, setNewAtelierLabel] = useState('');
   const [newAtelierColor, setNewAtelierColor] = useState(COLOR_PRESETS[0]);
   const [savingAtelier, setSavingAtelier] = useState(false);
@@ -145,6 +147,22 @@ export default function CataloguePage() {
     setExpandedRefs(newExpanded);
   }
 
+  function handleSort(key: string) {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  }
+
+  function SortIcon({ col }: { col: string }) {
+    if (sortKey !== col) return <ChevronsUpDown size={13} className="text-gray-300" />;
+    return sortDir === 'asc'
+      ? <ChevronUp size={13} className="text-blue-500" />
+      : <ChevronDown size={13} className="text-blue-500" />;
+  }
+
   const filteredReferences = references.filter(ref => {
     const matchSearch = ref.name.toLowerCase().includes(search.toLowerCase()) ||
                        ref.code.toLowerCase().includes(search.toLowerCase());
@@ -152,6 +170,20 @@ export default function CataloguePage() {
     const matchAtelier = selectedAtelier === 'all' || ref.atelier === selectedAtelier;
     const matchActive = showInactive || ref.is_active;
     return matchSearch && matchCategory && matchAtelier && matchActive;
+  }).sort((a, b) => {
+    let valA: string | number = '';
+    let valB: string | number = '';
+    switch (sortKey) {
+      case 'code':      valA = a.code.toLowerCase(); valB = b.code.toLowerCase(); break;
+      case 'name':      valA = a.name.toLowerCase(); valB = b.name.toLowerCase(); break;
+      case 'category':  valA = ((a.category as any)?.nom || '').toLowerCase(); valB = ((b.category as any)?.nom || '').toLowerCase(); break;
+      case 'atelier':   valA = a.atelier || ''; valB = b.atelier || ''; break;
+      case 'price':     valA = a.base_unit_price; valB = b.base_unit_price; break;
+      case 'articles':  valA = a.articles?.length || 0; valB = b.articles?.length || 0; break;
+    }
+    if (valA < valB) return sortDir === 'asc' ? -1 : 1;
+    if (valA > valB) return sortDir === 'asc' ? 1 : -1;
+    return 0;
   });
 
   const totalArticles = filteredReferences.reduce((acc, ref) => acc + (ref.articles?.length || 0), 0);
@@ -297,12 +329,24 @@ export default function CataloguePage() {
             <table className="w-full">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
-                  <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Code</th>
-                  <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Nom</th>
-                  <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Catégorie</th>
-                  <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Atelier</th>
-                  <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Prix base</th>
-                  <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Articles</th>
+                  <th onClick={() => handleSort('code')} className="text-left px-6 py-4 text-sm font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
+                    <span className="flex items-center gap-1">Code <SortIcon col="code" /></span>
+                  </th>
+                  <th onClick={() => handleSort('name')} className="text-left px-6 py-4 text-sm font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
+                    <span className="flex items-center gap-1">Nom <SortIcon col="name" /></span>
+                  </th>
+                  <th onClick={() => handleSort('category')} className="text-left px-6 py-4 text-sm font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
+                    <span className="flex items-center gap-1">Catégorie <SortIcon col="category" /></span>
+                  </th>
+                  <th onClick={() => handleSort('atelier')} className="text-left px-6 py-4 text-sm font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
+                    <span className="flex items-center gap-1">Atelier <SortIcon col="atelier" /></span>
+                  </th>
+                  <th onClick={() => handleSort('price')} className="text-left px-6 py-4 text-sm font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
+                    <span className="flex items-center gap-1">Prix base <SortIcon col="price" /></span>
+                  </th>
+                  <th onClick={() => handleSort('articles')} className="text-left px-6 py-4 text-sm font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
+                    <span className="flex items-center gap-1">Articles <SortIcon col="articles" /></span>
+                  </th>
                   <th className="text-right px-6 py-4 text-sm font-medium text-gray-500">Actions</th>
                 </tr>
               </thead>

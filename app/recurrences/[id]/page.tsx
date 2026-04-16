@@ -12,13 +12,13 @@ interface RecurrenceLine {
   product_id: string;
   product_nom: string;
   quantite: number;
-  delivery_slot_id: string;
   note: string;
 }
 
 export default function EditRecurrencePage() {
   const router = useRouter();
   const { id } = useParams<{ id: string }>();
+
   const [clients, setClients] = useState<Client[]>([]);
   const [articles, setArticles] = useState<(ProductArticle & { product_reference: ProductReference })[]>([]);
   const [deliverySlots, setDeliverySlots] = useState<DeliverySlot[]>([]);
@@ -26,22 +26,22 @@ export default function EditRecurrencePage() {
   const [loadingData, setLoadingData] = useState(true);
   const [searchProduct, setSearchProduct] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const today = new Date().toISOString().split('T')[0];
 
   const [form, setForm] = useState({
     client_id: '',
     nom: '',
-    type_recurrence: 'hebdo' as 'quotidien' | 'hebdo' | 'personnalise',
+    type_recurrence: 'hebdo' as 'quotidien' | 'hebdo',
     jours_semaine: [] as string[],
-    date_debut: new Date().toISOString().split('T')[0],
+    date_debut: today,
+    delivery_slot_id: '',
     note: '',
     is_active: true,
   });
 
   const [lines, setLines] = useState<RecurrenceLine[]>([]);
 
-  useEffect(() => {
-    loadData();
-  }, [id]);
+  useEffect(() => { loadData(); }, [id]);
 
   async function loadData() {
     setLoadingData(true);
@@ -50,11 +50,7 @@ export default function EditRecurrencePage() {
         supabase.from('clients').select('*').eq('is_active', true).order('nom'),
         supabase.from('product_articles').select('*, product_reference:product_references(name, code, atelier)').eq('is_active', true).order('display_name'),
         supabase.from('delivery_slots').select('*').eq('is_active', true).order('sort_order'),
-        supabase
-          .from('recurring_orders')
-          .select('*, items:recurring_order_items(id, quantite, product_nom, product_article_id, delivery_slot_id)')
-          .eq('id', id)
-          .single(),
+        supabase.from('recurring_orders').select('*').eq('id', id).single(),
       ]);
 
       setClients(clientsData || []);
@@ -63,30 +59,33 @@ export default function EditRecurrencePage() {
 
       if (recurrenceError || !recurrence) {
         router.push('/recurrences');
-      router.refresh();
         return;
       }
 
-      if (recurrence) {
-        setForm({
-          client_id: recurrence.client_id,
-          nom: recurrence.nom || '',
-          type_recurrence: recurrence.type_recurrence,
-          jours_semaine: recurrence.jours_semaine || [],
-          date_debut: recurrence.date_debut,
-          note: recurrence.note || '',
-          is_active: recurrence.is_active,
-        });
+      setForm({
+        client_id: recurrence.client_id,
+        nom: recurrence.nom || '',
+        type_recurrence: recurrence.type_recurrence,
+        jours_semaine: recurrence.jours_semaine || [],
+        date_debut: recurrence.date_debut,
+        delivery_slot_id: recurrence.delivery_slot_id || '',
+        note: recurrence.note || '',
+        is_active: recurrence.is_active,
+      });
 
-        setLines((recurrence.items || []).map((item: any) => ({
-          id: crypto.randomUUID(),
-          product_id: item.product_article_id || '',
-          product_nom: item.product_nom || 'Article',
-          quantite: item.quantite,
-          delivery_slot_id: item.delivery_slot_id || '',
-          note: item.note || '',
-        })));
-      }
+      // Charger les articles de la récurrence
+      const { data: items } = await supabase
+        .from('recurring_order_items')
+        .select('*, product_article:product_articles!product_article_id(display_name)')
+        .eq('recurring_order_id', id);
+
+      setLines((items || []).map((item: any) => ({
+        id: crypto.randomUUID(),
+        product_id: item.product_article_id || '',
+        product_nom: item.product_article?.display_name || item.product_nom || 'Article',
+        quantite: item.quantite,
+        note: item.note || '',
+      })));
     } catch (error) {
       console.error('Erreur:', error);
     } finally {
@@ -109,18 +108,17 @@ export default function EditRecurrencePage() {
       product_id: article.id,
       product_nom: article.display_name,
       quantite: 1,
-      delivery_slot_id: '',
       note: '',
     }]);
     setSearchProduct('');
   };
 
-  const updateLine = (id: string, updates: Partial<RecurrenceLine>) => {
-    setLines(lines.map(l => l.id === id ? { ...l, ...updates } : l));
+  const updateLine = (lineId: string, updates: Partial<RecurrenceLine>) => {
+    setLines(lines.map(l => l.id === lineId ? { ...l, ...updates } : l));
   };
 
-  const removeLine = (id: string) => {
-    setLines(lines.filter(l => l.id !== id));
+  const removeLine = (lineId: string) => {
+    setLines(lines.filter(l => l.id !== lineId));
   };
 
   const filteredArticles = articles.filter(a =>
@@ -131,7 +129,7 @@ export default function EditRecurrencePage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.client_id || lines.length === 0) {
-      alert('Veuillez sélectionner un client et ajouter au moins un produit');
+      alert('Veuillez sélectionner un client et ajouter au moins un article');
       return;
     }
     if (form.type_recurrence === 'hebdo' && form.jours_semaine.length === 0) {
@@ -141,6 +139,7 @@ export default function EditRecurrencePage() {
 
     setLoading(true);
     try {
+      // 1. Mettre à jour les infos de la récurrence
       const { error: updateError } = await supabase
         .from('recurring_orders')
         .update({
@@ -148,7 +147,7 @@ export default function EditRecurrencePage() {
           nom: form.nom || null,
           type_recurrence: form.type_recurrence,
           jours_semaine: form.type_recurrence === 'quotidien' ? [] : form.jours_semaine,
-          date_debut: form.date_debut,
+          delivery_slot_id: form.delivery_slot_id || null,
           note: form.note || null,
           is_active: form.is_active,
         })
@@ -156,21 +155,21 @@ export default function EditRecurrencePage() {
 
       if (updateError) throw updateError;
 
-      // Supprimer tous les items existants et les recréer
+      // 2. Mettre à jour les articles (supprimer puis réinsérer)
       await supabase.from('recurring_order_items').delete().eq('recurring_order_id', id);
 
-      const { error: itemsError } = await supabase
-        .from('recurring_order_items')
-        .insert(lines.map(l => ({
-          recurring_order_id: id,
-          product_article_id: l.product_id,
-          product_nom: l.product_nom,
-          quantite: l.quantite,
-          delivery_slot_id: l.delivery_slot_id || null,
-          note: l.note || null,
-        })));
-
-      if (itemsError) throw itemsError;
+      if (lines.length > 0) {
+        const { error: itemsError } = await supabase.from('recurring_order_items').insert(
+          lines.map(l => ({
+            recurring_order_id: id,
+            product_article_id: l.product_id,
+            product_nom: l.product_nom,
+            quantite: l.quantite,
+            note: l.note || null,
+          }))
+        );
+        if (itemsError) throw itemsError;
+      }
 
       router.push('/recurrences');
       router.refresh();
@@ -185,7 +184,6 @@ export default function EditRecurrencePage() {
   async function handleDelete() {
     setLoading(true);
     try {
-      await supabase.from('recurring_order_items').delete().eq('recurring_order_id', id);
       const { error } = await supabase.from('recurring_orders').delete().eq('id', id);
       if (error) throw error;
       router.push('/recurrences');
@@ -208,7 +206,6 @@ export default function EditRecurrencePage() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <Link href="/recurrences" className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
@@ -219,7 +216,6 @@ export default function EditRecurrencePage() {
             <p className="text-gray-500 mt-1">{form.nom || 'Sans libellé'}</p>
           </div>
         </div>
-
         <button
           type="button"
           onClick={() => setShowDeleteConfirm(true)}
@@ -229,26 +225,18 @@ export default function EditRecurrencePage() {
         </button>
       </div>
 
-      {/* Confirmation suppression */}
       {showDeleteConfirm && (
         <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex items-start gap-3">
           <AlertCircle className="text-red-600 mt-0.5 shrink-0" size={20} />
           <div className="flex-1">
             <p className="font-medium text-red-900">Confirmer la suppression ?</p>
-            <p className="text-sm text-red-700 mt-1">Cette action est irréversible. Les commandes déjà générées ne seront pas supprimées.</p>
+            <p className="text-sm text-red-700 mt-1">Les commandes déjà générées ne seront pas supprimées.</p>
           </div>
           <div className="flex gap-2 shrink-0">
-            <button
-              onClick={() => setShowDeleteConfirm(false)}
-              className="px-4 py-2 text-gray-600 font-medium hover:bg-white rounded-xl transition-colors"
-            >
+            <button onClick={() => setShowDeleteConfirm(false)} className="px-4 py-2 text-gray-600 font-medium hover:bg-white rounded-xl transition-colors">
               Annuler
             </button>
-            <button
-              onClick={handleDelete}
-              disabled={loading}
-              className="px-4 py-2 bg-red-600 text-white font-medium rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50"
-            >
+            <button onClick={handleDelete} disabled={loading} className="px-4 py-2 bg-red-600 text-white font-medium rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50">
               Supprimer
             </button>
           </div>
@@ -256,10 +244,9 @@ export default function EditRecurrencePage() {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Client et nom */}
+        {/* Client, libellé, créneau, statut */}
         <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">Client</h2>
-
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Client *</label>
@@ -275,7 +262,6 @@ export default function EditRecurrencePage() {
                 ))}
               </select>
             </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Libellé <span className="text-gray-400 font-normal">(optionnel)</span>
@@ -284,13 +270,28 @@ export default function EditRecurrencePage() {
                 type="text"
                 value={form.nom}
                 onChange={(e) => setForm({ ...form, nom: e.target.value })}
-                placeholder="Ex: Petits pains midi, Viennoiseries matin..."
+                placeholder="Ex: Pains journaliers..."
                 className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
           </div>
 
-          {/* Statut actif */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Créneau de livraison</label>
+            <select
+              value={form.delivery_slot_id}
+              onChange={(e) => setForm({ ...form, delivery_slot_id: e.target.value })}
+              className="w-full sm:w-72 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+            >
+              <option value="">Sans créneau</option>
+              {deliverySlots.map((slot) => (
+                <option key={slot.id} value={slot.id}>
+                  {slot.name} ({slot.start_time.slice(0, 5)})
+                </option>
+              ))}
+            </select>
+          </div>
+
           <label className="flex items-center gap-3 cursor-pointer">
             <input
               type="checkbox"
@@ -300,7 +301,7 @@ export default function EditRecurrencePage() {
             />
             <div>
               <span className="font-medium text-gray-700">Récurrence active</span>
-              <p className="text-sm text-gray-500">Génère des commandes lors du déclenchement quotidien</p>
+              <p className="text-sm text-gray-500">Le job nocturne activera les commandes chaque soir</p>
             </div>
           </label>
         </div>
@@ -308,7 +309,6 @@ export default function EditRecurrencePage() {
         {/* Fréquence */}
         <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">Fréquence</h2>
-
           <div className="flex gap-3">
             {[
               { value: 'quotidien', label: 'Tous les jours' },
@@ -329,11 +329,9 @@ export default function EditRecurrencePage() {
             ))}
           </div>
 
-          {form.type_recurrence !== 'quotidien' && (
+          {form.type_recurrence === 'hebdo' && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-3">
-                Jours de livraison *
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-3">Jours de livraison *</label>
               <div className="flex flex-wrap gap-2">
                 {JOURS_SEMAINE.map((jour) => (
                   <button
@@ -352,28 +350,17 @@ export default function EditRecurrencePage() {
               </div>
             </div>
           )}
-
-          <div className="max-w-xs pt-2">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Date début *</label>
-            <input
-              type="date"
-              value={form.date_debut}
-              onChange={(e) => setForm({ ...form, date_debut: e.target.value })}
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              required
-            />
-          </div>
         </div>
 
-        {/* Produits */}
+        {/* Articles */}
         <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-4">
-          <h2 className="font-semibold text-gray-900">Produits *</h2>
+          <h2 className="font-semibold text-gray-900">Articles *</h2>
 
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
             <input
               type="text"
-              placeholder="Rechercher un produit..."
+              placeholder="Rechercher un article..."
               value={searchProduct}
               onChange={(e) => setSearchProduct(e.target.value)}
               className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -413,42 +400,28 @@ export default function EditRecurrencePage() {
                       <Trash2 size={16} />
                     </button>
                   </div>
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => updateLine(line.id, { quantite: Math.max(1, line.quantite - 1) })}
-                        className="w-8 h-8 flex items-center justify-center bg-white border border-gray-200 rounded-lg hover:bg-gray-100 font-medium"
-                      >
-                        -
-                      </button>
-                      <input
-                        type="number"
-                        min="1"
-                        value={line.quantite}
-                        onChange={(e) => updateLine(line.id, { quantite: parseInt(e.target.value) || 1 })}
-                        className="w-20 text-center px-2 py-1.5 border border-gray-200 rounded-lg bg-white"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => updateLine(line.id, { quantite: line.quantite + 1 })}
-                        className="w-8 h-8 flex items-center justify-center bg-white border border-gray-200 rounded-lg hover:bg-gray-100 font-medium"
-                      >
-                        +
-                      </button>
-                    </div>
-                    <select
-                      value={line.delivery_slot_id}
-                      onChange={(e) => updateLine(line.id, { delivery_slot_id: e.target.value })}
-                      className="flex-1 min-w-0 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-sm"
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => updateLine(line.id, { quantite: Math.max(1, line.quantite - 1) })}
+                      className="w-8 h-8 flex items-center justify-center bg-white border border-gray-200 rounded-lg hover:bg-gray-100 font-medium"
                     >
-                      <option value="">Sans créneau</option>
-                      {deliverySlots.map((slot) => (
-                        <option key={slot.id} value={slot.id}>
-                          {slot.name} ({slot.start_time.slice(0, 5)})
-                        </option>
-                      ))}
-                    </select>
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      min="1"
+                      value={line.quantite}
+                      onChange={(e) => updateLine(line.id, { quantite: parseInt(e.target.value) || 1 })}
+                      className="w-20 text-center px-2 py-1.5 border border-gray-200 rounded-lg bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => updateLine(line.id, { quantite: line.quantite + 1 })}
+                      className="w-8 h-8 flex items-center justify-center bg-white border border-gray-200 rounded-lg hover:bg-gray-100 font-medium"
+                    >
+                      +
+                    </button>
                   </div>
                 </div>
               ))}
@@ -456,9 +429,7 @@ export default function EditRecurrencePage() {
           )}
 
           {lines.length === 0 && !searchProduct && (
-            <p className="text-center text-gray-400 py-4">
-              Recherchez un article pour l&apos;ajouter
-            </p>
+            <p className="text-center text-gray-400 py-4">Recherchez un article pour l&apos;ajouter</p>
           )}
         </div>
 
@@ -474,12 +445,8 @@ export default function EditRecurrencePage() {
           />
         </div>
 
-        {/* Actions */}
         <div className="flex items-center justify-end gap-3">
-          <Link
-            href="/recurrences"
-            className="px-6 py-3 text-gray-600 font-medium hover:bg-gray-100 rounded-xl transition-colors"
-          >
+          <Link href="/recurrences" className="px-6 py-3 text-gray-600 font-medium hover:bg-gray-100 rounded-xl transition-colors">
             Annuler
           </Link>
           <button
@@ -488,7 +455,7 @@ export default function EditRecurrencePage() {
             className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
           >
             <Save size={20} />
-            {loading ? 'Enregistrement...' : 'Enregistrer les modifications'}
+            {loading ? 'Enregistrement...' : 'Enregistrer'}
           </button>
         </div>
       </form>

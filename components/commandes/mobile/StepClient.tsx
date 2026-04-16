@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { Search, ChevronRight, RefreshCw, Clock, RotateCcw } from 'lucide-react';
+import { Search, ChevronRight, RefreshCw, Clock, RotateCcw, UserPlus, X } from 'lucide-react';
 import { Client } from '@/types';
 import { supabase } from '@/lib/supabase/client';
 import { HistoryOrder, OrderLine } from './types';
@@ -13,12 +13,44 @@ interface Props {
   onSelect: (client: Client) => void;
   onReorder: (lines: OrderLine[]) => void;
   onNext: () => void;
+  onClientAdded: (client: Client) => void;
 }
 
-export default function StepClient({ clients, selectedClient, onSelect, onReorder, onNext }: Props) {
+export default function StepClient({ clients, selectedClient, onSelect, onReorder, onNext, onClientAdded }: Props) {
   const [search, setSearch] = useState('');
   const [history, setHistory] = useState<HistoryOrder[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [quickAddForm, setQuickAddForm] = useState({ nom: '', telephone: '' });
+  const [quickAddLoading, setQuickAddLoading] = useState(false);
+
+  async function handleQuickAdd() {
+    if (!quickAddForm.nom.trim()) return;
+    setQuickAddLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('clients')
+        .insert({
+          nom: quickAddForm.nom.trim(),
+          telephone: quickAddForm.telephone.trim() || null,
+          type_client: 'autre',
+          jours_livraison: [],
+          is_active: true,
+          note_interne: '⚠️ À compléter — créé rapidement depuis une commande',
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      onClientAdded(data as Client);
+      onSelect(data as Client);
+      setQuickAddOpen(false);
+      setQuickAddForm({ nom: '', telephone: '' });
+    } catch (err) {
+      console.error('Erreur création client:', err);
+    } finally {
+      setQuickAddLoading(false);
+    }
+  }
 
   const filtered = useMemo(() =>
     clients.filter(c =>
@@ -168,9 +200,9 @@ export default function StepClient({ clients, selectedClient, onSelect, onReorde
   // Sinon → liste clients
   return (
     <div className="flex flex-col h-full">
-      {/* Recherche */}
-      <div className="px-4 py-3 flex-shrink-0">
-        <div className="relative">
+      {/* Recherche + bouton ajout rapide */}
+      <div className="px-4 py-3 flex-shrink-0 flex gap-2">
+        <div className="relative flex-1">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
           <input
             type="text"
@@ -181,6 +213,13 @@ export default function StepClient({ clients, selectedClient, onSelect, onReorde
             className="w-full pl-11 pr-4 py-3.5 bg-gray-100 rounded-2xl text-gray-900 placeholder-gray-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all text-base"
           />
         </div>
+        <button
+          onClick={() => setQuickAddOpen(true)}
+          className="px-3.5 bg-blue-50 text-blue-600 rounded-2xl active:bg-blue-100 transition-colors"
+          title="Ajouter un client rapidement"
+        >
+          <UserPlus size={20} />
+        </button>
       </div>
 
       {/* Liste */}
@@ -203,9 +242,57 @@ export default function StepClient({ clients, selectedClient, onSelect, onReorde
         {filtered.length === 0 && (
           <div className="text-center py-12 text-gray-400">
             <p className="text-sm">Aucun client trouvé</p>
+            <button
+              onClick={() => setQuickAddOpen(true)}
+              className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium"
+            >
+              <UserPlus size={16} />
+              Créer ce client
+            </button>
           </div>
         )}
       </div>
+
+      {/* Modale ajout rapide */}
+      {quickAddOpen && (
+        <div className="absolute inset-0 bg-black/50 z-50 flex items-end">
+          <div className="w-full bg-white rounded-t-3xl p-6 space-y-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-gray-900 text-lg">Nouveau client rapide</h3>
+                <p className="text-xs text-gray-400 mt-0.5">À compléter plus tard dans Clients</p>
+              </div>
+              <button onClick={() => setQuickAddOpen(false)} className="p-2 hover:bg-gray-100 rounded-xl">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <input
+                type="text"
+                autoFocus
+                value={quickAddForm.nom}
+                onChange={e => setQuickAddForm(f => ({ ...f, nom: e.target.value }))}
+                placeholder="Nom / Société *"
+                className="w-full px-4 py-3.5 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
+              />
+              <input
+                type="tel"
+                value={quickAddForm.telephone}
+                onChange={e => setQuickAddForm(f => ({ ...f, telephone: e.target.value }))}
+                placeholder="Téléphone (optionnel)"
+                className="w-full px-4 py-3.5 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
+              />
+            </div>
+            <button
+              onClick={handleQuickAdd}
+              disabled={!quickAddForm.nom.trim() || quickAddLoading}
+              className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold text-base disabled:opacity-50 active:scale-98 transition-transform"
+            >
+              {quickAddLoading ? 'Création…' : 'Créer et sélectionner'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

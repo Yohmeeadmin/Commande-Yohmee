@@ -1,6 +1,6 @@
 'use client';
 
-import { X, Trash2, CheckCircle, Save, ChevronDown, Bell } from 'lucide-react';
+import { X, Trash2, CheckCircle, Save, ChevronDown, Bell, Clock, Calendar } from 'lucide-react';
 import { OrderLine, OrderForm } from './types';
 import { DeliverySlot } from '@/types';
 import { formatPrice } from '@/lib/utils';
@@ -10,6 +10,7 @@ interface Props {
   form: OrderForm;
   deliverySlots: DeliverySlot[];
   submitting: boolean;
+  deliveryHint?: { mode: 'heure' | 'creneau'; label: string } | null;
   onUpdateQty: (id: string, delta: number) => void;
   onRemove: (id: string) => void;
   onFormChange: (updates: Partial<OrderForm>) => void;
@@ -18,7 +19,7 @@ interface Props {
 }
 
 export default function CartSheet({
-  lines, form, deliverySlots, submitting,
+  lines, form, deliverySlots, submitting, deliveryHint,
   onUpdateQty, onRemove, onFormChange, onSubmit, onClose,
 }: Props) {
   const total = lines.reduce((s, l) => s + l.quantite * l.prix_unitaire, 0);
@@ -93,7 +94,15 @@ export default function CartSheet({
 
           {/* Infos livraison */}
           <div className="px-4 pt-5 pb-2 space-y-3">
-            <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Livraison</p>
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Livraison</p>
+              {deliveryHint?.mode === 'creneau' && deliveryHint.label && (
+                <span className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium bg-blue-50 text-blue-700">
+                  <Calendar size={11} />
+                  {deliveryHint.label}
+                </span>
+              )}
+            </div>
 
             {/* Date */}
             <div className="flex items-center gap-3 bg-gray-50 rounded-2xl px-4 py-3">
@@ -106,8 +115,19 @@ export default function CartSheet({
               />
             </div>
 
-            {/* Créneau */}
-            {deliverySlots.length > 0 && (
+            {/* Heure ou Créneau selon le mode */}
+            {deliveryHint?.mode === 'heure' ? (
+              <div className="flex items-center gap-3 bg-purple-50 rounded-2xl px-4 py-3">
+                <Clock size={16} className="text-purple-500 flex-shrink-0" />
+                <span className="text-sm font-medium text-purple-700 w-24 flex-shrink-0">Heure</span>
+                <input
+                  type="time"
+                  value={form.delivery_time}
+                  onChange={e => onFormChange({ delivery_time: e.target.value })}
+                  className="flex-1 bg-transparent font-semibold text-purple-900 text-right focus:outline-none"
+                />
+              </div>
+            ) : deliverySlots.length > 0 ? (
               <div className="flex items-center gap-3 bg-gray-50 rounded-2xl px-4 py-3">
                 <span className="text-sm font-medium text-gray-600 w-24 flex-shrink-0">Créneau</span>
                 <div className="flex-1 flex items-center justify-end gap-1">
@@ -126,7 +146,7 @@ export default function CartSheet({
                   <ChevronDown size={14} className="text-gray-400 flex-shrink-0" />
                 </div>
               </div>
-            )}
+            ) : null}
 
             {/* Note */}
             <div className="bg-gray-50 rounded-2xl px-4 py-3">

@@ -1,4 +1,5 @@
 import { ProductArticle, ProductReference, Client, DeliverySlot, Category } from '@/types';
+import { ClientTypeSettings } from '@/lib/useAppSettings';
 
 export interface ArticleWithRef extends ProductArticle {
   product_reference: ProductReference & { category?: Category };
@@ -17,6 +18,7 @@ export interface OrderForm {
   client_id: string;
   date_livraison: string;
   delivery_slot_id: string;
+  delivery_time: string;
   note: string;
   reminder_days: number | null;
 }
@@ -48,4 +50,5 @@ export interface MobileFlowProps {
   setForm: React.Dispatch<React.SetStateAction<OrderForm>>;
   onSubmit: (status: 'brouillon' | 'confirmee') => Promise<void>;
   submitting: boolean;
+  clientTypeSettings: ClientTypeSettings;
 }

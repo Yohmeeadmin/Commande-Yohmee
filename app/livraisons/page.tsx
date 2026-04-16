@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   ChevronLeft, ChevronRight, Printer, Settings, GripVertical,
   CheckCircle, Phone, MapPin, Package, UserCircle, Plus,
-  LayoutList, Table2, X,
+  LayoutList, Table2, X, ChevronUp, ChevronDown, ChevronsUpDown,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { Driver, driverFullName, driverInitials } from '@/types';
@@ -85,6 +85,8 @@ export default function LivraisonsPage() {
   const [deliveryStep, setDeliveryStep] = useState<1 | 2>(1);
   const [backorderDate, setBackorderDate] = useState('');
   const [backorderSlotId, setBackorderSlotId] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<string>('slot');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [printDriverIds, setPrintDriverIds] = useState<Set<string>>(new Set());
   const [printSlotIds, setPrintSlotIds] = useState<Set<string>>(new Set(['all']));
@@ -307,6 +309,22 @@ export default function LivraisonsPage() {
   // Stats pour le header
   const totalOrders = filteredOrders.length;
   const livrees = deliveredOrders.length;
+
+  function handleSort(key: string) {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  }
+
+  function SortIcon({ col }: { col: string }) {
+    if (sortKey !== col) return <ChevronsUpDown size={13} className="text-gray-300" />;
+    return sortDir === 'asc'
+      ? <ChevronUp size={13} className="text-blue-500" />
+      : <ChevronDown size={13} className="text-blue-500" />;
+  }
 
   // ── Print ────────────────────────────────────────────────────────────────────
 
@@ -583,12 +601,22 @@ export default function LivraisonsPage() {
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-100 text-left">
                     <th className="px-6 py-3 font-medium text-gray-500 w-8">#</th>
-                    <th className="px-4 py-3 font-medium text-gray-500">Client</th>
-                    <th className="px-4 py-3 font-medium text-gray-500">Créneau</th>
-                    <th className="px-4 py-3 font-medium text-gray-500">Chauffeur</th>
+                    <th onClick={() => handleSort('client')} className="px-4 py-3 font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
+                      <span className="flex items-center gap-1">Client <SortIcon col="client" /></span>
+                    </th>
+                    <th onClick={() => handleSort('slot')} className="px-4 py-3 font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
+                      <span className="flex items-center gap-1">Créneau <SortIcon col="slot" /></span>
+                    </th>
+                    <th onClick={() => handleSort('driver')} className="px-4 py-3 font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
+                      <span className="flex items-center gap-1">Chauffeur <SortIcon col="driver" /></span>
+                    </th>
                     <th className="px-4 py-3 font-medium text-gray-500">Produits</th>
-                    <th className="px-4 py-3 font-medium text-gray-500 text-right">Total</th>
-                    <th className="px-4 py-3 font-medium text-gray-500">Statut</th>
+                    <th onClick={() => handleSort('total')} className="px-4 py-3 font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700 text-right">
+                      <span className="flex items-center justify-end gap-1">Total <SortIcon col="total" /></span>
+                    </th>
+                    <th onClick={() => handleSort('statut')} className="px-4 py-3 font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
+                      <span className="flex items-center gap-1">Statut <SortIcon col="statut" /></span>
+                    </th>
                     <th className="px-4 py-3 font-medium text-gray-500 text-right">Action</th>
                   </tr>
                 </thead>
@@ -596,13 +624,19 @@ export default function LivraisonsPage() {
                   {filteredOrders
                     .slice()
                     .sort((a, b) => {
-                      const slotA = a.delivery_slot?.start_time ?? '99:99';
-                      const slotB = b.delivery_slot?.start_time ?? '99:99';
-                      if (slotA !== slotB) return slotA.localeCompare(slotB);
-                      const driverA = drivers.findIndex(d => d.id === a.driver_id);
-                      const driverB = drivers.findIndex(d => d.id === b.driver_id);
-                      if (driverA !== driverB) return driverA - driverB;
-                      return (a.driver_sequence ?? 999) - (b.driver_sequence ?? 999);
+                      let valA: string | number = '';
+                      let valB: string | number = '';
+                      switch (sortKey) {
+                        case 'client': valA = a.client?.nom?.toLowerCase() || ''; valB = b.client?.nom?.toLowerCase() || ''; break;
+                        case 'slot':   valA = a.delivery_slot?.start_time ?? '99:99'; valB = b.delivery_slot?.start_time ?? '99:99'; break;
+                        case 'driver': { const dA = drivers.findIndex(d => d.id === a.driver_id); const dB = drivers.findIndex(d => d.id === b.driver_id); valA = dA === -1 ? 999 : dA; valB = dB === -1 ? 999 : dB; break; }
+                        case 'total':  valA = a.total; valB = b.total; break;
+                        case 'statut': valA = a.status; valB = b.status; break;
+                        default:       valA = a.delivery_slot?.start_time ?? '99:99'; valB = b.delivery_slot?.start_time ?? '99:99';
+                      }
+                      if (valA < valB) return sortDir === 'asc' ? -1 : 1;
+                      if (valA > valB) return sortDir === 'asc' ? 1 : -1;
+                      return 0;
                     })
                     .map(order => {
                       const driver = drivers.find(d => d.id === order.driver_id);

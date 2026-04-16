@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Users, Truck } from 'lucide-react';
+import { Users, Truck, SlidersHorizontal } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 
 export default function ParaemetresPage() {
@@ -32,6 +32,17 @@ export default function ParaemetresPage() {
           </div>
           <h3 className="font-semibold text-gray-900 mb-1">Utilisateurs</h3>
           <p className="text-sm text-gray-500">Gérer les comptes et les accès de l'équipe</p>
+        </Link>
+
+        <Link
+          href="/parametres/reglages"
+          className="bg-white rounded-2xl border border-gray-100 p-6 hover:shadow-md hover:border-blue-200 transition-all"
+        >
+          <div className="w-12 h-12 bg-purple-50 rounded-xl flex items-center justify-center mb-4">
+            <SlidersHorizontal className="text-purple-600" size={24} />
+          </div>
+          <h3 className="font-semibold text-gray-900 mb-1">Réglages</h3>
+          <p className="text-sm text-gray-500">Logo, nom et personnalisation de l'app</p>
         </Link>
 
         <Link

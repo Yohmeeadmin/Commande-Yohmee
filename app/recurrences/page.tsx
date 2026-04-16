@@ -22,7 +22,7 @@ export default function RecurrencesPage() {
         .select(`
           *,
           client:clients(nom),
-          items:recurring_order_items(id, quantite, product_nom, delivery_slot_id, article:product_articles!product_article_id(display_name))
+          items:recurring_order_items(id, quantite, product_nom, article:product_articles!product_article_id(display_name))
         `)
         .order('created_at', { ascending: false });
 

@@ -270,6 +270,8 @@ export interface Client {
   email: string | null;
   adresse: string | null;
   adresse_livraison: string | null;
+  ville: string | null;
+  quartier: string | null;
   type_client: ClientType;
   jours_livraison: string[];
   horaire_livraison: string | null;

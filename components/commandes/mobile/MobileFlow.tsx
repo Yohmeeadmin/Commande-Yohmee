@@ -15,14 +15,36 @@ type Step = 'client' | 'catalogue';
 export default function MobileFlow({
   clients, articles, categories, deliverySlots,
   lines, setLines, form, setForm, onSubmit, submitting,
+  clientTypeSettings,
 }: MobileFlowProps) {
   const [step, setStep] = useState<Step>('client');
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [localClients, setLocalClients] = useState<Client[]>(clients);
   const [cartOpen, setCartOpen] = useState(false);
+  const [deliveryHint, setDeliveryHint] = useState<{ mode: 'heure' | 'creneau'; label: string } | null>(null);
 
   function handleSelectClient(client: Client) {
     setSelectedClient(client);
-    setForm(f => ({ ...f, client_id: client.id }));
+
+    const typeCfg = clientTypeSettings?.[client.type_client];
+    if (typeCfg) {
+      if (typeCfg.mode === 'creneau') {
+        const slotId = typeCfg.creneau_id ?? '';
+        setForm(f => ({ ...f, client_id: client.id, delivery_slot_id: slotId, delivery_time: '' }));
+        const slot = deliverySlots.find(s => s.id === slotId);
+        setDeliveryHint({ mode: 'creneau', label: slot ? `${slot.name} (${slot.start_time.slice(0, 5)}–${slot.end_time.slice(0, 5)})` : 'Livraison par créneau' });
+      } else if (typeCfg.mode === 'heure') {
+        const defaultTime = client.horaire_livraison || typeCfg.heure || '';
+        setForm(f => ({ ...f, client_id: client.id, delivery_slot_id: '', delivery_time: defaultTime }));
+        setDeliveryHint({ mode: 'heure', label: '' });
+      } else {
+        setForm(f => ({ ...f, client_id: client.id }));
+        setDeliveryHint(null);
+      }
+    } else {
+      setForm(f => ({ ...f, client_id: client.id }));
+      setDeliveryHint(null);
+    }
   }
 
   function handleReorder(newLines: OrderLine[]) {
@@ -89,11 +111,12 @@ export default function MobileFlow({
       <div className="flex-1 overflow-hidden">
         {step === 'client' && (
           <StepClient
-            clients={clients}
+            clients={localClients}
             selectedClient={selectedClient}
             onSelect={handleSelectClient}
             onReorder={handleReorder}
             onNext={() => setStep('catalogue')}
+            onClientAdded={c => setLocalClients(prev => [...prev, c].sort((a, b) => a.nom.localeCompare(b.nom)))}
           />
         )}
         {step === 'catalogue' && selectedClient && (
@@ -116,6 +139,7 @@ export default function MobileFlow({
           form={form}
           deliverySlots={deliverySlots}
           submitting={submitting}
+          deliveryHint={deliveryHint}
           onUpdateQty={handleUpdateQty}
           onRemove={handleRemove}
           onFormChange={updates => setForm(f => ({ ...f, ...updates }))}

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plus, Search, ShoppingCart, Calendar, CheckCircle, Play, Truck, MoreHorizontal, RefreshCw, Pencil, X, Bell } from 'lucide-react';
+import { Plus, Search, ShoppingCart, Calendar, CheckCircle, Play, Truck, MoreHorizontal, RefreshCw, Pencil, X, Bell, Trash2, Square, CheckSquare, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { ORDER_STATUSES, OrderStatus } from '@/types';
 import { formatDate, formatPrice } from '@/lib/utils';
@@ -46,6 +46,11 @@ export default function CommandesPage() {
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [actionMenuOpen, setActionMenuOpen] = useState<string | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [sortKey, setSortKey] = useState<string>('date');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [slots, setSlots] = useState<DeliverySlot[]>([]);
   const [editOrder, setEditOrder] = useState<OrderWithClient | null>(null);
   const [editSlotId, setEditSlotId] = useState<string>('');
@@ -164,12 +169,71 @@ export default function CommandesPage() {
     setActionMenuOpen(null);
   }
 
+  function toggleSelection(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === filteredOrders.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredOrders.map(o => o.id)));
+    }
+  }
+
+  async function deleteSelected() {
+    const ids = Array.from(selectedIds);
+    try {
+      await supabase.from('order_items').delete().in('order_id', ids);
+      await supabase.from('orders').delete().in('id', ids);
+      setOrders(prev => prev.filter(o => !selectedIds.has(o.id)));
+      setSelectedIds(new Set());
+      setSelectionMode(false);
+      setDeleteConfirm(false);
+    } catch (error) {
+      console.error('Erreur suppression:', error);
+    }
+  }
+
+  function handleSort(key: string) {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  }
+
+  function SortIcon({ col }: { col: string }) {
+    if (sortKey !== col) return <ChevronsUpDown size={13} className="text-gray-300" />;
+    return sortDir === 'asc'
+      ? <ChevronUp size={13} className="text-blue-500" />
+      : <ChevronDown size={13} className="text-blue-500" />;
+  }
+
   const filteredOrders = orders.filter(o => {
     const matchSearch = o.numero?.toLowerCase().includes(search.toLowerCase()) ||
                        o.client?.nom?.toLowerCase().includes(search.toLowerCase());
     const matchStatus = selectedStatus === 'all' || o.status === selectedStatus;
     const matchDate = !selectedDate || o.delivery_date === selectedDate;
     return matchSearch && matchStatus && matchDate;
+  }).sort((a, b) => {
+    let valA: string | number = '';
+    let valB: string | number = '';
+    switch (sortKey) {
+      case 'numero': valA = a.numero || ''; valB = b.numero || ''; break;
+      case 'client': valA = a.client?.nom?.toLowerCase() || ''; valB = b.client?.nom?.toLowerCase() || ''; break;
+      case 'date':   valA = a.delivery_date; valB = b.delivery_date; break;
+      case 'total':  valA = a.total; valB = b.total; break;
+      case 'statut': valA = a.status; valB = b.status; break;
+    }
+    if (valA < valB) return sortDir === 'asc' ? -1 : 1;
+    if (valA > valB) return sortDir === 'asc' ? 1 : -1;
+    return 0;
   });
 
   const getStatusStyle = (status: string) => {
@@ -202,20 +266,33 @@ export default function CommandesPage() {
           <h1 className="text-2xl font-bold text-gray-900">Commandes</h1>
           <p className="text-gray-500 mt-1">{filteredOrders.length} commandes</p>
         </div>
-        <Link
-          href="/recurrences"
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
-        >
-          <RefreshCw size={18} />
-          Récurrentes
-        </Link>
-        <Link
-          href="/commandes/nouvelle"
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
-        >
-          <Plus size={20} />
-          Nouvelle commande
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            href="/recurrences"
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
+          >
+            <RefreshCw size={18} />
+            Récurrentes
+          </Link>
+          <button
+            onClick={() => { setSelectionMode(!selectionMode); setSelectedIds(new Set()); setDeleteConfirm(false); }}
+            className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium transition-colors ${
+              selectionMode
+                ? 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            <CheckSquare size={18} />
+            {selectionMode ? 'Annuler' : 'Sélection'}
+          </button>
+          <Link
+            href="/commandes/nouvelle"
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
+          >
+            <Plus size={20} />
+            Nouvelle commande
+          </Link>
+        </div>
       </div>
 
       {/* Filtres */}
@@ -296,6 +373,55 @@ export default function CommandesPage() {
         ))}
       </div>
 
+      {/* Barre de sélection / suppression en masse */}
+      {selectionMode && (
+        <div className="bg-orange-50 border border-orange-200 rounded-2xl px-5 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={toggleSelectAll}
+              className="flex items-center gap-2 text-sm font-medium text-orange-700 hover:text-orange-900"
+            >
+              {selectedIds.size === filteredOrders.length && filteredOrders.length > 0
+                ? <CheckSquare size={18} />
+                : <Square size={18} />}
+              {selectedIds.size === filteredOrders.length && filteredOrders.length > 0
+                ? 'Tout désélectionner'
+                : 'Tout sélectionner'}
+            </button>
+            {selectedIds.size > 0 && (
+              <span className="text-sm text-orange-600">{selectedIds.size} sélectionnée{selectedIds.size > 1 ? 's' : ''}</span>
+            )}
+          </div>
+          {selectedIds.size > 0 && (
+            !deleteConfirm ? (
+              <button
+                onClick={() => setDeleteConfirm(true)}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-medium hover:bg-red-700 transition-colors"
+              >
+                <Trash2 size={16} />
+                Supprimer ({selectedIds.size})
+              </button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-red-700 font-medium">Confirmer la suppression ?</span>
+                <button
+                  onClick={deleteSelected}
+                  className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700"
+                >
+                  Oui, supprimer
+                </button>
+                <button
+                  onClick={() => setDeleteConfirm(false)}
+                  className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-50"
+                >
+                  Non
+                </button>
+              </div>
+            )
+          )}
+        </div>
+      )}
+
       {/* Liste des commandes */}
       {filteredOrders.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
@@ -316,12 +442,23 @@ export default function CommandesPage() {
             <table className="w-full">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
-                  <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">N°</th>
-                  <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Client</th>
-                  <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Date</th>
+                  {selectionMode && <th className="px-4 py-4 w-10"></th>}
+                  <th onClick={() => handleSort('numero')} className="text-left px-6 py-4 text-sm font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
+                    <span className="flex items-center gap-1">N° <SortIcon col="numero" /></span>
+                  </th>
+                  <th onClick={() => handleSort('client')} className="text-left px-6 py-4 text-sm font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
+                    <span className="flex items-center gap-1">Client <SortIcon col="client" /></span>
+                  </th>
+                  <th onClick={() => handleSort('date')} className="text-left px-6 py-4 text-sm font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
+                    <span className="flex items-center gap-1">Date <SortIcon col="date" /></span>
+                  </th>
                   <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Créneau</th>
-                  <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Total</th>
-                  <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Statut</th>
+                  <th onClick={() => handleSort('total')} className="text-left px-6 py-4 text-sm font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
+                    <span className="flex items-center gap-1">Total <SortIcon col="total" /></span>
+                  </th>
+                  <th onClick={() => handleSort('statut')} className="text-left px-6 py-4 text-sm font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
+                    <span className="flex items-center gap-1">Statut <SortIcon col="statut" /></span>
+                  </th>
                   <th className="text-right px-6 py-4 text-sm font-medium text-gray-500">Actions</th>
                 </tr>
               </thead>
@@ -331,8 +468,18 @@ export default function CommandesPage() {
                   return (
                     <tr
                       key={order.id}
-                      className="hover:bg-gray-50 transition-colors"
+                      className={`hover:bg-gray-50 transition-colors ${selectionMode && selectedIds.has(order.id) ? 'bg-orange-50' : ''}`}
                     >
+                      {selectionMode && (
+                        <td className="px-4 py-4">
+                          <button
+                            onClick={() => toggleSelection(order.id)}
+                            className="text-orange-500 hover:text-orange-700"
+                          >
+                            {selectedIds.has(order.id) ? <CheckSquare size={20} /> : <Square size={20} />}
+                          </button>
+                        </td>
+                      )}
                       <td className="px-6 py-4">
                         <Link href={`/commandes/${order.id}`} className="font-mono text-sm font-medium text-gray-900 hover:text-blue-600">
                           {order.numero}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, Edit2, RotateCcw, Power, X, Copy, Check, Eye, EyeOff, ChevronDown } from 'lucide-react';
+import { Plus, Edit2, RotateCcw, Power, X, Copy, Check, Eye, EyeOff, ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { useUser } from '@/contexts/UserContext';
 import { UserProfile, UserRole, AppModule, ROLES, ALL_MODULES, ROLE_DEFAULT_MODULES } from '@/types/auth';
@@ -57,6 +57,8 @@ export default function UtilisateursPage() {
   const { profile: currentProfile } = useUser();
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sortKey, setSortKey] = useState<string>('nom');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   // Modals
   const [showCreate, setShowCreate] = useState(false);
@@ -105,6 +107,35 @@ export default function UtilisateursPage() {
     setTempPassword(res.tempPassword);
   }
 
+  function handleSort(key: string) {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  }
+
+  function SortIcon({ col }: { col: string }) {
+    if (sortKey !== col) return <ChevronsUpDown size={13} className="text-gray-300" />;
+    return sortDir === 'asc'
+      ? <ChevronUp size={13} className="text-blue-500" />
+      : <ChevronDown size={13} className="text-blue-500" />;
+  }
+
+  const sortedUsers = [...users].sort((a, b) => {
+    let valA: string | number = '';
+    let valB: string | number = '';
+    switch (sortKey) {
+      case 'nom':    valA = `${a.first_name} ${a.last_name}`.toLowerCase(); valB = `${b.first_name} ${b.last_name}`.toLowerCase(); break;
+      case 'role':   valA = a.role; valB = b.role; break;
+      case 'statut': valA = a.is_active ? 0 : 1; valB = b.is_active ? 0 : 1; break;
+    }
+    if (valA < valB) return sortDir === 'asc' ? -1 : 1;
+    if (valA > valB) return sortDir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
   if (currentProfile?.role !== 'admin') {
     return <div className="flex items-center justify-center h-64"><p className="text-gray-500">Accès réservé.</p></div>;
   }
@@ -139,16 +170,22 @@ export default function UtilisateursPage() {
             <table className="w-full">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
-                  <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Utilisateur</th>
-                  <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Rôle</th>
+                  <th onClick={() => handleSort('nom')} className="text-left px-6 py-4 text-sm font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
+                    <span className="flex items-center gap-1">Utilisateur <SortIcon col="nom" /></span>
+                  </th>
+                  <th onClick={() => handleSort('role')} className="text-left px-6 py-4 text-sm font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
+                    <span className="flex items-center gap-1">Rôle <SortIcon col="role" /></span>
+                  </th>
                   <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Modules</th>
                   <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Ateliers</th>
-                  <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Statut</th>
+                  <th onClick={() => handleSort('statut')} className="text-left px-6 py-4 text-sm font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
+                    <span className="flex items-center gap-1">Statut <SortIcon col="statut" /></span>
+                  </th>
                   <th className="text-right px-6 py-4 text-sm font-medium text-gray-500">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {users.map(user => (
+                {sortedUsers.map(user => (
                   <tr key={user.id} className={`hover:bg-gray-50 transition-colors ${!user.is_active ? 'opacity-50' : ''}`}>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">

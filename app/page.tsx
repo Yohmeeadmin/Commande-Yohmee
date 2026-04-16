@@ -72,13 +72,13 @@ export default function Dashboard() {
   const [collapsedSlots, setCollapsedSlots] = useState<Set<string>>(new Set());
   const [updatingOrder, setUpdatingOrder] = useState<string | null>(null);
 
-  const loadDashboard = useCallback(async (targetDate: string) => {
+  const loadDashboard = useCallback(async (targetDate: string, signal: AbortSignal) => {
     setLoading(true);
     try {
-      // Auto-génération des récurrences pour la date cible (aujourd'hui et futur seulement)
       if (targetDate >= todayStr) {
         await supabase.rpc('generate_orders_from_recurring', { target_date: targetDate });
       }
+      if (signal.aborted) return;
 
       const { data } = await supabase
         .from('orders')
@@ -93,11 +93,12 @@ export default function Dashboard() {
         .order('delivery_sequence', { ascending: true, nullsFirst: false })
         .order('created_at', { ascending: true });
 
+      if (signal.aborted) return;
+
       const orders = (data as SlotOrder[]) || [];
 
       setTotalCA(orders.reduce((sum, o) => sum + (o.total || 0), 0));
 
-      // Grouper par créneau
       const grouped = new Map<string, SlotGroup>();
       orders.forEach(order => {
         const slotId = order.delivery_slot?.id ?? '__none__';
@@ -115,21 +116,23 @@ export default function Dashboard() {
 
       setGroups(sorted.filter(g => g.orders.length > 0));
     } catch (error) {
-      console.error('Erreur dashboard:', error);
+      if (!signal.aborted) console.error('Erreur dashboard:', error);
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
   }, [todayStr]);
 
   useEffect(() => {
-    loadDashboard(date);
+    const controller = new AbortController();
+    loadDashboard(date, controller.signal);
+    return () => controller.abort();
   }, [date, loadDashboard]);
 
   async function generateRecurring() {
     setGenerating(true);
     try {
       await supabase.rpc('generate_orders_from_recurring', { target_date: date });
-      await loadDashboard(date);
+      await loadDashboard(date, new AbortController().signal);
     } finally {
       setGenerating(false);
     }

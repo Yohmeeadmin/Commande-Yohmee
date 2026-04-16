@@ -31,6 +31,22 @@ interface ProductionGroup {
 }
 
 // slots: tableau vide = tous, sinon filtrer par les IDs (+ 'none' pour sans créneau)
+// Fusionne les items identiques (même ref + packType + packQuantity + état) au sein d'un groupe
+function mergeItems(items: ProductionItem[]): ProductionItem[] {
+  const merged = new Map<string, ProductionItem>();
+  items.forEach(item => {
+    const key = `${item.refCode}-${item.packType}-${item.packQuantity}-${item.productState}`;
+    const existing = merged.get(key);
+    if (existing) {
+      existing.quantity += item.quantity;
+      existing.totalUnits += item.totalUnits;
+    } else {
+      merged.set(key, { ...item });
+    }
+  });
+  return Array.from(merged.values()).sort((a, b) => a.refName.localeCompare(b.refName));
+}
+
 function applyFilters(
   production: ProductionGroup[],
   atelier: string,
@@ -39,34 +55,20 @@ function applyFilters(
   let result = production;
 
   if (slots.length > 0) {
-    // Filtre par créneau — on garde la granularité par slot
+    // Filtre par créneau puis fusion des items identiques dans ce créneau
     result = result
-      .map(g => ({
-        ...g,
-        items: g.items.filter(i =>
+      .map(g => {
+        const filtered = g.items.filter(i =>
           i.slotId === null ? slots.includes('none') : slots.includes(i.slotId)
-        ),
-      }))
-      .filter(g => g.items.length > 0)
-      .map(g => ({
-        ...g,
-        totalQuantity: g.items.reduce((sum, i) => sum + i.quantity, 0),
-      }));
+        );
+        const mergedItems = mergeItems(filtered);
+        return { ...g, items: mergedItems, totalQuantity: mergedItems.reduce((sum, i) => sum + i.quantity, 0) };
+      })
+      .filter(g => g.items.length > 0);
   } else {
-    // Vue "Tous" — fusionner les lignes de même référence (même produit, créneaux différents)
+    // Vue "Tous" — fusion de tous les créneaux pour la même référence
     result = result.map(g => {
-      const merged = new Map<string, typeof g.items[0]>();
-      g.items.forEach(item => {
-        const key = `${item.refCode}-${item.packType}-${item.productState}`;
-        const existing = merged.get(key);
-        if (existing) {
-          existing.quantity += item.quantity;
-          existing.totalUnits += item.totalUnits;
-        } else {
-          merged.set(key, { ...item, slotId: null });
-        }
-      });
-      const mergedItems = Array.from(merged.values()).sort((a, b) => a.refName.localeCompare(b.refName));
+      const mergedItems = mergeItems(g.items.map(i => ({ ...i, slotId: null })));
       return {
         ...g,
         items: mergedItems,
@@ -140,81 +142,127 @@ export default function ProductionPage() {
   async function loadProduction() {
     setLoading(true);
     try {
-      const [{ data: orders }, { data: slotsData }] = await Promise.all([
+      // Jour de semaine en français (parsing local pour éviter les décalages UTC)
+      const [y, m, d] = date.split('-').map(Number);
+      const JOURS_JS = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+      const dayFr = JOURS_JS[new Date(y, m - 1, d).getDay()];
+
+      const [
+        { data: orders },
+        { data: slotsData },
+        { data: recurringData },
+        { data: existingRecOrders },
+      ] = await Promise.all([
         supabase.from('orders').select('id, delivery_slot_id').eq('delivery_date', date).in('status', ['confirmee', 'production']),
         supabase.from('delivery_slots').select('id, name, start_time, end_time').eq('is_active', true).order('sort_order'),
+        supabase.from('recurring_orders').select('id, type_recurrence, jours_semaine, date_debut, date_fin, delivery_slot_id').eq('is_active', true).lte('date_debut', date),
+        supabase.from('orders').select('recurring_order_id').eq('delivery_date', date).not('recurring_order_id', 'is', null),
       ]);
+
+      const existingRecIds = new Set((existingRecOrders || []).map((o: any) => o.recurring_order_id));
+      const previews = ((recurringData || []) as any[])
+        .filter((rec) => {
+          if (rec.date_fin && rec.date_fin < date) return false;
+          if (rec.type_recurrence === 'hebdo' && !rec.jours_semaine.includes(dayFr)) return false;
+          if (existingRecIds.has(rec.id)) return false;
+          return true;
+        })
+        .map((rec) => ({ recurring_order_id: rec.id, delivery_slot_id: rec.delivery_slot_id }));
 
       setSlots(slotsData || []);
 
-      if (!orders || orders.length === 0) {
-        setProduction([]);
-        setLoading(false);
-        return;
-      }
-
-      const slotMap: Record<string, string | null> = {};
-      orders.forEach((o: any) => { slotMap[o.id] = o.delivery_slot_id; });
-
-      const orderIds = orders.map((o: any) => o.id);
-
-      const { data: items } = await supabase
-        .from('order_items')
-        .select(`
-          order_id,
-          quantity_ordered,
-          units_total,
-          article_unit_quantity,
-          product_article:product_articles(
-            display_name,
-            pack_type,
-            quantity,
-            product_state,
-            product_reference:product_references(
-              name,
-              code,
-              atelier
-            )
-          )
-        `)
-        .in('order_id', orderIds);
-
-      if (!items) {
-        setProduction([]);
-        setLoading(false);
-        return;
-      }
-
-      // Agréger par article + slot (pour pouvoir filtrer par slot côté client)
       const productMap = new Map<string, ProductionItem>();
 
-      items.forEach((item: any) => {
-        const art = item.product_article;
-        const ref = art?.product_reference;
-        if (!art || !ref) return;
+      // --- Commandes réelles ---
+      if (orders && orders.length > 0) {
+        const slotMap: Record<string, string | null> = {};
+        orders.forEach((o: any) => { slotMap[o.id] = o.delivery_slot_id; });
 
-        const slotId = slotMap[item.order_id] ?? null;
-        const key = `${ref.name}-${art.pack_type}-${art.product_state}-${slotId ?? 'none'}`;
-        const existing = productMap.get(key);
+        const { data: items } = await supabase
+          .from('order_items')
+          .select(`
+            order_id,
+            quantity_ordered,
+            units_total,
+            article_unit_quantity,
+            product_article:product_articles(
+              display_name,
+              pack_type,
+              quantity,
+              product_state,
+              product_reference:product_references(name, code, atelier)
+            )
+          `)
+          .in('order_id', orders.map((o: any) => o.id));
 
-        if (existing) {
-          existing.quantity += item.quantity_ordered;
-          existing.totalUnits += item.units_total || 0;
-        } else {
-          productMap.set(key, {
-            refName: ref.name,
-            refCode: ref.code,
-            atelier: ref.atelier,
-            packType: art.pack_type,
-            packQuantity: art.quantity,
-            productState: art.product_state,
-            displayName: art.display_name,
-            quantity: item.quantity_ordered,
-            totalUnits: item.units_total || 0,
-            slotId,
-          });
-        }
-      });
+        (items || []).forEach((item: any) => {
+          const art = item.product_article;
+          const ref = art?.product_reference;
+          if (!art || !ref) return;
+          const slotId = slotMap[item.order_id] ?? null;
+          const key = `${ref.code}-${art.pack_type}-${art.quantity}-${art.product_state}-${slotId ?? 'none'}`;
+          const existing = productMap.get(key);
+          if (existing) {
+            existing.quantity += item.quantity_ordered;
+            existing.totalUnits += item.units_total || 0;
+          } else {
+            productMap.set(key, {
+              refName: ref.name, refCode: ref.code, atelier: ref.atelier,
+              packType: art.pack_type, packQuantity: art.quantity,
+              productState: art.product_state, displayName: art.display_name,
+              quantity: item.quantity_ordered, totalUnits: item.units_total || 0, slotId,
+            });
+          }
+        });
+      }
+
+      // --- Aperçus récurrents (si pas de commande réelle pour ce jour) ---
+      if (previews && previews.length > 0) {
+        const recurringIds = previews.map((p: any) => p.recurring_order_id);
+        const previewSlotMap: Record<string, string | null> = {};
+        previews.forEach((p: any) => { previewSlotMap[p.recurring_order_id] = p.delivery_slot_id; });
+
+        const { data: previewItems } = await supabase
+          .from('recurring_order_items')
+          .select(`
+            recurring_order_id,
+            quantite,
+            product_article:product_articles!product_article_id(
+              display_name,
+              pack_type,
+              quantity,
+              product_state,
+              product_reference:product_references(name, code, atelier)
+            )
+          `)
+          .in('recurring_order_id', recurringIds);
+
+        (previewItems || []).forEach((item: any) => {
+          const art = item.product_article;
+          const ref = art?.product_reference;
+          if (!art || !ref) return;
+          const slotId = previewSlotMap[item.recurring_order_id] ?? null;
+          const key = `${ref.code}-${art.pack_type}-${art.quantity}-${art.product_state}-${slotId ?? 'none'}`;
+          const existing = productMap.get(key);
+          if (existing) {
+            existing.quantity += item.quantite;
+            existing.totalUnits += item.quantite;
+          } else {
+            productMap.set(key, {
+              refName: ref.name, refCode: ref.code, atelier: ref.atelier,
+              packType: art.pack_type, packQuantity: art.quantity,
+              productState: art.product_state, displayName: art.display_name,
+              quantity: item.quantite, totalUnits: item.quantite, slotId,
+            });
+          }
+        });
+      }
+
+      if (productMap.size === 0) {
+        setProduction([]);
+        setLoading(false);
+        return;
+      }
 
       // Grouper par atelier
       const atelierMap = new Map<string, ProductionItem[]>();
@@ -300,7 +348,9 @@ export default function ProductionPage() {
   );
 
   const totalItems = displayProduction.reduce((sum, g) => sum + g.totalQuantity, 0);
+  const totalPieces = displayProduction.reduce((sum, g) => sum + g.items.reduce((s, i) => s + i.quantity * i.packQuantity, 0), 0);
   const printTotalItems = printProduction.reduce((sum, g) => sum + g.totalQuantity, 0);
+  const printTotalPieces = printProduction.reduce((sum, g) => sum + g.items.reduce((s, i) => s + i.quantity * i.packQuantity, 0), 0);
 
   // Label des créneaux sélectionnés pour le header print
   const printSlotLabel = printSlots.length === 0
@@ -328,7 +378,7 @@ export default function ProductionPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Production du jour</h1>
           <p className="text-gray-500 mt-1">
-            {totalItems} articles à produire
+            {totalItems} lot{totalItems > 1 ? 's' : ''} · <span className="font-semibold text-gray-700">{totalPieces} pièces</span> à produire
           </p>
         </div>
         <div className="flex items-center gap-2 print:hidden">
@@ -532,20 +582,23 @@ export default function ProductionPage() {
         </div>
       ) : viewMode === 'tableau' ? (
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden print:hidden">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[600px]">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100">
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Produit</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Atelier</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Format</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">État</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-500">Qté</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-500">Lots</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-500">Pièces</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {displayProduction.flatMap(group =>
                 group.items.map((item, idx) => {
                   const stateStyle = getProductStateStyle(item.productState);
+                  const pieces = item.quantity * item.packQuantity;
                   return (
                     <tr key={`${group.atelier}-${idx}`} className="hover:bg-gray-50">
                       <td className="px-4 py-3">
@@ -557,13 +610,14 @@ export default function ProductionPage() {
                           {group.atelierLabel}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-gray-600">{getPackLabel(item.packType)} {item.packQuantity}</td>
+                      <td className="px-4 py-3 text-gray-600">{getPackLabel(item.packType)} × {item.packQuantity}</td>
                       <td className="px-4 py-3">
                         <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: stateStyle.bgColor, color: stateStyle.color }}>
                           {stateStyle.label}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-right font-bold text-gray-900 text-lg">{item.quantity}</td>
+                      <td className="px-4 py-3 text-right font-semibold text-gray-600">{item.quantity}</td>
+                      <td className="px-4 py-3 text-right font-bold text-gray-900 text-lg">{pieces}</td>
                     </tr>
                   );
                 })
@@ -572,10 +626,12 @@ export default function ProductionPage() {
             <tfoot>
               <tr className="bg-blue-50 border-t-2 border-blue-100">
                 <td colSpan={4} className="px-4 py-3 font-semibold text-blue-900">Total</td>
-                <td className="px-4 py-3 text-right font-bold text-blue-900 text-lg">{totalItems}</td>
+                <td className="px-4 py-3 text-right font-semibold text-blue-700">{totalItems} lots</td>
+                <td className="px-4 py-3 text-right font-bold text-blue-900 text-lg">{totalPieces} pièces</td>
               </tr>
             </tfoot>
           </table>
+          </div>{/* fin overflow-x-auto */}
         </div>
       ) : (
         <div className="space-y-6 print:hidden">
@@ -595,23 +651,29 @@ export default function ProductionPage() {
               <div className="divide-y divide-gray-50">
                 {group.items.map((item, idx) => {
                   const stateStyle = getProductStateStyle(item.productState);
+                  const pieces = item.quantity * item.packQuantity;
                   return (
                     <div key={idx} className="px-6 py-4 flex items-center justify-between">
                       <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center">
-                          <span className="text-blue-600 font-bold text-lg">{item.quantity}</span>
+                        <div className="w-14 h-14 bg-blue-50 rounded-xl flex flex-col items-center justify-center flex-shrink-0">
+                          <span className="text-blue-600 font-bold text-lg leading-tight">{item.quantity}</span>
+                          <span className="text-blue-400 text-xs leading-tight">lot{item.quantity > 1 ? 's' : ''}</span>
                         </div>
                         <div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <p className="font-semibold text-gray-900">{item.refName}</p>
                             <span className="text-gray-400">—</span>
-                            <span className="text-gray-600">{getPackLabel(item.packType)} {item.packQuantity}</span>
+                            <span className="text-gray-600 text-sm">{getPackLabel(item.packType)} × {item.packQuantity}</span>
                             <span className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: stateStyle.bgColor, color: stateStyle.color }}>
                               {stateStyle.label}
                             </span>
                           </div>
                           <p className="text-sm text-gray-400 font-mono">{item.refCode}</p>
                         </div>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className="text-2xl font-black text-gray-900">{pieces}</p>
+                        <p className="text-xs text-gray-400">pièces</p>
                       </div>
                     </div>
                   );
@@ -623,7 +685,8 @@ export default function ProductionPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-blue-100">Total à produire</p>
-                <p className="text-3xl font-bold">{totalItems} articles</p>
+                <p className="text-3xl font-bold">{totalPieces} pièces</p>
+                <p className="text-blue-200 text-sm mt-1">{totalItems} lot{totalItems > 1 ? 's' : ''} au total</p>
               </div>
               <Package size={48} className="text-blue-200" />
             </div>
@@ -643,7 +706,7 @@ export default function ProductionPage() {
             {printAtelierLabel} — {printSlotLabel}
           </p>
           <p style={{ color: '#374151', fontWeight: 600, margin: 0, fontSize: '13px' }}>
-            {printTotalItems} articles à produire
+            {printTotalItems} lots — {printTotalPieces} pièces à produire
           </p>
         </div>
 
@@ -654,13 +717,15 @@ export default function ProductionPage() {
               <th style={{ textAlign: 'left' }}>Atelier</th>
               <th style={{ textAlign: 'left' }}>Format</th>
               <th style={{ textAlign: 'left' }}>État</th>
-              <th style={{ textAlign: 'right' }}>Qté</th>
+              <th style={{ textAlign: 'right' }}>Lots</th>
+              <th style={{ textAlign: 'right' }}>Pièces</th>
             </tr>
           </thead>
           <tbody>
             {printProduction.flatMap((group) =>
               group.items.map((item, idx) => {
                 const stateStyle = getProductStateStyle(item.productState);
+                const pieces = item.quantity * item.packQuantity;
                 return (
                   <tr key={`${group.atelier}-${idx}`}>
                     <td>
@@ -672,13 +737,14 @@ export default function ProductionPage() {
                         {group.atelierLabel}
                       </span>
                     </td>
-                    <td>{getPackLabel(item.packType)} {item.packQuantity}</td>
+                    <td>{getPackLabel(item.packType)} × {item.packQuantity}</td>
                     <td>
                       <span style={{ backgroundColor: stateStyle.bgColor, color: stateStyle.color, padding: '2px 6px', borderRadius: '4px', fontSize: '11px' }}>
                         {stateStyle.label}
                       </span>
                     </td>
-                    <td style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '18px' }}>{item.quantity}</td>
+                    <td style={{ textAlign: 'right', color: '#6b7280' }}>{item.quantity}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '18px' }}>{pieces}</td>
                   </tr>
                 );
               })
@@ -687,7 +753,8 @@ export default function ProductionPage() {
           <tfoot>
             <tr>
               <td colSpan={4} style={{ fontWeight: 600 }}>Total général</td>
-              <td style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '18px' }}>{printTotalItems}</td>
+              <td style={{ textAlign: 'right', color: '#6b7280' }}>{printTotalItems} lots</td>
+              <td style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '18px' }}>{printTotalPieces} pièces</td>
             </tr>
           </tfoot>
         </table>
@@ -740,7 +807,7 @@ export default function ProductionPage() {
                         Production du {formatDate(date)}
                       </h1>
                       <p style={{ fontSize: '13px', color: '#6b7280', margin: '0 0 3px' }}>{printAtelierLabel} — {printSlotLabel}</p>
-                      <p style={{ fontSize: '14px', fontWeight: 600, color: '#374151', margin: 0 }}>{printTotalItems} articles à produire</p>
+                      <p style={{ fontSize: '14px', fontWeight: 600, color: '#374151', margin: 0 }}>{printTotalItems} lots — {printTotalPieces} pièces à produire</p>
                     </div>
 
                     {/* Tableau */}
@@ -754,7 +821,8 @@ export default function ProductionPage() {
                             <th style={{ textAlign: 'left', padding: '10px 12px', color: '#6b7280', fontWeight: 500 }}>Atelier</th>
                             <th style={{ textAlign: 'left', padding: '10px 12px', color: '#6b7280', fontWeight: 500 }}>Format</th>
                             <th style={{ textAlign: 'left', padding: '10px 12px', color: '#6b7280', fontWeight: 500 }}>État</th>
-                            <th style={{ textAlign: 'right', padding: '10px 12px', color: '#6b7280', fontWeight: 500 }}>Qté</th>
+                            <th style={{ textAlign: 'right', padding: '10px 12px', color: '#6b7280', fontWeight: 500 }}>Lots</th>
+                            <th style={{ textAlign: 'right', padding: '10px 12px', color: '#6b7280', fontWeight: 500 }}>Pièces</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -772,13 +840,14 @@ export default function ProductionPage() {
                                       {group.atelierLabel}
                                     </span>
                                   </td>
-                                  <td style={{ padding: '10px 12px', color: '#4b5563' }}>{getPackLabel(item.packType)} {item.packQuantity}</td>
+                                  <td style={{ padding: '10px 12px', color: '#4b5563' }}>{getPackLabel(item.packType)} × {item.packQuantity}</td>
                                   <td style={{ padding: '10px 12px' }}>
                                     <span style={{ backgroundColor: stateStyle.bgColor, color: stateStyle.color, padding: '2px 8px', borderRadius: '4px', fontSize: '11px' }}>
                                       {stateStyle.label}
                                     </span>
                                   </td>
-                                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 'bold', fontSize: '18px' }}>{item.quantity}</td>
+                                  <td style={{ padding: '10px 12px', textAlign: 'right', color: '#6b7280' }}>{item.quantity}</td>
+                                  <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 'bold', fontSize: '18px' }}>{item.quantity * item.packQuantity}</td>
                                 </tr>
                               );
                             })
@@ -787,7 +856,8 @@ export default function ProductionPage() {
                         <tfoot>
                           <tr style={{ background: '#eff6ff', borderTop: '2px solid #bfdbfe' }}>
                             <td colSpan={4} style={{ padding: '10px 12px', fontWeight: 600, color: '#1e3a8a' }}>Total général</td>
-                            <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 'bold', fontSize: '18px', color: '#1e3a8a' }}>{printTotalItems}</td>
+                            <td style={{ padding: '10px 12px', textAlign: 'right', color: '#3b82f6' }}>{printTotalItems} lots</td>
+                            <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 'bold', fontSize: '18px', color: '#1e3a8a' }}>{printTotalPieces} pièces</td>
                           </tr>
                         </tfoot>
                       </table>
@@ -890,7 +960,7 @@ export default function ProductionPage() {
             {/* Footer modal */}
             <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between flex-shrink-0">
               <p className="text-sm text-gray-500">
-                <span className="font-semibold text-gray-900">{printTotalItems}</span> articles à imprimer
+                <span className="font-semibold text-gray-900">{printTotalItems}</span> lots · <span className="font-semibold text-gray-900">{printTotalPieces}</span> pièces
               </p>
               <div className="flex gap-3">
                 <button type="button" onClick={() => setShowPrintModal(false)} className="px-4 py-2 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
