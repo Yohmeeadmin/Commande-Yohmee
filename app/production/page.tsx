@@ -916,7 +916,7 @@ export default function ProductionPage() {
       {showPrintModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 print:hidden">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowPrintModal(false)} />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col" style={{ maxHeight: '90vh' }}>
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg lg:max-w-5xl flex flex-col" style={{ maxHeight: '90vh' }}>
 
             {/* Header modal */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
@@ -934,8 +934,8 @@ export default function ProductionPage() {
             {/* Body : preview gauche + options droite */}
             <div className="flex flex-1 min-h-0">
 
-              {/* ── Prévisualisation A4 ── */}
-              <div className="w-[380px] flex-shrink-0 bg-gray-300 border-r border-gray-300 flex flex-col">
+              {/* ── Prévisualisation A4 — masquée sur mobile ── */}
+              <div className="hidden lg:flex w-[380px] flex-shrink-0 bg-gray-300 border-r border-gray-300 flex-col">
                 <div className="px-4 py-2.5 border-b border-gray-400 flex-shrink-0 bg-gray-200">
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Aperçu A4</p>
                 </div>
