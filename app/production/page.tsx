@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
-import { ClipboardList, Calendar, Printer, ChevronLeft, ChevronRight, Package, LayoutList, Table2, X, Check, Bell } from 'lucide-react';
+import { ClipboardList, Calendar, Printer, ChevronLeft, ChevronRight, Package, X, Check, Bell } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { formatDate } from '@/lib/utils';
 import { getProductStateStyle, PACK_TYPES, ProductState } from '@/types';
@@ -95,7 +95,6 @@ export default function ProductionPage() {
   const [selectedAtelier, setSelectedAtelier] = useState<string>(defaultAtelier);
   const [slots, setSlots] = useState<{ id: string; name: string; start_time: string; end_time: string }[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<string>('all');
-  const [viewMode, setViewMode] = useState<'cards' | 'tableau'>('cards');
   const [activeTab, setActiveTab] = useState<'production' | 'rappel'>('production');
   const [rappelOrders, setRappelOrders] = useState<any[]>([]);
   const [rappelLoading, setRappelLoading] = useState(false);
@@ -372,42 +371,46 @@ export default function ProductionPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="space-y-3">
+
+      {/* Header compact */}
+      <div className="flex items-center justify-between print:hidden">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Production du jour</h1>
-          <p className="text-gray-500 mt-1">
-            {totalItems} lot{totalItems > 1 ? 's' : ''} · <span className="font-semibold text-gray-700">{totalPieces} pièces</span> à produire
-          </p>
+          <h1 className="text-xl font-bold text-gray-900">Production</h1>
+          <p className="text-sm text-gray-400">{new Date(date + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
         </div>
-        <div className="flex items-center gap-2 print:hidden">
-          {/* Toggle vue */}
-          <div className="flex bg-gray-100 rounded-xl p-1">
-            <button
-              type="button"
-              onClick={() => setViewMode('cards')}
-              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${viewMode === 'cards' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600'}`}
-            >
-              <LayoutList size={16} />
-              Cartes
+        <button
+          type="button"
+          onClick={openPrintModal}
+          className="inline-flex items-center gap-2 px-3 py-2 bg-gray-900 text-white rounded-xl text-sm font-medium"
+        >
+          <Printer size={16} />
+          <span className="hidden sm:inline">Imprimer</span>
+        </button>
+      </div>
+
+      {/* Navigation date */}
+      <div className="bg-white rounded-2xl border border-gray-100 print:hidden">
+        <div className="flex items-center justify-between px-2 py-1">
+          <button type="button" onClick={() => changeDate(-1)} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
+            <ChevronLeft size={20} />
+          </button>
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={goToToday} className="px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors">
+              Aujourd&apos;hui
             </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('tableau')}
-              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${viewMode === 'tableau' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600'}`}
-            >
-              <Table2 size={16} />
-              Tableau
-            </button>
+            <div className="flex items-center gap-1.5">
+              <Calendar size={16} className="text-gray-400" />
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="text-base font-semibold text-gray-900 border-none focus:outline-none focus:ring-0 bg-transparent"
+              />
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={openPrintModal}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-gray-900 text-white rounded-xl font-medium hover:bg-gray-800 transition-colors"
-          >
-            <Printer size={20} />
-            Imprimer
+          <button type="button" onClick={() => changeDate(1)} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
+            <ChevronRight size={20} />
           </button>
         </div>
       </div>
@@ -416,21 +419,21 @@ export default function ProductionPage() {
       <div className="flex gap-2 print:hidden">
         <button
           onClick={() => setActiveTab('production')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-            activeTab === 'production' ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
+            activeTab === 'production' ? 'bg-gray-900 text-white' : 'bg-white text-gray-500 border border-gray-200'
           }`}
         >
-          <ClipboardList size={16} />
+          <ClipboardList size={15} />
           Production
         </button>
         <button
           onClick={() => setActiveTab('rappel')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-            activeTab === 'rappel' ? 'bg-orange-500 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
+            activeTab === 'rappel' ? 'bg-orange-500 text-white' : 'bg-white text-gray-500 border border-gray-200'
           }`}
         >
-          <Bell size={16} />
-          Rappel commandes
+          <Bell size={15} />
+          Rappels
           {rappelOrders.length > 0 && (
             <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${activeTab === 'rappel' ? 'bg-white text-orange-500' : 'bg-orange-500 text-white'}`}>
               {rappelOrders.length}
@@ -482,96 +485,92 @@ export default function ProductionPage() {
         </div>
       )}
 
-      {/* Filtre ateliers */}
-      {activeTab === 'production' && production.length > 0 && (
-        <div className="flex flex-wrap gap-2 print:hidden">
+      {/* ONGLET PRODUCTION */}
+      {activeTab === 'production' && <>
+
+      {/* Tuiles stats */}
+      <div className="grid grid-cols-2 gap-3 print:hidden">
+        <div className="bg-blue-600 rounded-2xl p-4 text-white">
+          <p className="text-blue-200 text-xs font-medium uppercase tracking-wide mb-1">Pièces</p>
+          <p className="text-4xl font-black leading-none">{totalPieces}</p>
+          <p className="text-blue-200 text-xs mt-2">à produire</p>
+        </div>
+        <div className="bg-white rounded-2xl border border-gray-100 p-4">
+          <p className="text-gray-400 text-xs font-medium uppercase tracking-wide mb-1">Lots</p>
+          <p className="text-4xl font-black text-gray-900 leading-none">{totalItems}</p>
+          <p className="text-gray-400 text-xs mt-2">commandes</p>
+        </div>
+      </div>
+
+      {/* Filtre ateliers — chips scroll horizontal */}
+      {production.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1 print:hidden">
           <button
             type="button"
             onClick={() => setSelectedAtelier('all')}
-            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-              selectedAtelier === 'all' ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+            className={`flex-shrink-0 px-4 py-2 rounded-xl text-sm font-semibold transition-colors border ${
+              selectedAtelier === 'all' ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'
             }`}
           >
-            Tous les ateliers
+            Tous
           </button>
           {production.map((g) => (
             <button
               type="button"
               key={g.atelier}
-              onClick={() => setSelectedAtelier(g.atelier)}
-              className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-                selectedAtelier === g.atelier ? 'ring-2 ring-offset-1' : 'hover:opacity-80'
-              }`}
-              style={{ backgroundColor: g.atelierBgColor, color: g.atelierColor }}
+              onClick={() => setSelectedAtelier(selectedAtelier === g.atelier ? 'all' : g.atelier)}
+              className="flex-shrink-0 px-4 py-2 rounded-xl text-sm font-semibold transition-all border"
+              style={selectedAtelier === g.atelier
+                ? { backgroundColor: g.atelierColor, color: 'white', borderColor: g.atelierColor }
+                : { backgroundColor: g.atelierBgColor, color: g.atelierColor, borderColor: g.atelierBgColor }
+              }
             >
-              {g.atelierLabel} ({g.totalQuantity})
+              {g.atelierLabel}
+              <span className="ml-1.5 opacity-70 text-xs">
+                {g.items.reduce((s, i) => s + i.quantity * i.packQuantity, 0)}
+              </span>
             </button>
           ))}
         </div>
       )}
 
-      {/* Navigation date */}
-      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden print:hidden">
-        <div className="flex items-center justify-between">
-          <button type="button" onClick={() => changeDate(-1)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-            <ChevronLeft size={24} />
-          </button>
-          <div className="flex items-center gap-4">
-            <button type="button" onClick={goToToday} className="px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
-              Aujourd&apos;hui
-            </button>
-            <div className="flex items-center gap-2">
-              <Calendar size={20} className="text-gray-400" />
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="text-lg font-semibold text-gray-900 border-none focus:outline-none focus:ring-0 bg-transparent"
-              />
-            </div>
-          </div>
-          <button type="button" onClick={() => changeDate(1)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-            <ChevronRight size={24} />
-          </button>
-        </div>
-      </div>
-
-      {/* Filtre créneaux */}
-      {activeTab === 'production' && <div className="flex flex-wrap gap-2 print:hidden">
-        <button
-          type="button"
-          onClick={() => setSelectedSlot('all')}
-          className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors border ${
-            selectedSlot === 'all' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-          }`}
-        >
-          Tous
-        </button>
-        {[...slots].sort((a, b) => a.start_time.localeCompare(b.start_time)).map((slot) => (
+      {/* Filtre créneaux — chips scroll horizontal */}
+      {slots.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1 print:hidden">
           <button
             type="button"
-            key={slot.id}
-            onClick={() => setSelectedSlot(selectedSlot === slot.id ? 'all' : slot.id)}
-            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors border ${
-              selectedSlot === slot.id ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+            onClick={() => setSelectedSlot('all')}
+            className={`flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors border ${
+              selectedSlot === 'all' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-500 border-gray-200'
             }`}
           >
-            {slot.name} · {slot.start_time.slice(0, 5)} - {slot.end_time.slice(0, 5)}
+            Tous créneaux
           </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => setSelectedSlot(selectedSlot === 'none' ? 'all' : 'none')}
-          className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors border ${
-            selectedSlot === 'none' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-          }`}
-        >
-          Sans créneau
-        </button>
-      </div>}
+          {[...slots].sort((a, b) => a.start_time.localeCompare(b.start_time)).map((slot) => (
+            <button
+              type="button"
+              key={slot.id}
+              onClick={() => setSelectedSlot(selectedSlot === slot.id ? 'all' : slot.id)}
+              className={`flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors border ${
+                selectedSlot === slot.id ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-500 border-gray-200'
+              }`}
+            >
+              {slot.name} {slot.start_time.slice(0, 5)}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setSelectedSlot(selectedSlot === 'none' ? 'all' : 'none')}
+            className={`flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors border ${
+              selectedSlot === 'none' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-500 border-gray-200'
+            }`}
+          >
+            Sans créneau
+          </button>
+        </div>
+      )}
 
-      {/* Liste production (écran) */}
-      {activeTab === 'production' && <>
+      {/* Liste production */}
       {displayProduction.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center print:hidden">
           <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -580,100 +579,46 @@ export default function ProductionPage() {
           <p className="text-gray-500">Aucune production pour cette date</p>
           <p className="text-sm text-gray-400 mt-2">Les commandes confirmées ou en production apparaîtront ici</p>
         </div>
-      ) : viewMode === 'tableau' ? (
-        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden print:hidden">
-          <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[600px]">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-100">
-                <th className="text-left px-4 py-3 font-medium text-gray-500">Produit</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-500">Atelier</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-500">Format</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-500">État</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-500">Lots</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-500">Pièces</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {displayProduction.flatMap(group =>
-                group.items.map((item, idx) => {
-                  const stateStyle = getProductStateStyle(item.productState);
-                  const pieces = item.quantity * item.packQuantity;
-                  return (
-                    <tr key={`${group.atelier}-${idx}`} className="hover:bg-gray-50">
-                      <td className="px-4 py-3">
-                        <p className="font-semibold text-gray-900">{item.refName}</p>
-                        <p className="text-xs text-gray-400 font-mono">{item.refCode}</p>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="text-xs px-2 py-1 rounded-full font-medium" style={{ backgroundColor: group.atelierBgColor, color: group.atelierColor }}>
-                          {group.atelierLabel}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-gray-600">{getPackLabel(item.packType)} × {item.packQuantity}</td>
-                      <td className="px-4 py-3">
-                        <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: stateStyle.bgColor, color: stateStyle.color }}>
-                          {stateStyle.label}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right font-semibold text-gray-600">{item.quantity}</td>
-                      <td className="px-4 py-3 text-right font-bold text-gray-900 text-lg">{pieces}</td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-            <tfoot>
-              <tr className="bg-blue-50 border-t-2 border-blue-100">
-                <td colSpan={4} className="px-4 py-3 font-semibold text-blue-900">Total</td>
-                <td className="px-4 py-3 text-right font-semibold text-blue-700">{totalItems} lots</td>
-                <td className="px-4 py-3 text-right font-bold text-blue-900 text-lg">{totalPieces} pièces</td>
-              </tr>
-            </tfoot>
-          </table>
-          </div>{/* fin overflow-x-auto */}
-        </div>
       ) : (
-        <div className="space-y-6 print:hidden">
+        <div className="space-y-3 print:hidden">
           {displayProduction.map((group) => (
             <div key={group.atelier} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+              {/* Header atelier */}
               <div
-                className="px-6 py-4 border-b border-gray-100 flex items-center justify-between"
+                className="px-4 py-3 flex items-center justify-between"
                 style={{ backgroundColor: group.atelierBgColor }}
               >
-                <h2 className="font-semibold" style={{ color: group.atelierColor }}>
+                <span className="font-bold text-sm uppercase tracking-wide" style={{ color: group.atelierColor }}>
                   {group.atelierLabel}
-                </h2>
-                <span className="text-sm" style={{ color: group.atelierColor }}>
-                  {group.totalQuantity} articles
+                </span>
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-white/60" style={{ color: group.atelierColor }}>
+                  {group.items.reduce((s, i) => s + i.quantity * i.packQuantity, 0)} pièces
                 </span>
               </div>
+              {/* Rows */}
               <div className="divide-y divide-gray-50">
                 {group.items.map((item, idx) => {
                   const stateStyle = getProductStateStyle(item.productState);
                   const pieces = item.quantity * item.packQuantity;
                   return (
-                    <div key={idx} className="px-6 py-4 flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="w-14 h-14 bg-blue-50 rounded-xl flex flex-col items-center justify-center flex-shrink-0">
-                          <span className="text-blue-600 font-bold text-lg leading-tight">{item.quantity}</span>
-                          <span className="text-blue-400 text-xs leading-tight">lot{item.quantity > 1 ? 's' : ''}</span>
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-semibold text-gray-900">{item.refName}</p>
-                            <span className="text-gray-400">—</span>
-                            <span className="text-gray-600 text-sm">{getPackLabel(item.packType)} × {item.packQuantity}</span>
-                            <span className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: stateStyle.bgColor, color: stateStyle.color }}>
-                              {stateStyle.label}
-                            </span>
-                          </div>
-                          <p className="text-sm text-gray-400 font-mono">{item.refCode}</p>
-                        </div>
+                    <div key={idx} className="flex items-center px-4 py-3 gap-3">
+                      {/* Pièces — dominant */}
+                      <div className="w-14 h-14 bg-gray-50 rounded-xl flex flex-col items-center justify-center flex-shrink-0 border border-gray-100">
+                        <span className="text-2xl font-black text-gray-900 leading-none">{pieces}</span>
+                        <span className="text-gray-400 text-xs mt-0.5">pcs</span>
                       </div>
+                      {/* Infos produit */}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-gray-900 truncate">{item.refName}</p>
+                        <p className="text-sm text-gray-500">{getPackLabel(item.packType)} × {item.packQuantity}</p>
+                        <span className="inline-block mt-1 text-xs px-2 py-0.5 rounded-md font-medium" style={{ backgroundColor: stateStyle.bgColor, color: stateStyle.color }}>
+                          {stateStyle.label}
+                        </span>
+                      </div>
+                      {/* Lots */}
                       <div className="text-right flex-shrink-0">
-                        <p className="text-2xl font-black text-gray-900">{pieces}</p>
-                        <p className="text-xs text-gray-400">pièces</p>
+                        <span className="text-sm font-bold text-gray-400">{item.quantity}</span>
+                        <p className="text-xs text-gray-300">lot{item.quantity > 1 ? 's' : ''}</p>
                       </div>
                     </div>
                   );
@@ -681,15 +626,14 @@ export default function ProductionPage() {
               </div>
             </div>
           ))}
-          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-6 text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-blue-100">Total à produire</p>
-                <p className="text-3xl font-bold">{totalPieces} pièces</p>
-                <p className="text-blue-200 text-sm mt-1">{totalItems} lot{totalItems > 1 ? 's' : ''} au total</p>
-              </div>
-              <Package size={48} className="text-blue-200" />
+          {/* Total */}
+          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-5 text-white flex items-center justify-between">
+            <div>
+              <p className="text-blue-200 text-sm">Total à produire</p>
+              <p className="text-3xl font-black">{totalPieces} pièces</p>
+              <p className="text-blue-200 text-xs mt-1">{totalItems} lot{totalItems > 1 ? 's' : ''}</p>
             </div>
+            <Package size={40} className="text-blue-300" />
           </div>
         </div>
       )}

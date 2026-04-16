@@ -30,8 +30,6 @@ export default function LoginPage() {
     const emailValue = (emailEl?.value || emailRef.current?.value || '').trim().toLowerCase();
     const passwordValue = passEl?.value || passwordRef.current?.value || '';
 
-    alert(`Email: ${emailValue || '(vide)'}\nPass: ${passwordValue ? '***' : '(vide)'}`);
-
     if (!emailValue || !passwordValue) {
       setError('Champs vides — saisissez manuellement.');
       return;
