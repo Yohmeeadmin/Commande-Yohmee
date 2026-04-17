@@ -385,13 +385,17 @@ export default function CataloguePage() {
                 {filteredReferences.map((ref) => {
                   const atelierStyle = getAtelierStyle(ref.atelier);
                   const activeArticles = ref.articles?.filter(a => showInactive || a.is_active) || [];
+                  const isIncomplete = activeArticles.length === 0 || ref.base_unit_price === 0 || !ref.atelier || !ref.category_id;
                   return (
                     <tr key={ref.id} className={`hover:bg-gray-50 transition-colors ${!ref.is_active ? 'opacity-60' : ''}`}>
                       <td className="px-6 py-4">
                         <span className="text-sm font-mono text-gray-500 bg-gray-100 px-2 py-0.5 rounded">{ref.code}</span>
                       </td>
                       <td className="px-6 py-4">
-                        <p className="font-medium text-gray-900">{ref.name}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-gray-900">{ref.name}</p>
+                          {isIncomplete && <span className="text-xs px-1.5 py-0.5 rounded-full bg-orange-50 text-orange-600 border border-orange-200 font-medium">incomplet</span>}
+                        </div>
                         {ref.description && <p className="text-xs text-gray-500 truncate max-w-[200px]">{ref.description}</p>}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-600">{(ref.category as any)?.nom || '-'}</td>
@@ -432,6 +436,7 @@ export default function CataloguePage() {
             const atelierStyle = getAtelierStyle(ref.atelier);
             const isExpanded = expandedRefs.has(ref.id);
             const activeArticles = ref.articles?.filter(a => showInactive || a.is_active) || [];
+            const isIncomplete = activeArticles.length === 0 || ref.base_unit_price === 0 || !ref.atelier || !ref.category_id;
 
             return (
               <div
@@ -463,6 +468,11 @@ export default function CataloguePage() {
                         >
                           {atelierStyle.label}
                         </span>
+                        {isIncomplete && (
+                          <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-orange-50 text-orange-600 border border-orange-200">
+                            ● incomplet
+                          </span>
+                        )}
                       </div>
                       <p className="font-semibold text-gray-900 text-sm leading-tight truncate">{ref.name}</p>
                       <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">

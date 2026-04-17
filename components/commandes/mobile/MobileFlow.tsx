@@ -28,6 +28,7 @@ export default function MobileFlow({
     );
   }, [clients]);
   const [cartOpen, setCartOpen] = useState(false);
+  const [extraArticles, setExtraArticles] = useState<ArticleWithRef[]>([]);
   const [deliveryHint, setDeliveryHint] = useState<{ mode: 'heure' | 'creneau'; label: string } | null>(null);
 
   function handleSelectClient(client: Client) {
@@ -130,9 +131,10 @@ export default function MobileFlow({
           <StepCatalogue
             client={selectedClient}
             categories={categories}
-            articles={articles}
+            articles={[...articles, ...extraArticles]}
             lines={lines}
             onAdd={handleAdd}
+            onArticleCreated={article => setExtraArticles(prev => [...prev, article])}
             onBack={() => setStep('client')}
             onOpenCart={() => setCartOpen(true)}
           />
