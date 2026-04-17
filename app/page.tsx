@@ -32,10 +32,23 @@ interface SlimOrder {
   total: number;
 }
 
+// ── Helpers date locale ────────────────────────────────────────────────────
+
+/** Retourne YYYY-MM-DD dans le fuseau horaire du navigateur. */
+function localDate(offsetDays = 0): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, '0'),
+    String(d.getDate()).padStart(2, '0'),
+  ].join('-');
+}
+
 // ── Data fetchers ──────────────────────────────────────────────────────────
 
 async function getTodayOrders(): Promise<DashboardOrder[]> {
-  const today = new Date().toISOString().split('T')[0];
+  const today = localDate();
   const { data } = await supabase
     .from('orders')
     .select(`
@@ -56,18 +69,16 @@ async function getTodayOrders(): Promise<DashboardOrder[]> {
 }
 
 async function getYesterdayOrders(): Promise<SlimOrder[]> {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
   const { data } = await supabase
     .from('orders')
     .select('id, status, total')
-    .eq('delivery_date', d.toISOString().split('T')[0])
+    .eq('delivery_date', localDate(-1))
     .neq('status', 'annulee');
   return (data as SlimOrder[]) || [];
 }
 
 async function getLateOrders(): Promise<SlimOrder[]> {
-  const today = new Date().toISOString().split('T')[0];
+  const today = localDate();
   const { data } = await supabase
     .from('orders')
     .select('id, status, total')
@@ -423,7 +434,6 @@ export default function DashboardPage() {
 
   const dateLabel = new Date().toLocaleDateString('fr-FR', {
     weekday: 'long', day: 'numeric', month: 'long',
-    timeZone: 'UTC',
   });
 
   return (
