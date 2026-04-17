@@ -2,14 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plus, Search, Package, ChevronDown, ChevronRight, Edit2, Archive, Layers, LayoutGrid, Table2, Settings, X, Trash2, ChevronUp, ChevronsUpDown } from 'lucide-react';
+import { Plus, Search, Package, ChevronDown, ChevronRight, Edit2, Archive, Layers, Table2, Settings, X, Trash2, ChevronUp, ChevronsUpDown, LayoutGrid } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import {
   ProductReference,
   ProductArticle,
   Category,
   PACK_TYPES,
-  PRODUCT_STATES,
   calculateArticlePrice,
   getProductStateStyle
 } from '@/types';
@@ -39,6 +38,7 @@ export default function CataloguePage() {
   const [expandedRefs, setExpandedRefs] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'cards' | 'tableau'>('cards');
   const [showAteliersModal, setShowAteliersModal] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
   const [sortKey, setSortKey] = useState<string>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [newAtelierLabel, setNewAtelierLabel] = useState('');
@@ -187,121 +187,155 @@ export default function CataloguePage() {
   });
 
   const totalArticles = filteredReferences.reduce((acc, ref) => acc + (ref.articles?.length || 0), 0);
+  const activeFiltersCount = [
+    selectedCategory !== 'all',
+    selectedAtelier !== 'all',
+    showInactive,
+  ].filter(Boolean).length;
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 lg:space-y-6">
+
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Catalogue</h1>
-          <p className="text-gray-500 mt-1">
-            {filteredReferences.length} références · {totalArticles} articles
+          <h1 className="text-xl lg:text-2xl font-bold text-gray-900">Catalogue</h1>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {filteredReferences.length} réf · {totalArticles} articles
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setViewMode('cards')}
-            className={`p-2 rounded-lg transition-colors ${viewMode === 'cards' ? 'bg-blue-100 text-blue-600' : 'text-gray-400 hover:bg-gray-100'}`}
-            title="Vue cartes"
-          >
-            <LayoutGrid size={20} />
-          </button>
-          <button
-            onClick={() => setViewMode('tableau')}
-            className={`p-2 rounded-lg transition-colors ${viewMode === 'tableau' ? 'bg-blue-100 text-blue-600' : 'text-gray-400 hover:bg-gray-100'}`}
-            title="Vue tableau"
-          >
-            <Table2 size={20} />
-          </button>
+          {/* Vue tableau (desktop seulement) */}
+          <div className="hidden lg:flex items-center gap-1">
+            <button
+              onClick={() => setViewMode('cards')}
+              className={`p-2 rounded-lg transition-colors ${viewMode === 'cards' ? 'bg-blue-100 text-blue-600' : 'text-gray-400 hover:bg-gray-100'}`}
+            >
+              <LayoutGrid size={20} />
+            </button>
+            <button
+              onClick={() => setViewMode('tableau')}
+              className={`p-2 rounded-lg transition-colors ${viewMode === 'tableau' ? 'bg-blue-100 text-blue-600' : 'text-gray-400 hover:bg-gray-100'}`}
+            >
+              <Table2 size={20} />
+            </button>
+          </div>
           <button
             onClick={() => setShowAteliersModal(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
+            className="p-2 lg:px-4 lg:py-2.5 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors flex items-center gap-2"
           >
             <Settings size={18} />
-            Ateliers
+            <span className="hidden lg:inline font-medium">Ateliers</span>
           </button>
           <Link
             href="/catalogue/nouveau"
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
+            className="flex items-center gap-2 px-3 py-2 lg:px-4 lg:py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
           >
             <Plus size={20} />
-            Nouvelle référence
+            <span className="hidden sm:inline">Nouvelle référence</span>
           </Link>
         </div>
       </div>
 
-      {/* Filtres */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-4">
-        <div className="flex flex-col sm:flex-row gap-4">
-          {/* Recherche */}
+      {/* Barre recherche + filtre */}
+      <div className="space-y-3">
+        <div className="flex gap-2">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
             <input
               type="text"
-              placeholder="Rechercher par nom ou code..."
+              placeholder="Rechercher..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm bg-white"
             />
+            {search && (
+              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+                <X size={16} />
+              </button>
+            )}
           </div>
-
-          {/* Catégorie */}
-          <select
-            value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+          <button
+            onClick={() => setShowFilters(f => !f)}
+            className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl border text-sm font-medium transition-colors ${
+              showFilters || activeFiltersCount > 0
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+            }`}
           >
-            <option value="all">Toutes les catégories</option>
-            {categories.map((cat) => (
-              <option key={cat.id} value={cat.id}>{cat.nom}</option>
-            ))}
-          </select>
-
-          {/* Toggle inactifs */}
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showInactive}
-              onChange={(e) => setShowInactive(e.target.checked)}
-              className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-            />
-            <span className="text-sm text-gray-600">Voir inactifs</span>
-          </label>
+            <Settings size={16} />
+            <span className="hidden sm:inline">Filtres</span>
+            {activeFiltersCount > 0 && (
+              <span className="w-5 h-5 bg-white text-blue-600 rounded-full text-xs font-bold flex items-center justify-center">
+                {activeFiltersCount}
+              </span>
+            )}
+          </button>
         </div>
 
-        {/* Filtres Atelier */}
-        <div className="flex flex-wrap gap-2">
+        {/* Panneau filtres */}
+        {showFilters && (
+          <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-3 animate-slide-up">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className="flex-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="all">Toutes les catégories</option>
+                {categories.map((cat) => (
+                  <option key={cat.id} value={cat.id}>{cat.nom}</option>
+                ))}
+              </select>
+              <label className="flex items-center gap-2 cursor-pointer px-3 py-2.5 border border-gray-200 rounded-xl bg-white">
+                <input
+                  type="checkbox"
+                  checked={showInactive}
+                  onChange={(e) => setShowInactive(e.target.checked)}
+                  className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700">Voir inactifs</span>
+              </label>
+            </div>
+            {activeFiltersCount > 0 && (
+              <button
+                onClick={() => { setSelectedCategory('all'); setSelectedAtelier('all'); setShowInactive(false); }}
+                className="text-sm text-red-500 font-medium"
+              >
+                Réinitialiser les filtres
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Chips ateliers */}
+        <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
           <button
             onClick={() => setSelectedAtelier('all')}
-            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
               selectedAtelier === 'all'
                 ? 'bg-gray-900 text-white'
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}
           >
-            Tous les ateliers
+            Tous
           </button>
           {ateliers.map((atelier) => (
             <button
               key={atelier.value}
               onClick={() => setSelectedAtelier(atelier.value)}
-              className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-                selectedAtelier === atelier.value
-                  ? 'ring-2 ring-offset-1'
-                  : 'hover:opacity-80'
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
+                selectedAtelier === atelier.value ? 'ring-2 ring-offset-1 ring-gray-400' : 'hover:opacity-80'
               }`}
-              style={{
-                backgroundColor: atelier.bg_color,
-                color: atelier.color,
-              }}
+              style={{ backgroundColor: atelier.bg_color, color: atelier.color }}
             >
               {atelier.label}
             </button>
@@ -309,44 +343,41 @@ export default function CataloguePage() {
         </div>
       </div>
 
-      {/* Liste des références */}
+      {/* Liste */}
       {filteredReferences.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
           <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <Package className="text-gray-400" size={24} />
           </div>
           <p className="text-gray-500">Aucune référence trouvée</p>
-          <Link
-            href="/catalogue/nouveau"
-            className="inline-flex items-center gap-2 mt-4 text-blue-600 font-medium"
-          >
+          <Link href="/catalogue/nouveau" className="inline-flex items-center gap-2 mt-4 text-blue-600 font-medium">
             <Plus size={18} /> Créer une référence
           </Link>
         </div>
+
       ) : viewMode === 'tableau' ? (
-        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+        /* Vue tableau — desktop uniquement */
+        <div className="hidden lg:block bg-white rounded-2xl border border-gray-100 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
-                  <th onClick={() => handleSort('code')} className="text-left px-6 py-4 text-sm font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
-                    <span className="flex items-center gap-1">Code <SortIcon col="code" /></span>
-                  </th>
-                  <th onClick={() => handleSort('name')} className="text-left px-6 py-4 text-sm font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
-                    <span className="flex items-center gap-1">Nom <SortIcon col="name" /></span>
-                  </th>
-                  <th onClick={() => handleSort('category')} className="text-left px-6 py-4 text-sm font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
-                    <span className="flex items-center gap-1">Catégorie <SortIcon col="category" /></span>
-                  </th>
-                  <th onClick={() => handleSort('atelier')} className="text-left px-6 py-4 text-sm font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
-                    <span className="flex items-center gap-1">Atelier <SortIcon col="atelier" /></span>
-                  </th>
-                  <th onClick={() => handleSort('price')} className="text-left px-6 py-4 text-sm font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
-                    <span className="flex items-center gap-1">Prix base <SortIcon col="price" /></span>
-                  </th>
-                  <th onClick={() => handleSort('articles')} className="text-left px-6 py-4 text-sm font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700">
-                    <span className="flex items-center gap-1">Articles <SortIcon col="articles" /></span>
-                  </th>
+                  {[
+                    { key: 'code', label: 'Code' },
+                    { key: 'name', label: 'Nom' },
+                    { key: 'category', label: 'Catégorie' },
+                    { key: 'atelier', label: 'Atelier' },
+                    { key: 'price', label: 'Prix base' },
+                    { key: 'articles', label: 'Articles' },
+                  ].map(col => (
+                    <th
+                      key={col.key}
+                      onClick={() => handleSort(col.key)}
+                      className="text-left px-6 py-4 text-sm font-medium text-gray-500 cursor-pointer select-none hover:text-gray-700"
+                    >
+                      <span className="flex items-center gap-1">{col.label} <SortIcon col={col.key} /></span>
+                    </th>
+                  ))}
                   <th className="text-right px-6 py-4 text-sm font-medium text-gray-500">Actions</th>
                 </tr>
               </thead>
@@ -391,8 +422,12 @@ export default function CataloguePage() {
             </table>
           </div>
         </div>
-      ) : (
-        <div className="space-y-3">
+
+      ) : null}
+
+      {/* Vue cartes — toujours visible sur mobile, visible en desktop si mode cards */}
+      {(viewMode === 'cards' || true) && filteredReferences.length > 0 && (
+        <div className={`space-y-2 ${viewMode === 'tableau' ? 'lg:hidden' : ''}`}>
           {filteredReferences.map((ref) => {
             const atelierStyle = getAtelierStyle(ref.atelier);
             const isExpanded = expandedRefs.has(ref.id);
@@ -402,152 +437,156 @@ export default function CataloguePage() {
               <div
                 key={ref.id}
                 className={`bg-white rounded-2xl border transition-all ${
-                  ref.is_active ? 'border-gray-100' : 'border-gray-200 bg-gray-50 opacity-60'
+                  ref.is_active ? 'border-gray-100' : 'border-gray-200 opacity-60'
                 }`}
               >
                 {/* En-tête référence */}
-                <div className="p-5">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-start gap-4 flex-1">
-                      <button
-                        onClick={() => toggleExpand(ref.id)}
-                        className="mt-1 p-1 rounded hover:bg-gray-100 transition-colors"
-                      >
-                        {isExpanded ? (
-                          <ChevronDown size={20} className="text-gray-400" />
-                        ) : (
-                          <ChevronRight size={20} className="text-gray-400" />
-                        )}
-                      </button>
+                <button
+                  onClick={() => toggleExpand(ref.id)}
+                  className="w-full text-left p-4"
+                >
+                  <div className="flex items-center gap-3">
+                    {/* Indicateur couleur atelier */}
+                    <div
+                      className="w-1 self-stretch rounded-full flex-shrink-0"
+                      style={{ backgroundColor: atelierStyle.color, minHeight: 40 }}
+                    />
 
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 flex-wrap mb-2">
-                          <span className="text-sm font-mono text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-                            {ref.code}
-                          </span>
-                          <span
-                            className="text-xs px-2 py-1 rounded-full font-medium"
-                            style={{ backgroundColor: atelierStyle.bgColor, color: atelierStyle.color }}
-                          >
-                            {atelierStyle.label}
-                          </span>
-                          <span className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded-full">
-                            {(ref.category as any)?.nom || 'Sans catégorie'}
-                          </span>
-                        </div>
-
-                        <h3 className="font-semibold text-gray-900 text-lg">{ref.name}</h3>
-                        {ref.description && (
-                          <p className="text-sm text-gray-500 mt-1">{ref.description}</p>
-                        )}
-
-                        <div className="flex items-center gap-4 mt-3 text-sm">
-                          <span className="text-gray-500">
-                            Prix base: <span className="font-semibold text-gray-900">{formatPrice(ref.base_unit_price)}</span> / {ref.base_unit}
-                          </span>
-                          <span className="text-gray-400">·</span>
-                          <span className="text-gray-500">
-                            <Layers size={14} className="inline mr-1" />
-                            {activeArticles.length} article{activeArticles.length > 1 ? 's' : ''}
-                          </span>
-                        </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <span className="text-xs font-mono text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                          {ref.code}
+                        </span>
+                        <span
+                          className="text-xs px-2 py-0.5 rounded-full font-medium"
+                          style={{ backgroundColor: atelierStyle.bgColor, color: atelierStyle.color }}
+                        >
+                          {atelierStyle.label}
+                        </span>
+                      </div>
+                      <p className="font-semibold text-gray-900 text-sm leading-tight truncate">{ref.name}</p>
+                      <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                        <span>{(ref.category as any)?.nom || 'Sans catégorie'}</span>
+                        <span className="text-gray-300">·</span>
+                        <span className="flex items-center gap-1">
+                          <Layers size={11} />
+                          {activeArticles.length} article{activeArticles.length !== 1 ? 's' : ''}
+                        </span>
+                        <span className="text-gray-300">·</span>
+                        <span className="font-medium text-gray-700">{formatPrice(ref.base_unit_price)}/{ref.base_unit}</span>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1 flex-shrink-0">
                       <Link
                         href={`/catalogue/${ref.id}`}
+                        onClick={e => e.stopPropagation()}
                         className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                       >
-                        <Edit2 size={18} />
+                        <Edit2 size={16} />
                       </Link>
+                      {isExpanded
+                        ? <ChevronDown size={18} className="text-gray-400" />
+                        : <ChevronRight size={18} className="text-gray-400" />
+                      }
+                    </div>
+                  </div>
+                </button>
+
+                {/* Articles expandés */}
+                {isExpanded && (
+                  <div className="border-t border-gray-100 bg-gray-50/50 rounded-b-2xl">
+                    <div className="p-3 space-y-2">
+                      {activeArticles.length === 0 ? (
+                        <div className="text-center py-4">
+                          <p className="text-gray-500 text-sm mb-2">Aucun article</p>
+                          <Link
+                            href={`/catalogue/${ref.id}?tab=articles`}
+                            className="inline-flex items-center gap-1 text-blue-600 text-sm font-medium"
+                          >
+                            <Plus size={14} /> Créer un article
+                          </Link>
+                        </div>
+                      ) : (
+                        <>
+                          {activeArticles.map((article) => {
+                            const stateStyle = getProductStateStyle(article.product_state);
+                            const packLabel = PACK_TYPES.find(p => p.value === article.pack_type)?.label || article.pack_type;
+                            const price = calculateArticlePrice(article, ref);
+
+                            return (
+                              <div
+                                key={article.id}
+                                className={`flex items-center justify-between p-3 bg-white rounded-xl border ${
+                                  article.is_active ? 'border-gray-100' : 'border-gray-200 opacity-60'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span
+                                    className="text-xs px-2 py-0.5 rounded-full font-medium"
+                                    style={{ backgroundColor: stateStyle.bgColor, color: stateStyle.color }}
+                                  >
+                                    {stateStyle.label}
+                                  </span>
+                                  <span className="text-sm text-gray-600">
+                                    {packLabel} de {article.quantity}
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center gap-3">
+                                  <div className="text-right">
+                                    <p className="font-semibold text-gray-900 text-sm">{formatPrice(price)}</p>
+                                    {article.custom_price && (
+                                      <p className="text-xs text-orange-600">Perso.</p>
+                                    )}
+                                  </div>
+                                  <button
+                                    onClick={() => toggleArticleActive(article)}
+                                    className={`p-1.5 rounded-lg transition-colors ${
+                                      article.is_active
+                                        ? 'text-gray-400 hover:text-orange-600 hover:bg-orange-50'
+                                        : 'text-orange-600 bg-orange-50'
+                                    }`}
+                                  >
+                                    <Archive size={15} />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                          <Link
+                            href={`/catalogue/${ref.id}?tab=articles`}
+                            className="flex items-center justify-center gap-2 p-2.5 text-blue-600 hover:bg-blue-50 rounded-xl transition-colors text-sm font-medium"
+                          >
+                            <Plus size={15} />
+                            Ajouter un article
+                          </Link>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Actions rapides en bas */}
+                    <div className="border-t border-gray-100 px-3 py-2 flex items-center justify-between">
                       <button
                         onClick={() => toggleReferenceActive(ref)}
-                        className={`p-2 rounded-lg transition-colors ${
+                        className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
                           ref.is_active
-                            ? 'text-gray-400 hover:text-orange-600 hover:bg-orange-50'
+                            ? 'text-gray-500 hover:text-orange-600 hover:bg-orange-50'
                             : 'text-orange-600 bg-orange-50'
                         }`}
                       >
-                        <Archive size={18} />
+                        <Archive size={13} />
+                        {ref.is_active ? 'Archiver' : 'Réactiver'}
                       </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Articles */}
-                {isExpanded && activeArticles.length > 0 && (
-                  <div className="border-t border-gray-100 bg-gray-50/50 rounded-b-2xl">
-                    <div className="p-4 space-y-2">
-                      {activeArticles.map((article) => {
-                        const stateStyle = getProductStateStyle(article.product_state);
-                        const packLabel = PACK_TYPES.find(p => p.value === article.pack_type)?.label || article.pack_type;
-                        const price = calculateArticlePrice(article, ref);
-
-                        return (
-                          <div
-                            key={article.id}
-                            className={`flex items-center justify-between p-3 bg-white rounded-xl border ${
-                              article.is_active ? 'border-gray-100' : 'border-gray-200 opacity-60'
-                            }`}
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className="text-xs px-2 py-0.5 rounded-full font-medium"
-                                  style={{ backgroundColor: stateStyle.bgColor, color: stateStyle.color }}
-                                >
-                                  {stateStyle.label}
-                                </span>
-                                <span className="text-sm text-gray-600">
-                                  {packLabel} de {article.quantity}
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-4">
-                              <div className="text-right">
-                                <p className="font-semibold text-gray-900">{formatPrice(price)}</p>
-                                {article.custom_price && (
-                                  <p className="text-xs text-orange-600">Prix personnalisé</p>
-                                )}
-                              </div>
-                              <button
-                                onClick={() => toggleArticleActive(article)}
-                                className={`p-1.5 rounded-lg transition-colors ${
-                                  article.is_active
-                                    ? 'text-gray-400 hover:text-orange-600 hover:bg-orange-50'
-                                    : 'text-orange-600 bg-orange-50'
-                                }`}
-                              >
-                                <Archive size={16} />
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-
                       <Link
-                        href={`/catalogue/${ref.id}?tab=articles`}
-                        className="flex items-center justify-center gap-2 p-2 text-blue-600 hover:bg-blue-50 rounded-xl transition-colors text-sm font-medium"
+                        href={`/catalogue/${ref.id}`}
+                        className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                       >
-                        <Plus size={16} />
-                        Ajouter un article
+                        <Edit2 size={13} />
+                        Modifier la référence
                       </Link>
                     </div>
-                  </div>
-                )}
-
-                {isExpanded && activeArticles.length === 0 && (
-                  <div className="border-t border-gray-100 bg-gray-50/50 rounded-b-2xl p-6 text-center">
-                    <p className="text-gray-500 text-sm mb-2">Aucun article pour cette référence</p>
-                    <Link
-                      href={`/catalogue/${ref.id}?tab=articles`}
-                      className="inline-flex items-center gap-2 text-blue-600 text-sm font-medium"
-                    >
-                      <Plus size={16} />
-                      Créer un article
-                    </Link>
                   </div>
                 )}
               </div>
@@ -558,25 +597,28 @@ export default function CataloguePage() {
 
       {/* Modal gestion ateliers */}
       {showAteliersModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
-            <div className="flex items-center justify-between p-6 border-b border-gray-100">
+        <>
+          <div className="fixed inset-0 bg-black/40 z-50" onClick={() => setShowAteliersModal(false)} />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-xl lg:relative lg:inset-auto lg:rounded-2xl lg:max-w-md lg:mx-auto">
+            {/* Handle mobile */}
+            <div className="flex justify-center pt-3 pb-1 lg:hidden">
+              <div className="w-10 h-1 bg-gray-200 rounded-full" />
+            </div>
+
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <h2 className="text-lg font-bold text-gray-900">Gérer les ateliers</h2>
               <button onClick={() => setShowAteliersModal(false)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
                 <X size={20} />
               </button>
             </div>
 
-            <div className="p-6 space-y-4">
+            <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
               {/* Liste existante */}
               <div className="space-y-2">
                 {ateliers.map((atelier) => (
                   <div key={atelier.id} className="flex items-center justify-between px-4 py-3 rounded-xl border border-gray-100">
                     <div className="flex items-center gap-3">
-                      <span
-                        className="w-4 h-4 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: atelier.color }}
-                      />
+                      <span className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: atelier.color }} />
                       <span className="font-medium text-gray-900">{atelier.label}</span>
                       <span className="text-xs text-gray-400 font-mono">{atelier.value}</span>
                     </div>
@@ -625,7 +667,7 @@ export default function CataloguePage() {
               </div>
             </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );
