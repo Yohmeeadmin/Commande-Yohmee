@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { BarChart3, TrendingUp, Package, Layers, Calendar, Download } from 'lucide-react';
+import { BarChart3, TrendingUp, Package, Layers, Calendar, ChevronDown } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import {
   REPORT_PERIODS,
@@ -25,7 +25,6 @@ export default function RapportsPage() {
   const [selectedAtelier, setSelectedAtelier] = useState<string>('all');
   const [loading, setLoading] = useState(true);
 
-  // Data states
   const [salesByArticle, setSalesByArticle] = useState<SalesReportByArticle[]>([]);
   const [productionByRef, setProductionByRef] = useState<ProductionReportByReference[]>([]);
   const [productionByAtelier, setProductionByAtelier] = useState<ProductionReportByAtelier[]>([]);
@@ -47,7 +46,6 @@ export default function RapportsPage() {
         if (error) throw error;
         setSalesByArticle(data || []);
       } else if (view === 'references') {
-        // Fetch orders in date range
         const { data: ordersData, error: ordersError } = await supabase
           .from('orders')
           .select('id')
@@ -57,10 +55,7 @@ export default function RapportsPage() {
         if (ordersError) throw ordersError;
 
         const orderIds = (ordersData || []).map((o: any) => o.id);
-        if (orderIds.length === 0) {
-          setProductionByRef([]);
-          return;
-        }
+        if (orderIds.length === 0) { setProductionByRef([]); return; }
 
         const { data: items, error: itemsError } = await supabase
           .from('order_items')
@@ -75,7 +70,6 @@ export default function RapportsPage() {
           .in('order_id', orderIds);
         if (itemsError) throw itemsError;
 
-        // Aggregate client-side by reference + atelier
         const refMap = new Map<string, ProductionReportByReference>();
         (items || []).forEach((item: any) => {
           const ref = item.product_article?.product_reference;
@@ -97,10 +91,11 @@ export default function RapportsPage() {
             });
           }
         });
-        const sorted = Array.from(refMap.values()).sort(
-          (a, b) => a.atelier.localeCompare(b.atelier) || a.reference_name.localeCompare(b.reference_name)
+        setProductionByRef(
+          Array.from(refMap.values()).sort(
+            (a, b) => a.atelier.localeCompare(b.atelier) || a.reference_name.localeCompare(b.reference_name)
+          )
         );
-        setProductionByRef(sorted);
       } else if (view === 'ateliers') {
         const { data, error } = await supabase
           .from('v_production_by_atelier')
@@ -118,7 +113,6 @@ export default function RapportsPage() {
     }
   }
 
-  // Filtrer par atelier si nécessaire
   const filteredSales = selectedAtelier === 'all'
     ? salesByArticle
     : salesByArticle.filter(s => s.atelier === selectedAtelier);
@@ -131,77 +125,68 @@ export default function RapportsPage() {
     ? productionByAtelier
     : productionByAtelier.filter(p => p.atelier === selectedAtelier);
 
-  // Calculer les totaux
   const totals = {
     revenue: filteredSales.reduce((acc, s) => acc + s.total_revenue, 0),
     unitsOrdered: filteredSales.reduce((acc, s) => acc + s.total_units, 0),
     unitsDelivered: filteredSales.reduce((acc, s) => acc + s.total_delivered, 0),
   };
 
+  const periodLabel = REPORT_PERIODS.find(p => p.value === period)?.label || '';
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 lg:space-y-6">
+
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Rapports</h1>
-          <p className="text-gray-500 mt-1">
-            {formatDate(dateRange.start)} - {formatDate(dateRange.end)}
+          <h1 className="text-xl lg:text-2xl font-bold text-gray-900">Rapports</h1>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {formatDate(dateRange.start)} – {formatDate(dateRange.end)}
           </p>
         </div>
       </div>
 
       {/* Filtres */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-4">
-        {/* Vue */}
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => setView('articles')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-              view === 'articles'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            <Package size={16} />
-            Par article
-          </button>
-          <button
-            onClick={() => setView('references')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-              view === 'references'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            <Layers size={16} />
-            Par référence
-          </button>
-          <button
-            onClick={() => setView('ateliers')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
-              view === 'ateliers'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            <BarChart3 size={16} />
-            Par atelier
-          </button>
+      <div className="space-y-3">
+        {/* Tabs vue */}
+        <div className="flex gap-2 overflow-x-auto scrollbar-none">
+          {([
+            { key: 'articles',    label: 'Par article',    icon: Package },
+            { key: 'references',  label: 'Par référence',  icon: Layers },
+            { key: 'ateliers',    label: 'Par atelier',    icon: BarChart3 },
+          ] as { key: ReportView; label: string; icon: React.ComponentType<{ size?: number }> }[]).map(tab => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setView(tab.key)}
+                className={`flex-shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                  view === tab.key
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                <Icon size={15} />
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
 
-        {/* Période + Atelier */}
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="flex items-center gap-2">
-            <Calendar size={18} className="text-gray-400" />
+        {/* Période + atelier */}
+        <div className="flex gap-2 flex-wrap">
+          <div className="relative">
+            <Calendar size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
             <select
               value={period}
               onChange={(e) => setPeriod(e.target.value as ReportPeriod)}
-              className="px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className="pl-8 pr-8 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white appearance-none"
             >
               {REPORT_PERIODS.map(p => (
                 <option key={p.value} value={p.value}>{p.label}</option>
               ))}
             </select>
+            <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
           </div>
 
           {period === 'custom' && (
@@ -210,67 +195,62 @@ export default function RapportsPage() {
                 type="date"
                 value={customStart}
                 onChange={(e) => setCustomStart(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              <span className="text-gray-400">-</span>
+              <span className="text-gray-400 text-sm">–</span>
               <input
                 type="date"
                 value={customEnd}
                 onChange={(e) => setCustomEnd(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           )}
 
-          <select
-            value={selectedAtelier}
-            onChange={(e) => setSelectedAtelier(e.target.value)}
-            className="px-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-          >
-            <option value="all">Tous les ateliers</option>
-            {ateliers.map(a => (
-              <option key={a.value} value={a.value}>{a.label}</option>
-            ))}
-          </select>
+          <div className="relative">
+            <select
+              value={selectedAtelier}
+              onChange={(e) => setSelectedAtelier(e.target.value)}
+              className="pl-3 pr-8 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white appearance-none"
+            >
+              <option value="all">Tous les ateliers</option>
+              {ateliers.map(a => (
+                <option key={a.value} value={a.value}>{a.label}</option>
+              ))}
+            </select>
+            <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          </div>
         </div>
       </div>
 
-      {/* Stats résumées */}
+      {/* Stats résumées — articles uniquement */}
       {view === 'articles' && (
-        <div className="grid grid-cols-3 gap-4">
-          <div className="bg-white rounded-2xl border border-gray-100 p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-green-50 rounded-xl flex items-center justify-center">
-                <TrendingUp className="text-green-600" size={20} />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-gray-900">{formatPrice(totals.revenue)}</p>
-                <p className="text-sm text-gray-500">Chiffre d'affaires</p>
-              </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="bg-white rounded-2xl border border-gray-100 p-4 flex items-center gap-3">
+            <div className="w-10 h-10 bg-green-50 rounded-xl flex items-center justify-center flex-shrink-0">
+              <TrendingUp className="text-green-600" size={20} />
+            </div>
+            <div>
+              <p className="text-xl font-bold text-gray-900">{formatPrice(totals.revenue)}</p>
+              <p className="text-xs text-gray-500">Chiffre d'affaires</p>
             </div>
           </div>
-
-          <div className="bg-white rounded-2xl border border-gray-100 p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
-                <Package className="text-blue-600" size={20} />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-gray-900">{formatNumber(totals.unitsOrdered)}</p>
-                <p className="text-sm text-gray-500">Unités commandées</p>
-              </div>
+          <div className="bg-white rounded-2xl border border-gray-100 p-4 flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center flex-shrink-0">
+              <Package className="text-blue-600" size={20} />
+            </div>
+            <div>
+              <p className="text-xl font-bold text-gray-900">{formatNumber(totals.unitsOrdered)}</p>
+              <p className="text-xs text-gray-500">Unités commandées</p>
             </div>
           </div>
-
-          <div className="bg-white rounded-2xl border border-gray-100 p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center">
-                <Package className="text-emerald-600" size={20} />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-gray-900">{formatNumber(totals.unitsDelivered)}</p>
-                <p className="text-sm text-gray-500">Unités livrées</p>
-              </div>
+          <div className="bg-white rounded-2xl border border-gray-100 p-4 flex items-center gap-3">
+            <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center flex-shrink-0">
+              <Package className="text-emerald-600" size={20} />
+            </div>
+            <div>
+              <p className="text-xl font-bold text-gray-900">{formatNumber(totals.unitsDelivered)}</p>
+              <p className="text-xs text-gray-500">Unités livrées</p>
             </div>
           </div>
         </div>
@@ -278,167 +258,251 @@ export default function RapportsPage() {
 
       {/* Contenu */}
       {loading ? (
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <div className="flex items-center justify-center h-48">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
         </div>
       ) : (
         <>
           {/* Rapport par article */}
           {view === 'articles' && (
-            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-100">
-                  <tr>
-                    <th className="text-left px-4 py-3 text-sm font-medium text-gray-500">Article</th>
-                    <th className="text-left px-4 py-3 text-sm font-medium text-gray-500">Atelier</th>
-                    <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">Commandé</th>
-                    <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">Livré</th>
-                    <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">Unités</th>
-                    <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">CA</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredSales.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                        Aucune donnée pour cette période
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredSales.map((sale, index) => {
+            <>
+              {filteredSales.length === 0 ? (
+                <EmptyState />
+              ) : (
+                <>
+                  {/* Cards mobile */}
+                  <div className="space-y-2 lg:hidden">
+                    {filteredSales.map((sale, index) => {
                       const atelierStyle = getAtelierStyle(sale.atelier);
                       return (
-                        <tr key={index} className="border-b border-gray-50 hover:bg-gray-50">
-                          <td className="px-4 py-3">
-                            <div>
-                              <p className="font-medium text-gray-900">{sale.reference_name}</p>
-                              <p className="text-sm text-gray-500">{sale.article_display_name}</p>
+                        <div key={index} className="bg-white rounded-2xl border border-gray-100 p-4">
+                          <div className="flex items-start justify-between gap-3 mb-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="font-semibold text-gray-900 text-sm leading-tight">{sale.reference_name}</p>
+                              <p className="text-xs text-gray-500 mt-0.5 truncate">{sale.article_display_name}</p>
                             </div>
-                          </td>
-                          <td className="px-4 py-3">
                             <span
-                              className="text-xs px-2 py-1 rounded-full font-medium"
+                              className="flex-shrink-0 text-xs px-2 py-1 rounded-full font-medium"
                               style={{ backgroundColor: atelierStyle.bgColor, color: atelierStyle.color }}
                             >
                               {atelierStyle.label}
                             </span>
-                          </td>
-                          <td className="px-4 py-3 text-right font-medium">{sale.total_ordered}</td>
-                          <td className="px-4 py-3 text-right font-medium">{sale.total_delivered}</td>
-                          <td className="px-4 py-3 text-right font-medium">{formatNumber(sale.total_units)}</td>
-                          <td className="px-4 py-3 text-right font-bold text-gray-900">{formatPrice(sale.total_revenue)}</td>
-                        </tr>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2">
+                            <div className="text-center bg-gray-50 rounded-xl p-2">
+                              <p className="text-base font-bold text-gray-900">{sale.total_ordered}</p>
+                              <p className="text-xs text-gray-500">Commandé</p>
+                            </div>
+                            <div className="text-center bg-gray-50 rounded-xl p-2">
+                              <p className="text-base font-bold text-gray-900">{sale.total_delivered}</p>
+                              <p className="text-xs text-gray-500">Livré</p>
+                            </div>
+                            <div className="text-center bg-green-50 rounded-xl p-2">
+                              <p className="text-base font-bold text-green-700">{formatPrice(sale.total_revenue)}</p>
+                              <p className="text-xs text-gray-500">CA</p>
+                            </div>
+                          </div>
+                        </div>
                       );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    })}
+                  </div>
+
+                  {/* Tableau desktop */}
+                  <div className="hidden lg:block bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                    <table className="w-full">
+                      <thead className="bg-gray-50 border-b border-gray-100">
+                        <tr>
+                          <th className="text-left px-4 py-3 text-sm font-medium text-gray-500">Article</th>
+                          <th className="text-left px-4 py-3 text-sm font-medium text-gray-500">Atelier</th>
+                          <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">Commandé</th>
+                          <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">Livré</th>
+                          <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">Unités</th>
+                          <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">CA</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredSales.map((sale, index) => {
+                          const atelierStyle = getAtelierStyle(sale.atelier);
+                          return (
+                            <tr key={index} className="border-b border-gray-50 hover:bg-gray-50">
+                              <td className="px-4 py-3">
+                                <p className="font-medium text-gray-900">{sale.reference_name}</p>
+                                <p className="text-sm text-gray-500">{sale.article_display_name}</p>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className="text-xs px-2 py-1 rounded-full font-medium" style={{ backgroundColor: atelierStyle.bgColor, color: atelierStyle.color }}>
+                                  {atelierStyle.label}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-right font-medium">{sale.total_ordered}</td>
+                              <td className="px-4 py-3 text-right font-medium">{sale.total_delivered}</td>
+                              <td className="px-4 py-3 text-right font-medium">{formatNumber(sale.total_units)}</td>
+                              <td className="px-4 py-3 text-right font-bold text-gray-900">{formatPrice(sale.total_revenue)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </>
           )}
 
           {/* Rapport par référence */}
           {view === 'references' && (
-            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b border-gray-100">
-                  <tr>
-                    <th className="text-left px-4 py-3 text-sm font-medium text-gray-500">Référence</th>
-                    <th className="text-left px-4 py-3 text-sm font-medium text-gray-500">Atelier</th>
-                    <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">Unités commandées</th>
-                    <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">Unités livrées</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredProduction.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
-                        Aucune donnée pour cette période
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredProduction.map((prod, index) => {
+            <>
+              {filteredProduction.length === 0 ? (
+                <EmptyState />
+              ) : (
+                <>
+                  {/* Cards mobile */}
+                  <div className="space-y-2 lg:hidden">
+                    {filteredProduction.map((prod, index) => {
                       const atelierStyle = getAtelierStyle(prod.atelier);
+                      const deliveryRate = prod.total_units_ordered > 0
+                        ? Math.round((prod.total_units_delivered / prod.total_units_ordered) * 100)
+                        : 0;
                       return (
-                        <tr key={index} className="border-b border-gray-50 hover:bg-gray-50">
-                          <td className="px-4 py-3">
-                            <div>
-                              <p className="font-mono text-sm text-gray-500">{prod.reference_code}</p>
-                              <p className="font-medium text-gray-900">{prod.reference_name}</p>
+                        <div key={index} className="bg-white rounded-2xl border border-gray-100 p-4">
+                          <div className="flex items-start justify-between gap-3 mb-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="font-semibold text-gray-900 text-sm">{prod.reference_name}</p>
+                              <p className="text-xs text-gray-400 font-mono mt-0.5">{prod.reference_code}</p>
                             </div>
-                          </td>
-                          <td className="px-4 py-3">
                             <span
-                              className="text-xs px-2 py-1 rounded-full font-medium"
+                              className="flex-shrink-0 text-xs px-2 py-1 rounded-full font-medium"
                               style={{ backgroundColor: atelierStyle.bgColor, color: atelierStyle.color }}
                             >
                               {atelierStyle.label}
                             </span>
-                          </td>
-                          <td className="px-4 py-3 text-right font-bold">{formatNumber(prod.total_units_ordered)}</td>
-                          <td className="px-4 py-3 text-right font-bold">{formatNumber(prod.total_units_delivered)}</td>
-                        </tr>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="text-center bg-blue-50 rounded-xl p-2">
+                              <p className="text-lg font-bold text-blue-700">{formatNumber(prod.total_units_ordered)}</p>
+                              <p className="text-xs text-gray-500">Commandé</p>
+                            </div>
+                            <div className="text-center bg-emerald-50 rounded-xl p-2">
+                              <p className="text-lg font-bold text-emerald-700">{formatNumber(prod.total_units_delivered)}</p>
+                              <p className="text-xs text-gray-500">Livré · {deliveryRate}%</p>
+                            </div>
+                          </div>
+                        </div>
                       );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    })}
+                  </div>
+
+                  {/* Tableau desktop */}
+                  <div className="hidden lg:block bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                    <table className="w-full">
+                      <thead className="bg-gray-50 border-b border-gray-100">
+                        <tr>
+                          <th className="text-left px-4 py-3 text-sm font-medium text-gray-500">Référence</th>
+                          <th className="text-left px-4 py-3 text-sm font-medium text-gray-500">Atelier</th>
+                          <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">Unités commandées</th>
+                          <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">Unités livrées</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredProduction.map((prod, index) => {
+                          const atelierStyle = getAtelierStyle(prod.atelier);
+                          return (
+                            <tr key={index} className="border-b border-gray-50 hover:bg-gray-50">
+                              <td className="px-4 py-3">
+                                <p className="font-mono text-sm text-gray-500">{prod.reference_code}</p>
+                                <p className="font-medium text-gray-900">{prod.reference_name}</p>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className="text-xs px-2 py-1 rounded-full font-medium" style={{ backgroundColor: atelierStyle.bgColor, color: atelierStyle.color }}>
+                                  {atelierStyle.label}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-right font-bold">{formatNumber(prod.total_units_ordered)}</td>
+                              <td className="px-4 py-3 text-right font-bold">{formatNumber(prod.total_units_delivered)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </>
           )}
 
           {/* Rapport par atelier */}
           {view === 'ateliers' && (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {filteredAtelierStats.length === 0 ? (
-                <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
-                  <p className="text-gray-500">Aucune donnée pour cette période</p>
-                </div>
+                <EmptyState />
               ) : (
-                ateliers.filter(a => selectedAtelier === 'all' || a.value === selectedAtelier).map(atelier => {
-                  const atelierData = filteredAtelierStats.filter(p => p.atelier === atelier.value);
-                  if (atelierData.length === 0) return null;
+                ateliers
+                  .filter(a => selectedAtelier === 'all' || a.value === selectedAtelier)
+                  .map(atelier => {
+                    const atelierData = filteredAtelierStats.filter(p => p.atelier === atelier.value);
+                    if (atelierData.length === 0) return null;
 
-                  const totalUnitsOrdered = atelierData.reduce((acc, d) => acc + d.total_units_ordered, 0);
-                  const totalUnitsDelivered = atelierData.reduce((acc, d) => acc + d.total_units_delivered, 0);
-                  const totalRefs = atelierData.reduce((acc, d) => acc + d.total_references, 0);
+                    const totalUnitsOrdered = atelierData.reduce((acc, d) => acc + d.total_units_ordered, 0);
+                    const totalUnitsDelivered = atelierData.reduce((acc, d) => acc + d.total_units_delivered, 0);
+                    const totalRefs = atelierData.reduce((acc, d) => acc + d.total_references, 0);
 
-                  return (
-                    <div key={atelier.value} className="bg-white rounded-2xl border border-gray-100 p-4">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className="w-10 h-10 rounded-xl flex items-center justify-center"
-                            style={{ backgroundColor: atelier.bg_color }}
-                          >
+                    return (
+                      <div key={atelier.value} className="bg-white rounded-2xl border border-gray-100 p-4">
+                        {/* En-tête atelier */}
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: atelier.bg_color }}>
                             <Layers style={{ color: atelier.color }} size={20} />
                           </div>
-                          <div>
+                          <div className="flex-1">
                             <h3 className="font-semibold text-gray-900">{atelier.label}</h3>
-                            <p className="text-sm text-gray-500">{totalRefs} références sur la période</p>
+                            <p className="text-xs text-gray-500">{totalRefs} références</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xl font-bold text-gray-900">{formatNumber(totalUnitsOrdered)}</p>
+                            <p className="text-xs text-gray-500">unités cmd.</p>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <p className="text-2xl font-bold text-gray-900">{formatNumber(totalUnitsOrdered)}</p>
-                          <p className="text-sm text-gray-500">unités commandées</p>
-                        </div>
-                      </div>
 
-                      {/* Mini tableau par jour */}
-                      <div className="grid grid-cols-7 gap-2">
-                        {atelierData.slice(0, 7).map((day, idx) => (
-                          <div key={idx} className="text-center p-2 bg-gray-50 rounded-lg">
-                            <p className="text-xs text-gray-500">{formatDate(day.delivery_date).split(' ')[0]}</p>
-                            <p className="font-bold text-gray-900">{day.total_units_ordered}</p>
+                        {/* Stats */}
+                        <div className="grid grid-cols-2 gap-2 mb-4">
+                          <div className="bg-blue-50 rounded-xl p-3 text-center">
+                            <p className="text-lg font-bold text-blue-700">{formatNumber(totalUnitsOrdered)}</p>
+                            <p className="text-xs text-gray-500">Commandées</p>
                           </div>
-                        ))}
+                          <div className="bg-emerald-50 rounded-xl p-3 text-center">
+                            <p className="text-lg font-bold text-emerald-700">{formatNumber(totalUnitsDelivered)}</p>
+                            <p className="text-xs text-gray-500">Livrées</p>
+                          </div>
+                        </div>
+
+                        {/* Jours — scroll horizontal */}
+                        <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
+                          {atelierData.map((day, idx) => (
+                            <div key={idx} className="flex-shrink-0 text-center px-3 py-2 bg-gray-50 rounded-xl min-w-[56px]">
+                              <p className="text-xs text-gray-500 mb-1">{formatDate(day.delivery_date).split(' ')[0]}</p>
+                              <p className="font-bold text-gray-900 text-sm">{day.total_units_ordered}</p>
+                            </div>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })
+                    );
+                  })
               )}
             </div>
           )}
         </>
       )}
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
+      <div className="w-14 h-14 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+        <BarChart3 className="text-gray-400" size={24} />
+      </div>
+      <p className="text-gray-500">Aucune donnée pour cette période</p>
     </div>
   );
 }
