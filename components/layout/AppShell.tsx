@@ -6,7 +6,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import {
   MoreHorizontal, X, ChevronRight,
-  RefreshCw, Users, Package, BarChart3, Settings, LogOut, LineChart,
+  RefreshCw, Users, Package, BarChart3, Settings, LogOut,
 } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { useAppSettings } from '@/lib/useAppSettings';
@@ -27,9 +27,8 @@ const OVERFLOW_NAV: {
   { name: 'Récurrentes', href: '/recurrences', icon: RefreshCw, module: 'recurrences' },
   { name: 'Clients',     href: '/clients',     icon: Users,     module: 'clients' },
   { name: 'Catalogue',   href: '/catalogue',   icon: Package,   module: 'catalogue' },
-  { name: 'Rapports',    href: '/rapports',    icon: BarChart3,  module: 'rapports' },
-  { name: 'Analyse',     href: '/dashboard',   icon: LineChart,  module: 'rapports' },
-  { name: 'Paramètres',  href: '/parametres',  icon: Settings,   module: 'parametres' },
+  { name: 'Rapports',    href: '/rapports',    icon: BarChart3, module: 'rapports' },
+  { name: 'Paramètres',  href: '/parametres',  icon: Settings,  module: 'parametres' },
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
