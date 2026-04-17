@@ -426,7 +426,7 @@ export default function DashboardPage() {
   });
 
   return (
-    <div className="max-w-4xl mx-auto space-y-4">
+    <div className="space-y-4">
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
