@@ -5,8 +5,8 @@ import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   ArrowLeft, Save, AlertCircle, ShoppingCart, Package,
-  Calendar, TrendingUp, TrendingDown, Minus, AlertTriangle,
-  Phone, Mail, MapPin, Trash2, ChevronRight,
+  TrendingUp, TrendingDown, AlertTriangle,
+  Trash2, ChevronRight, RefreshCw,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { CLIENT_TYPES, JOURS_SEMAINE } from '@/types';
@@ -51,7 +51,8 @@ export default function EditClientPage() {
 
   // History state
   const [periodDays, setPeriodDays] = useState(90);
-  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [allOrders, setAllOrders] = useState<OrderHistory[]>([]);
   const [periodOrders, setPeriodOrders] = useState<OrderHistory[]>([]);
   const [articleStats, setArticleStats] = useState<ArticleStat[]>([]);
@@ -69,7 +70,11 @@ export default function EditClientPage() {
   const quartiersDisponibles = form.ville ? (QUARTIERS_PAR_VILLE[form.ville] || []) : [];
 
   useEffect(() => { loadClient(); }, [id]);
-  useEffect(() => { if (activeTab === 'historique') loadHistory(); }, [activeTab, id]);
+  useEffect(() => {
+    if (activeTab === 'historique' && !historyLoaded) {
+      loadHistory();
+    }
+  }, [activeTab, id]);
 
   async function loadClient() {
     const { data, error } = await supabase.from('clients').select('*').eq('id', id).single();
@@ -92,27 +97,59 @@ export default function EditClientPage() {
       const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0];
       const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split('T')[0];
 
-      const [{ data: orders }, { data: cmOrders }, { data: pmOrders }] = await Promise.all([
-        supabase.from('orders').select(`id, numero, delivery_date, status, total, items:order_items(quantity_ordered, unit_price, product_article:product_articles!product_article_id(display_name))`).eq('client_id', id).not('status', 'eq', 'annulee').order('delivery_date', { ascending: false }).limit(100),
+      const [ordersResult, cmResult, pmResult] = await Promise.all([
+        supabase
+          .from('orders')
+          .select(`
+            id, numero, delivery_date, status, total,
+            items:order_items(
+              quantity_ordered, unit_price,
+              product_article:product_articles(display_name)
+            )
+          `)
+          .eq('client_id', id)
+          .not('status', 'eq', 'annulee')
+          .order('delivery_date', { ascending: false })
+          .limit(200),
         supabase.from('orders').select('total').eq('client_id', id).not('status', 'eq', 'annulee').gte('delivery_date', currentMonthStart),
         supabase.from('orders').select('total').eq('client_id', id).not('status', 'eq', 'annulee').gte('delivery_date', prevMonthStart).lte('delivery_date', prevMonthEnd),
       ]);
 
-      setCurrentMonth({ orders: cmOrders?.length || 0, amount: (cmOrders || []).reduce((s: number, o: any) => s + (o.total || 0), 0) });
-      setPreviousMonth({ orders: pmOrders?.length || 0, amount: (pmOrders || []).reduce((s: number, o: any) => s + (o.total || 0), 0) });
+      if (ordersResult.error) throw ordersResult.error;
 
-      const mapped: OrderHistory[] = (orders || []).map((o: any) => ({
-        id: o.id, numero: o.numero, delivery_date: o.delivery_date, status: o.status, total: o.total,
-        items: (o.items || []).map((it: any) => ({ display_name: it.product_article?.display_name || '?', quantity_ordered: it.quantity_ordered, unit_price: it.unit_price })),
+      setCurrentMonth({
+        orders: cmResult.data?.length || 0,
+        amount: (cmResult.data || []).reduce((s: number, o: any) => s + (o.total || 0), 0),
+      });
+      setPreviousMonth({
+        orders: pmResult.data?.length || 0,
+        amount: (pmResult.data || []).reduce((s: number, o: any) => s + (o.total || 0), 0),
+      });
+
+      const mapped: OrderHistory[] = (ordersResult.data || []).map((o: any) => ({
+        id: o.id,
+        numero: o.numero,
+        delivery_date: o.delivery_date,
+        status: o.status,
+        total: o.total,
+        items: (o.items || []).map((it: any) => ({
+          display_name: it.product_article?.display_name || 'Article supprimé',
+          quantity_ordered: it.quantity_ordered,
+          unit_price: it.unit_price,
+        })),
       }));
       setAllOrders(mapped);
+      setHistoryLoaded(true);
 
       if (mapped.length > 0) {
         const lastDate = new Date(mapped[0].delivery_date);
         setDaysSinceLastOrder(Math.floor((now.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24)));
       }
-    } catch (e) { console.error(e); }
-    finally { setLoadingHistory(false); }
+    } catch (e: any) {
+      console.error('Erreur historique:', e);
+    } finally {
+      setLoadingHistory(false);
+    }
   }
 
   // Filtrer les commandes par période sélectionnée
@@ -223,7 +260,15 @@ export default function EditClientPage() {
         <button onClick={() => setActiveTab('infos')} className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${activeTab === 'infos' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>
           Informations
         </button>
-        <button onClick={() => setActiveTab('historique')} className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${activeTab === 'historique' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>
+        <button
+          onClick={() => {
+            if (activeTab !== 'historique') {
+              if (!historyLoaded) setLoadingHistory(true);
+              setActiveTab('historique');
+            }
+          }}
+          className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${activeTab === 'historique' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
+        >
           Historique
         </button>
       </div>
@@ -393,9 +438,17 @@ export default function EditClientPage() {
             <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center">
               <ShoppingCart className="text-gray-300 mx-auto mb-3" size={36} />
               <p className="text-gray-500 font-medium">Aucune commande</p>
-              <Link href={`/commandes/nouvelle`} className="mt-3 inline-flex items-center gap-1.5 text-blue-600 text-sm font-semibold">
-                Créer une commande →
-              </Link>
+              <div className="flex items-center justify-center gap-4 mt-3">
+                <Link href={`/commandes/nouvelle`} className="inline-flex items-center gap-1.5 text-blue-600 text-sm font-semibold">
+                  Créer une commande →
+                </Link>
+                <button
+                  onClick={() => { setHistoryLoaded(false); loadHistory(); }}
+                  className="inline-flex items-center gap-1.5 text-gray-400 text-sm"
+                >
+                  <RefreshCw size={14} /> Actualiser
+                </button>
+              </div>
             </div>
           ) : (
             <>
@@ -485,19 +538,43 @@ export default function EditClientPage() {
               )}
 
               {/* Liste commandes */}
-              {periodOrders.length > 1 && (
+              {periodOrders.length > 0 && (
                 <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-                  <div className="px-4 py-3 border-b border-gray-50">
-                    <p className="font-semibold text-gray-900 text-sm">Toutes les commandes ({periodOrders.length})</p>
+                  <div className="px-4 py-3 border-b border-gray-50 flex items-center justify-between">
+                    <p className="font-semibold text-gray-900 text-sm">Commandes ({periodOrders.length})</p>
+                    <button
+                      onClick={() => { setHistoryLoaded(false); loadHistory(); }}
+                      className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                    >
+                      <RefreshCw size={14} />
+                    </button>
                   </div>
                   <div className="divide-y divide-gray-50">
                     {periodOrders.map(order => (
-                      <Link key={order.id} href={`/commandes/${order.id}`} className="flex items-center justify-between px-4 py-3 active:bg-gray-50">
-                        <div>
-                          <p className="font-semibold text-gray-800 text-sm">{order.numero}</p>
-                          <p className="text-xs text-gray-400">{formatDate(order.delivery_date)}</p>
+                      <Link key={order.id} href={`/commandes/${order.id}`} className="flex items-start justify-between px-4 py-3 active:bg-gray-50 gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold text-gray-800 text-sm">{order.numero}</p>
+                            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+                              order.status === 'livree' ? 'bg-green-100 text-green-700' :
+                              order.status === 'confirmee' ? 'bg-blue-100 text-blue-700' :
+                              order.status === 'production' ? 'bg-purple-100 text-purple-700' :
+                              'bg-gray-100 text-gray-500'
+                            }`}>
+                              {order.status === 'livree' ? 'Livrée' :
+                               order.status === 'confirmee' ? 'Conf.' :
+                               order.status === 'production' ? 'Prod.' : order.status}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-400 mt-0.5">{formatDate(order.delivery_date)}</p>
+                          {order.items.length > 0 && (
+                            <p className="text-xs text-gray-500 mt-1 truncate">
+                              {order.items.slice(0, 2).map(it => `×${it.quantity_ordered} ${it.display_name}`).join(' · ')}
+                              {order.items.length > 2 && ` +${order.items.length - 2}`}
+                            </p>
+                          )}
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5 flex-shrink-0 mt-0.5">
                           <span className="font-bold text-gray-900 text-sm">{formatPrice(order.total)}</span>
                           <ChevronRight size={14} className="text-gray-300" />
                         </div>
