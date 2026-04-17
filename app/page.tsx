@@ -423,6 +423,7 @@ export default function DashboardPage() {
 
   const dateLabel = new Date().toLocaleDateString('fr-FR', {
     weekday: 'long', day: 'numeric', month: 'long',
+    timeZone: 'UTC',
   });
 
   return (
