@@ -5,11 +5,13 @@ import Link from 'next/link';
 import {
   ChevronLeft, ChevronRight, Printer, Settings,
   GripVertical, CheckCircle, Phone, MapPin, Package, UserCircle, Plus,
-  X, ChevronUp, ChevronDown, ChevronsUpDown,
+  X, ChevronUp, ChevronDown, ChevronsUpDown, Navigation,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { Driver, driverFullName, driverInitials } from '@/types';
 import { formatPrice } from '@/lib/utils';
+import CreateRouteModal from '@/components/livraisons/CreateRouteModal';
+import { ROUTE_STATUSES, DeliveryRouteWithDetails } from '@/types/delivery-routes';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -63,6 +65,64 @@ const DRIVER_COLORS = [
   { bg: '#FEF3C7', text: '#92400E', ring: '#FCD34D' },
 ];
 
+// ─── RouteCard ────────────────────────────────────────────────────────────────
+
+function RouteCard({
+  route,
+  orders,
+}: {
+  route: DeliveryRouteWithDetails;
+  orders: DeliveryOrder[];
+}) {
+  const statusInfo = ROUTE_STATUSES.find(s => s.value === route.status);
+  const routeOrders = route.route_orders
+    .slice()
+    .sort((a, b) => (a.delivery_order_index ?? 0) - (b.delivery_order_index ?? 0))
+    .map(ro => orders.find(o => o.id === ro.order_id))
+    .filter((o): o is DeliveryOrder => !!o);
+  const outOfSlot = route.route_orders.filter(ro => ro.is_out_of_slot).length;
+
+  return (
+    <div className="bg-white rounded-2xl border border-blue-100 overflow-hidden">
+      <div className="flex items-center gap-3 px-4 py-3 bg-blue-50/60 border-b border-blue-100">
+        <Navigation size={14} className="text-blue-500 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-gray-900 text-sm leading-none">{route.route_number}</p>
+          {route.driver && (
+            <p className="text-xs text-gray-500 mt-0.5">
+              {route.driver.first_name} {route.driver.last_name}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span
+            className="text-xs font-semibold px-2 py-0.5 rounded-full"
+            style={{ backgroundColor: statusInfo?.bgColor, color: statusInfo?.color }}
+          >
+            {statusInfo?.label}
+          </span>
+          <span className="text-xs text-gray-400 font-medium whitespace-nowrap">
+            {route.total_orders} arr. · {formatPrice(route.total_revenue)}
+          </span>
+        </div>
+      </div>
+
+      {routeOrders.length > 0 && (
+        <div className="px-4 py-2.5">
+          <p className="text-xs text-gray-500 truncate">
+            {routeOrders.map(o => o.client?.nom ?? o.numero).join(' · ')}
+          </p>
+          {outOfSlot > 0 && (
+            <p className="text-xs text-amber-600 mt-0.5">
+              ⚠️ {outOfSlot} commande{outOfSlot > 1 ? 's' : ''} hors créneau
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function LivraisonsPage() {
@@ -88,6 +148,11 @@ export default function LivraisonsPage() {
   const [printSlotIds, setPrintSlotIds] = useState<Set<string>>(new Set(['all']));
   const [previewIndex, setPreviewIndex] = useState(0);
 
+  // ── Tournées ─────────────────────────────────────────────────────────────
+  const [routes, setRoutes] = useState<DeliveryRouteWithDetails[]>([]);
+  const [showCreateRoute, setShowCreateRoute] = useState(false);
+  const [createRouteInitialSlot, setCreateRouteInitialSlot] = useState<Slot | null>(null);
+
   // ── Load ────────────────────────────────────────────────────────────────────
 
   const loadData = useCallback(async (d: string) => {
@@ -95,7 +160,7 @@ export default function LivraisonsPage() {
     try {
       await supabase.rpc('generate_orders_from_recurring', { target_date: d });
 
-      const [{ data: driversData }, { data: slotsData }, { data: ordersData }] = await Promise.all([
+      const [{ data: driversData }, { data: slotsData }, { data: ordersData }, { data: routesData }] = await Promise.all([
         supabase.from('drivers').select('*').eq('is_active', true).order('first_name'),
         supabase.from('delivery_slots').select('*').eq('is_active', true).order('sort_order'),
         supabase.from('orders').select(`
@@ -107,11 +172,23 @@ export default function LivraisonsPage() {
           .eq('delivery_date', d)
           .not('status', 'eq', 'annulee')
           .order('driver_sequence', { ascending: true, nullsFirst: false }),
+        supabase.from('delivery_routes').select(`
+          id, route_number, delivery_date, delivery_slot_id, driver_id, status,
+          total_orders, total_revenue, notes, started_at, completed_at, created_at, updated_at,
+          driver:drivers(first_name, last_name, phone),
+          route_orders:delivery_route_orders(
+            id, route_id, order_id, assigned_at, delivery_order_index,
+            order_amount_snapshot, original_slot_id, is_out_of_slot, status, created_at
+          )
+        `)
+          .eq('delivery_date', d)
+          .not('status', 'eq', 'cancelled'),
       ]);
 
       setDrivers(driversData || []);
       setSlots(slotsData || []);
       setOrders((ordersData as DeliveryOrder[]) || []);
+      setRoutes((routesData as DeliveryRouteWithDetails[]) || []);
     } finally {
       setLoading(false);
     }
@@ -345,6 +422,11 @@ export default function LivraisonsPage() {
 
   const printStopCount = [...printDriverIds].reduce((acc, dId) => acc + getPrintOrders(dId).length, 0);
   const hasUnassignedOrders = orders.some(o => !o.driver_id);
+
+  function openCreateRoute(slot: Slot | null) {
+    setCreateRouteInitialSlot(slot);
+    setShowCreateRoute(true);
+  }
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
@@ -581,13 +663,45 @@ export default function LivraisonsPage() {
             {slotGroups.map(({ key, slot, driverGroups }) => (
               <div key={key}>
                 {/* En-tête créneau */}
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="h-px flex-1 bg-gray-200" />
-                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                    {slot ? slotLabel(slot) : 'Sans créneau'}
-                  </span>
-                  <div className="h-px flex-1 bg-gray-200" />
-                </div>
+                {(() => {
+                  const slotId = slot?.id ?? null;
+                  const slotRoutes = routes.filter(
+                    r => (r.delivery_slot_id ?? null) === slotId
+                  );
+                  return (
+                    <>
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="h-px flex-1 bg-gray-200" />
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                            {slot ? slotLabel(slot) : 'Sans créneau'}
+                          </span>
+                          {slotRoutes.length > 0 && (
+                            <span className="text-xs bg-blue-100 text-blue-700 font-bold px-1.5 py-0.5 rounded-full">
+                              {slotRoutes.length} tournée{slotRoutes.length > 1 ? 's' : ''}
+                            </span>
+                          )}
+                        </div>
+                        <div className="h-px flex-1 bg-gray-200" />
+                        <button
+                          onClick={() => openCreateRoute(slot)}
+                          className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-full transition-colors shrink-0"
+                        >
+                          <Plus size={11} /> Tournée
+                        </button>
+                      </div>
+
+                      {/* Tournées du créneau */}
+                      {slotRoutes.length > 0 && (
+                        <div className="space-y-2 mb-4">
+                          {slotRoutes.map(route => (
+                            <RouteCard key={route.id} route={route} orders={orders} />
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
 
                 {/* Groupes chauffeurs */}
                 <div className="space-y-4">
@@ -928,6 +1042,23 @@ export default function LivraisonsPage() {
             )}
           </div>
         </>
+      )}
+
+      {/* ── Modal création tournée ──────────────────────────────────────────── */}
+      {showCreateRoute && (
+        <CreateRouteModal
+          date={date}
+          initialSlot={createRouteInitialSlot}
+          slots={slots}
+          drivers={drivers}
+          allOrders={orders.filter(o => o.status !== 'livree' && o.status !== 'annulee')}
+          existingRoutes={routes}
+          onClose={() => setShowCreateRoute(false)}
+          onCreated={route => {
+            setRoutes(prev => [...prev, route]);
+            setShowCreateRoute(false);
+          }}
+        />
       )}
 
       {/* ── Modal impression ────────────────────────────────────────────────── */}
