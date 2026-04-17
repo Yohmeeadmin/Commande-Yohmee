@@ -15,6 +15,7 @@ import {
   Settings,
   LogOut,
   RefreshCw,
+  LineChart,
 } from 'lucide-react';
 import Image from 'next/image';
 import { useUser } from '@/contexts/UserContext';
@@ -32,6 +33,7 @@ const ALL_NAVIGATION: { name: string; href: string; icon: React.ComponentType<{ 
   { name: 'Livraisons',   href: '/livraisons',  icon: Truck,           module: 'livraisons' },
   { name: 'Production',   href: '/production',  icon: ClipboardList,   module: 'production' },
   { name: 'Rapports',     href: '/rapports',    icon: BarChart3,       module: 'rapports' },
+  { name: 'Analyse',      href: '/dashboard',   icon: LineChart,       module: 'rapports' },
   { name: 'Paramètres',   href: '/parametres',  icon: Settings,        module: 'parametres' },
 ];
 
