@@ -469,12 +469,12 @@ export default function EditClientPage() {
                   <p className="text-xs text-gray-400">commandes</p>
                 </div>
                 <div className="bg-white rounded-2xl border border-gray-100 p-3 text-center">
-                  <p className="text-lg font-black text-gray-900">{formatPrice(totalPeriod)}</p>
-                  <p className="text-xs text-gray-400">CA période</p>
+                  <p className="text-sm font-black text-gray-900 leading-tight">{formatPrice(totalPeriod)}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">CA période</p>
                 </div>
                 <div className="bg-white rounded-2xl border border-gray-100 p-3 text-center">
-                  <p className="text-lg font-black text-gray-900">{periodOrders.length > 0 ? formatPrice(totalPeriod / periodOrders.length) : '—'}</p>
-                  <p className="text-xs text-gray-400">panier moy.</p>
+                  <p className="text-sm font-black text-gray-900 leading-tight">{periodOrders.length > 0 ? formatPrice(totalPeriod / periodOrders.length) : '—'}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">panier moy.</p>
                 </div>
               </div>
 
