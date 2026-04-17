@@ -295,6 +295,10 @@ export default function LivraisonsPage() {
 
   function openPrintModal() {
     const driverIdsWithOrders = new Set(orders.filter(o => o.driver_id).map(o => o.driver_id!));
+    // Si aucun chauffeur assigné, sélectionner les non-assignés par défaut
+    if (driverIdsWithOrders.size === 0 && orders.some(o => !o.driver_id)) {
+      driverIdsWithOrders.add('unassigned');
+    }
     setPrintDriverIds(driverIdsWithOrders);
     setPrintSlotIds(new Set(['all']));
     setPreviewIndex(0);
@@ -326,8 +330,10 @@ export default function LivraisonsPage() {
   }
 
   function getPrintOrders(driverId: string) {
-    return orders
-      .filter(o => o.driver_id === driverId)
+    const filtered = driverId === 'unassigned'
+      ? orders.filter(o => !o.driver_id)
+      : orders.filter(o => o.driver_id === driverId);
+    return filtered
       .filter(o => printSlotIds.has('all') || printSlotIds.has(o.delivery_slot?.id ?? 'none'))
       .sort((a, b) => {
         const slotA = a.delivery_slot?.start_time ?? '99:99';
@@ -338,6 +344,7 @@ export default function LivraisonsPage() {
   }
 
   const printStopCount = [...printDriverIds].reduce((acc, dId) => acc + getPrintOrders(dId).length, 0);
+  const hasUnassignedOrders = orders.some(o => !o.driver_id);
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
@@ -399,6 +406,51 @@ export default function LivraisonsPage() {
             </div>
           );
         })}
+
+        {/* Commandes sans chauffeur */}
+        {printDriverIds.has('unassigned') && (() => {
+          const unassignedOrders = getPrintOrders('unassigned');
+          if (unassignedOrders.length === 0) return null;
+          const hasDriverPages = drivers.filter(d => printDriverIds.has(d.id) && getPrintOrders(d.id).length > 0).length > 0;
+          return (
+            <div className={hasDriverPages ? 'print-page-break' : ''} style={{ fontFamily: 'Arial, sans-serif', padding: '24px', maxWidth: '700px' }}>
+              <div style={{ borderBottom: '2px solid #111', paddingBottom: '12px', marginBottom: '20px' }}>
+                <h1 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0 }}>
+                  Livraisons — Sans chauffeur assigné
+                </h1>
+                <p style={{ fontSize: '13px', color: '#555', margin: '4px 0 0' }}>
+                  {new Date(date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                </p>
+              </div>
+              {unassignedOrders.map((order, stopIdx) => (
+                <div key={order.id} style={{ marginBottom: '20px', paddingBottom: '16px', borderBottom: '1px solid #e5e7eb' }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', marginBottom: '6px' }}>
+                    <span style={{ fontSize: '15px', fontWeight: 'bold', minWidth: '24px' }}>#{stopIdx + 1}</span>
+                    <span style={{ fontSize: '15px', fontWeight: 'bold' }}>{order.client?.nom ?? '—'}</span>
+                    {order.delivery_slot && (
+                      <span style={{ fontSize: '12px', color: '#6b7280', marginLeft: 'auto' }}>
+                        {order.delivery_slot.name} {order.delivery_slot.start_time.slice(0, 5)}–{order.delivery_slot.end_time.slice(0, 5)}
+                      </span>
+                    )}
+                  </div>
+                  {order.client?.telephone && <p style={{ fontSize: '12px', color: '#555', margin: '2px 0 2px 34px' }}>📞 {order.client.telephone}</p>}
+                  {order.client?.adresse_livraison && <p style={{ fontSize: '12px', color: '#555', margin: '2px 0 6px 34px' }}>📍 {order.client.adresse_livraison}</p>}
+                  {order.note && <p style={{ fontSize: '12px', color: '#d97706', margin: '2px 0 6px 34px' }}>⚠️ {order.note}</p>}
+                  <ul style={{ margin: '4px 0 0 34px', padding: 0, listStyle: 'none' }}>
+                    {order.items.map(item => (
+                      <li key={item.id} style={{ fontSize: '13px', color: '#111', padding: '2px 0' }}>
+                        • {item.product_article?.display_name ?? '—'} &times; <strong>{item.quantity_ordered}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+              <p style={{ fontSize: '12px', color: '#9ca3af', marginTop: '12px' }}>
+                {unassignedOrders.length} commande{unassignedOrders.length > 1 ? 's' : ''} · Imprimé le {new Date().toLocaleDateString('fr-FR')}
+              </p>
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── UI principale ────────────────────────────────────────────────── */}
@@ -432,7 +484,7 @@ export default function LivraisonsPage() {
             </Link>
             <button
               onClick={openPrintModal}
-              disabled={drivers.filter(d => orders.some(o => o.driver_id === d.id)).length === 0}
+              disabled={orders.length === 0}
               className="flex items-center gap-1.5 px-3 py-2 bg-gray-900 text-white rounded-xl font-semibold text-sm hover:bg-gray-700 disabled:opacity-40 transition-colors"
             >
               <Printer size={16} />
@@ -938,6 +990,31 @@ export default function LivraisonsPage() {
                         </button>
                       );
                     })}
+
+                    {/* Option sans chauffeur */}
+                    {hasUnassignedOrders && (() => {
+                      const checked = printDriverIds.has('unassigned');
+                      const count = getPrintOrders('unassigned').length;
+                      return (
+                        <button
+                          onClick={() => togglePrintDriver('unassigned')}
+                          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 transition-all text-left ${checked ? 'border-gray-300 bg-gray-100' : 'border-gray-100 bg-gray-50 opacity-50'}`}
+                        >
+                          <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 bg-gray-400">
+                            ?
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-sm text-gray-600">Sans chauffeur</p>
+                          </div>
+                          <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 bg-gray-200 text-gray-500">
+                            {count}
+                          </span>
+                          <div className="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0" style={checked ? { backgroundColor: '#6b7280', borderColor: '#6b7280' } : { borderColor: '#d1d5db' }}>
+                            {checked && <svg width="8" height="6" viewBox="0 0 8 6" fill="none"><path d="M1 3L3 5L7 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                          </div>
+                        </button>
+                      );
+                    })()}
                   </div>
                 </div>
 
