@@ -424,26 +424,28 @@ function QuickArticleSheet({
   }
 
   return (
-    <>
-      <div className="fixed inset-0 bg-black/40 z-50" onClick={onClose} />
-      <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-xl"
-        style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px) + 16px, 24px)' }}>
-        {/* Handle */}
-        <div className="flex justify-center pt-3 pb-1">
-          <div className="w-10 h-1 bg-gray-200 rounded-full" />
-        </div>
-
-        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
-          <h3 className="font-bold text-gray-900">Nouvel article</h3>
+    <div
+      className="flex items-center justify-center p-4"
+      style={{ position: 'fixed', inset: 0, zIndex: 9999, backgroundColor: 'rgba(0,0,0,0.5)' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full overflow-y-auto"
+        style={{ maxWidth: 420, maxHeight: '85vh' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h3 className="font-bold text-gray-900 text-base">Nouvel article</h3>
           <button onClick={onClose} className="p-2 rounded-xl hover:bg-gray-100 text-gray-400">
             <X size={18} />
           </button>
         </div>
 
-        <div className="px-5 py-4 space-y-4">
+        <div className="px-5 py-5 space-y-4">
           {/* Nom */}
           <div>
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-1.5">
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-2">
               Nom de l'article *
             </label>
             <input
@@ -452,13 +454,12 @@ function QuickArticleSheet({
               onChange={e => setName(e.target.value)}
               placeholder="Ex: Baguette tradition"
               className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              autoFocus
             />
           </div>
 
           {/* Atelier */}
           <div>
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-1.5">
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-2">
               Atelier
             </label>
             <div className="relative">
@@ -478,7 +479,7 @@ function QuickArticleSheet({
           {/* Prix + TVA */}
           <div className="flex gap-3">
             <div className="flex-1">
-              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-1.5">
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-2">
                 Prix unitaire (€) *
               </label>
               <input
@@ -492,7 +493,7 @@ function QuickArticleSheet({
               />
             </div>
             <div className="w-28">
-              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-1.5">
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-2">
                 TVA
               </label>
               <div className="relative">
@@ -510,17 +511,27 @@ function QuickArticleSheet({
             </div>
           </div>
 
-          {error && <p className="text-sm text-red-500">{error}</p>}
+          {error && (
+            <p className="text-sm text-red-500 bg-red-50 px-3 py-2 rounded-xl">{error}</p>
+          )}
 
-          <button
-            onClick={handleSave}
-            disabled={saving || !name.trim() || !price}
-            className="w-full py-3.5 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 transition-colors"
-          >
-            {saving ? 'Création...' : 'Créer et ajouter au panier'}
-          </button>
+          <div className="flex gap-3 pt-1">
+            <button
+              onClick={onClose}
+              className="px-4 py-3 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+            >
+              Annuler
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving || !name.trim() || !price}
+              className="flex-1 py-3 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              {saving ? 'Création...' : 'Créer et ajouter'}
+            </button>
+          </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }
