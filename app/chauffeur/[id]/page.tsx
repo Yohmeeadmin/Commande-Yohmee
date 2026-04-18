@@ -418,12 +418,20 @@ export default function DriverViewPage() {
                         <div className="flex items-center justify-between mt-3">
                           <p className="text-sm font-bold text-gray-800">{formatPrice(order.total)}</p>
                           {!isDelivered && (
-                            <button
-                              onClick={() => openDeliveryModal(order)}
-                              className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-xl hover:bg-green-700 active:scale-95 transition-all"
-                            >
-                              <CheckCircle size={15} /> Livré
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => openDeliveryModal(order)}
+                                className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 text-gray-600 text-sm font-semibold rounded-xl hover:bg-gray-50 active:scale-95 transition-all"
+                              >
+                                <FileText size={14} /> BL
+                              </button>
+                              <button
+                                onClick={() => openDeliveryModal(order)}
+                                className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-xl hover:bg-green-700 active:scale-95 transition-all"
+                              >
+                                <CheckCircle size={15} /> Livré
+                              </button>
+                            </div>
                           )}
                         </div>
                       </div>
