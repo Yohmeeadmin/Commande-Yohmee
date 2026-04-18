@@ -270,6 +270,14 @@ export default function LivraisonsPage() {
   const [blOrders, setBlOrders] = useState<BLOrder[] | null>(null);
   const [blTitle, setBlTitle] = useState('');
 
+  // ── BL delivery modal (quantités + reliquat) ─────────────────────────────
+  const [blDeliveryOrder, setBlDeliveryOrder] = useState<DeliveryOrder | null>(null);
+  const [blDeliveryQtys, setBlDeliveryQtys] = useState<Record<string, number>>({});
+  const [blDeliveryStep, setBlDeliveryStep] = useState<1 | 2>(1);
+  const [blBackorderDate, setBlBackorderDate] = useState('');
+  const [blBackorderSlotId, setBlBackorderSlotId] = useState<string | null>(null);
+  const [blConfirming, setBlConfirming] = useState(false);
+
   // ── Load ────────────────────────────────────────────────────────────────────
 
   const loadData = useCallback(async (d: string) => {
@@ -563,7 +571,7 @@ export default function LivraisonsPage() {
     setShowCreateRoute(true);
   }
 
-  function orderToBL(order: DeliveryOrder): BLOrder {
+  function orderToBL(order: DeliveryOrder, customQtys?: Record<string, number>): BLOrder {
     return {
       numero: order.numero.replace(/^CMD-/, 'BL-'),
       delivery_date: date,
@@ -588,12 +596,14 @@ export default function LivraisonsPage() {
         ice: order.client?.ice ?? null,
         adresse_livraison: order.client?.adresse_livraison ?? null,
       },
-      items: order.items.map(item => ({
-        display_name: item.product_article?.display_name ?? '—',
-        vat_rate: item.product_article?.product_reference?.vat_rate ?? 20,
-        unit_price: item.unit_price,
-        quantity: item.quantity_ordered,
-      })),
+      items: order.items
+        .filter(item => (customQtys ? (customQtys[item.id] ?? item.quantity_ordered) : item.quantity_ordered) > 0)
+        .map(item => ({
+          display_name: item.product_article?.display_name ?? '—',
+          vat_rate: item.product_article?.product_reference?.vat_rate ?? 20,
+          unit_price: item.unit_price,
+          quantity: customQtys ? (customQtys[item.id] ?? item.quantity_ordered) : item.quantity_ordered,
+        })),
     };
   }
 
@@ -603,6 +613,54 @@ export default function LivraisonsPage() {
       .map(o => orderToBL(o));
     setBlOrders(bls);
     setBlTitle(title);
+  }
+
+  function openBLDelivery(order: DeliveryOrder) {
+    const qtys: Record<string, number> = {};
+    order.items.forEach(item => { qtys[item.id] = item.quantity_ordered; });
+    setBlDeliveryQtys(qtys);
+    setBlDeliveryStep(1);
+    setBlBackorderDate(offsetDate(date, 1));
+    setBlBackorderSlotId(order.delivery_slot?.id ?? null);
+    setBlDeliveryOrder(order);
+  }
+
+  function closeBLDelivery() {
+    setBlDeliveryOrder(null);
+    setBlDeliveryStep(1);
+  }
+
+  async function confirmBL(createBackorder: boolean) {
+    if (!blDeliveryOrder) return;
+    setBlConfirming(true);
+    try {
+      if (createBackorder) {
+        const remainingItems = blDeliveryOrder.items
+          .filter(item => (blDeliveryQtys[item.id] ?? item.quantity_ordered) < item.quantity_ordered)
+          .map(item => ({
+            product_article_id: item.product_article_id,
+            quantity: item.quantity_ordered - (blDeliveryQtys[item.id] ?? item.quantity_ordered),
+            unit_price: item.unit_price,
+            article_unit_quantity: item.article_unit_quantity ?? 1,
+          }));
+        if (remainingItems.length > 0) {
+          const { data: newOrderId } = await supabase.rpc('create_backorder', {
+            p_parent_order_id: blDeliveryOrder.id,
+            p_new_delivery_date: blBackorderDate,
+            p_items: remainingItems,
+          });
+          if (newOrderId && blBackorderSlotId !== blDeliveryOrder.delivery_slot?.id) {
+            await supabase.from('orders').update({ delivery_slot_id: blBackorderSlotId }).eq('id', newOrderId);
+          }
+        }
+      }
+      const bl = orderToBL(blDeliveryOrder, blDeliveryQtys);
+      setBlOrders([bl]);
+      setBlTitle(`BL — ${blDeliveryOrder.client?.nom ?? blDeliveryOrder.numero}`);
+      closeBLDelivery();
+    } finally {
+      setBlConfirming(false);
+    }
   }
 
   // ── Render ───────────────────────────────────────────────────────────────────
@@ -1039,7 +1097,7 @@ export default function LivraisonsPage() {
                                   <div className="flex items-center justify-between mt-1.5">
                                     <p className="text-xs text-gray-400">{order.numero} · {formatPrice(order.total)}</p>
                                     <button
-                                      onClick={() => openBL([order.id], `BL — ${order.client?.nom ?? order.numero}`)}
+                                      onClick={() => openBLDelivery(order)}
                                       className="text-xs text-gray-400 hover:text-blue-600 hover:bg-blue-50 px-2 py-0.5 rounded-lg transition-colors flex items-center gap-1"
                                     >
                                       <Printer size={11} /> BL
@@ -1237,6 +1295,120 @@ export default function LivraisonsPage() {
                     className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 transition-colors"
                   >
                     Créer le reliquat →
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ── Modal BL quantités ─────────────────────────────────────────────── */}
+      {blDeliveryOrder && (
+        <>
+          <div className="fixed inset-0 bg-black/40 z-50" />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-xl lg:inset-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-2xl lg:w-full lg:max-w-lg" style={{ maxHeight: '90vh', overflowY: 'auto' }}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div>
+                <h2 className="font-bold text-gray-900">
+                  {blDeliveryStep === 1 ? 'Quantités livrées' : 'Reliquat non livré'}
+                </h2>
+                <p className="text-sm text-gray-400 mt-0.5">{blDeliveryOrder.client?.nom ?? blDeliveryOrder.numero}</p>
+              </div>
+              <button onClick={closeBLDelivery} className="p-2 rounded-xl hover:bg-gray-100 text-gray-400"><X size={20} /></button>
+            </div>
+
+            {blDeliveryStep === 1 ? (
+              <>
+                <div className="px-5 py-4 space-y-3">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Quantités livrées</p>
+                  {blDeliveryOrder.items.map(item => {
+                    const qty = blDeliveryQtys[item.id] ?? item.quantity_ordered;
+                    const isShort = qty < item.quantity_ordered;
+                    return (
+                      <div key={item.id} className="flex items-center gap-3">
+                        <p className={`flex-1 text-sm ${isShort ? 'text-amber-700 font-medium' : 'text-gray-700'}`}>
+                          {item.product_article?.display_name ?? '—'}
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-gray-400">sur {item.quantity_ordered}</span>
+                          <input
+                            type="number" min={0} max={item.quantity_ordered} value={qty}
+                            onChange={e => setBlDeliveryQtys(prev => ({
+                              ...prev,
+                              [item.id]: Math.min(item.quantity_ordered, Math.max(0, parseInt(e.target.value) || 0)),
+                            }))}
+                            className={`w-20 text-center border rounded-lg px-2 py-1.5 text-sm font-semibold focus:outline-none transition-colors ${isShort ? 'border-amber-300 bg-amber-50' : 'border-gray-200'}`}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="px-5 py-4 border-t border-gray-100">
+                  <button
+                    onClick={() => {
+                      const isPartial = blDeliveryOrder.items.some(
+                        item => (blDeliveryQtys[item.id] ?? item.quantity_ordered) < item.quantity_ordered
+                      );
+                      if (isPartial) setBlDeliveryStep(2);
+                      else confirmBL(false);
+                    }}
+                    disabled={blConfirming}
+                    className="w-full px-4 py-3.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                  >
+                    Confirmer le BL
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="px-5 py-4 space-y-5">
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1">
+                    <p className="text-xs font-semibold text-amber-700 uppercase tracking-wider mb-2">Articles non livrés</p>
+                    {blDeliveryOrder.items
+                      .filter(item => (blDeliveryQtys[item.id] ?? item.quantity_ordered) < item.quantity_ordered)
+                      .map(item => (
+                        <p key={item.id} className="text-sm text-amber-800">
+                          {item.product_article?.display_name ?? '—'}
+                          <span className="font-bold ml-1">×{item.quantity_ordered - (blDeliveryQtys[item.id] ?? item.quantity_ordered)}</span>
+                        </p>
+                      ))}
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Date de livraison du reliquat</p>
+                    <input
+                      type="date" value={blBackorderDate} min={date}
+                      onChange={e => setBlBackorderDate(e.target.value)}
+                      className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:border-blue-400"
+                    />
+                  </div>
+                  {slots.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Créneau</p>
+                      <div className="flex flex-wrap gap-2">
+                        {slots.map(s => (
+                          <button key={s.id} onClick={() => setBlBackorderSlotId(s.id)}
+                            className={`px-3 py-2 rounded-xl text-sm font-medium transition-colors ${blBackorderSlotId === s.id ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                            {s.name} {s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)}
+                          </button>
+                        ))}
+                        <button onClick={() => setBlBackorderSlotId(null)}
+                          className={`px-3 py-2 rounded-xl text-sm font-medium transition-colors ${blBackorderSlotId === null ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                          Sans créneau
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 px-5 py-4 border-t border-gray-100">
+                  <button onClick={() => confirmBL(false)} disabled={blConfirming}
+                    className="px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 transition-colors">
+                    Sans reliquat
+                  </button>
+                  <button onClick={() => confirmBL(true)} disabled={blConfirming || !blBackorderDate}
+                    className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 transition-colors">
+                    {blConfirming ? 'En cours…' : 'Confirmer le BL →'}
                   </button>
                 </div>
               </>
