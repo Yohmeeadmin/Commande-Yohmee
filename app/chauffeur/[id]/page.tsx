@@ -448,7 +448,7 @@ export default function DriverViewPage() {
       {/* ── Modal livraison ────────────────────────────────────────────────────── */}
       {deliveryOrder && (
         <>
-          <div className="fixed inset-0 bg-black/40 z-50" onClick={closeDeliveryModal} />
+          <div className="fixed inset-0 bg-black/40 z-50" />
           <div
             className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-xl"
             style={{ maxHeight: '90vh', overflowY: 'auto' }}

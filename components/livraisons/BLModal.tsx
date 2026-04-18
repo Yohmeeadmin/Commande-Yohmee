@@ -62,7 +62,7 @@ export default function BLModal({ orders, title, onClose }: BLModalProps) {
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/50 z-[9998]" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/50 z-[9998]" onClick={(e) => { e.stopPropagation(); onClose(); }} />
       <div className="fixed inset-0 z-[9999] flex flex-col bg-gray-100 overflow-hidden">
 
         {/* Barre de contrôle */}
