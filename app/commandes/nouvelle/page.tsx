@@ -11,7 +11,7 @@ import {
 } from '@/types';
 import { useAteliers } from '@/lib/useAteliers';
 import { useAppSettings } from '@/lib/useAppSettings';
-import { formatPrice } from '@/lib/utils';
+import { formatPrice, localDateStr } from '@/lib/utils';
 import MobileFlow from '@/components/commandes/mobile/MobileFlow';
 import type { ArticleWithRef, OrderLine, OrderForm } from '@/components/commandes/mobile/types';
 

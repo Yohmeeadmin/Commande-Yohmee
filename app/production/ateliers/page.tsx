@@ -14,7 +14,7 @@ import {
 import { supabase } from '@/lib/supabase/client';
 import { Atelier, ProductionByAtelier } from '@/types';
 import { useAteliers } from '@/lib/useAteliers';
-import { formatDate } from '@/lib/utils';
+import { formatDate, localDateStr } from '@/lib/utils';
 
 interface ProductionItem {
   product_id: string;
@@ -26,7 +26,7 @@ interface ProductionItem {
 
 export default function ProductionAteliersPage() {
   const { ateliers, getStyle } = useAteliers();
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(localDateStr());
   const [production, setProduction] = useState<ProductionByAtelier[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedAtelier, setSelectedAtelier] = useState<string>('all');
@@ -125,13 +125,13 @@ export default function ProductionAteliersPage() {
   }
 
   const changeDate = (days: number) => {
-    const newDate = new Date(date);
+    const newDate = new Date(date + 'T12:00:00');
     newDate.setDate(newDate.getDate() + days);
-    setDate(newDate.toISOString().split('T')[0]);
+    setDate(localDateStr(newDate));
   };
 
   const goToToday = () => {
-    setDate(new Date().toISOString().split('T')[0]);
+    setDate(localDateStr());
   };
 
   const getAtelierStyle = (atelier: string) => getStyle(atelier);

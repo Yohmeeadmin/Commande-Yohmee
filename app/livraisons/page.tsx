@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import {
   ChevronLeft, ChevronRight, Printer, Settings,
@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { Driver, driverFullName, driverInitials } from '@/types';
-import { formatPrice } from '@/lib/utils';
+import { formatPrice, localDateStr } from '@/lib/utils';
 import CreateRouteModal from '@/components/livraisons/CreateRouteModal';
 import { ROUTE_STATUSES, DeliveryRouteWithDetails } from '@/types/delivery-routes';
 
@@ -44,11 +44,11 @@ interface DeliveryOrder {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function offsetDate(base: string, days: number) {
-  const d = new Date(base); d.setDate(d.getDate() + days);
-  return d.toISOString().split('T')[0];
+  const d = new Date(base + 'T12:00:00'); d.setDate(d.getDate() + days);
+  return localDateStr(d);
 }
 function formatDateLabel(s: string) {
-  const today = new Date().toISOString().split('T')[0];
+  const today = localDateStr();
   if (s === today) return "Aujourd'hui";
   if (s === offsetDate(today, 1)) return 'Demain';
   if (s === offsetDate(today, -1)) return 'Hier';
@@ -70,28 +70,60 @@ const DRIVER_COLORS = [
 function RouteCard({
   route,
   orders,
+  onCancelled,
 }: {
   route: DeliveryRouteWithDetails;
   orders: DeliveryOrder[];
+  onCancelled?: (routeId: string) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+
   const statusInfo = ROUTE_STATUSES.find(s => s.value === route.status);
   const routeOrders = route.route_orders
     .slice()
     .sort((a, b) => (a.delivery_order_index ?? 0) - (b.delivery_order_index ?? 0))
-    .map(ro => orders.find(o => o.id === ro.order_id))
-    .filter((o): o is DeliveryOrder => !!o);
+    .map(ro => ({ ro, order: orders.find(o => o.id === ro.order_id) }))
+    .filter((x): x is { ro: typeof route.route_orders[0]; order: DeliveryOrder } => !!x.order);
+
+  const delivered = routeOrders.filter(({ order }) => order.status === 'livree').length;
+  const total = routeOrders.length;
   const outOfSlot = route.route_orders.filter(ro => ro.is_out_of_slot).length;
+  const panierMoyen = route.total_orders > 0 ? route.total_revenue / route.total_orders : 0;
+
+  async function handleCancel() {
+    if (!confirm('Annuler cette tournée ? Les commandes seront libérées.')) return;
+    setCancelling(true);
+    await supabase.from('delivery_routes').update({ status: 'cancelled' }).eq('id', route.id);
+    onCancelled?.(route.id);
+    setCancelling(false);
+  }
 
   return (
     <div className="bg-white rounded-2xl border border-blue-100 overflow-hidden">
-      <div className="flex items-center gap-3 px-4 py-3 bg-blue-50/60 border-b border-blue-100">
+      {/* Header — cliquable pour ouvrir/fermer */}
+      <div
+        className="flex items-center gap-3 px-4 py-3 bg-blue-50/60 border-b border-blue-100 cursor-pointer select-none"
+        onClick={() => setExpanded(e => !e)}
+      >
         <Navigation size={14} className="text-blue-500 shrink-0" />
         <div className="flex-1 min-w-0">
-          <p className="font-bold text-gray-900 text-sm leading-none">{route.route_number}</p>
-          {route.driver && (
-            <p className="text-xs text-gray-500 mt-0.5">
-              {route.driver.first_name} {route.driver.last_name}
-            </p>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <p className="font-bold text-gray-900 text-sm leading-none">{route.route_number}</p>
+            {route.driver && (
+              <p className="text-xs text-gray-500">· {route.driver.first_name} {route.driver.last_name}</p>
+            )}
+          </div>
+          {total > 0 && (
+            <div className="mt-1.5 flex items-center gap-2">
+              <div className="flex-1 h-1 bg-blue-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-blue-500 rounded-full transition-all"
+                  style={{ width: `${(delivered / total) * 100}%` }}
+                />
+              </div>
+              <span className="text-xs text-blue-600 font-semibold whitespace-nowrap">{delivered}/{total}</span>
+            </div>
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -101,22 +133,78 @@ function RouteCard({
           >
             {statusInfo?.label}
           </span>
-          <span className="text-xs text-gray-400 font-medium whitespace-nowrap">
-            {route.total_orders} arr. · {formatPrice(route.total_revenue)}
-          </span>
+          <span className="text-xs text-gray-400 font-medium">{formatPrice(route.total_revenue)}</span>
+          {expanded ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
         </div>
       </div>
 
-      {routeOrders.length > 0 && (
-        <div className="px-4 py-2.5">
-          <p className="text-xs text-gray-500 truncate">
-            {routeOrders.map(o => o.client?.nom ?? o.numero).join(' · ')}
-          </p>
-          {outOfSlot > 0 && (
-            <p className="text-xs text-amber-600 mt-0.5">
-              ⚠️ {outOfSlot} commande{outOfSlot > 1 ? 's' : ''} hors créneau
-            </p>
-          )}
+      {/* Contenu développé */}
+      {expanded && (
+        <div>
+          {/* Stats */}
+          <div className="flex items-center gap-3 px-4 py-2 bg-gray-50 border-b border-gray-100 text-xs text-gray-500 flex-wrap">
+            <span>{route.total_orders} arrêt{route.total_orders !== 1 ? 's' : ''}</span>
+            <span>·</span>
+            <span>Panier moy. <strong className="text-gray-700">{formatPrice(panierMoyen)}</strong></span>
+            {outOfSlot > 0 && (
+              <>
+                <span>·</span>
+                <span className="text-amber-600">⚠ {outOfSlot} hors créneau</span>
+              </>
+            )}
+          </div>
+
+          {/* Liste des commandes */}
+          <div className="divide-y divide-gray-50">
+            {routeOrders.map(({ ro, order }, idx) => {
+              const isDelivered = order.status === 'livree';
+              return (
+                <div key={ro.id} className={`flex items-start gap-3 px-4 py-3 ${isDelivered ? 'opacity-50' : ''}`}>
+                  <span className="text-xs font-bold text-gray-400 w-4 shrink-0 pt-0.5">{idx + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className={`font-semibold text-sm ${isDelivered ? 'line-through text-gray-400' : 'text-gray-900'}`}>
+                        {order.client?.nom ?? order.numero}
+                      </p>
+                      {isDelivered && (
+                        <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-medium">Livré</span>
+                      )}
+                      {ro.is_out_of_slot && (
+                        <span className="text-xs bg-amber-50 text-amber-600 border border-amber-200 px-1.5 py-0.5 rounded-full font-medium">Hors créneau</span>
+                      )}
+                    </div>
+                    {order.client?.telephone && (
+                      <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+                        <Phone size={9} /> {order.client.telephone}
+                      </p>
+                    )}
+                    {order.client?.adresse_livraison && (
+                      <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+                        <MapPin size={9} /> {order.client.adresse_livraison}
+                      </p>
+                    )}
+                  </div>
+                  <p className="text-xs font-semibold text-gray-700 shrink-0 pt-0.5">{formatPrice(order.total)}</p>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
+            {route.driver_id ? (
+              <Link href={`/chauffeur/${route.driver_id}?routeId=${route.id}`} className="text-xs text-blue-600 font-medium hover:underline">
+                Vue chauffeur →
+              </Link>
+            ) : <span />}
+            <button
+              onClick={e => { e.stopPropagation(); handleCancel(); }}
+              disabled={cancelling}
+              className="text-xs text-red-500 hover:text-red-700 font-medium transition-colors disabled:opacity-40"
+            >
+              {cancelling ? 'Annulation…' : 'Annuler la tournée'}
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -126,7 +214,7 @@ function RouteCard({
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function LivraisonsPage() {
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = localDateStr();
   const [date, setDate] = useState(todayStr);
   const [selectedSlot, setSelectedSlot] = useState('');
   const [drivers, setDrivers] = useState<Driver[]>([]);
@@ -219,7 +307,7 @@ export default function LivraisonsPage() {
     order.items.forEach(item => { qtys[item.id] = item.quantity_ordered; });
     setDeliveryQtys(qtys);
     setDeliveryStep(1);
-    setBackorderDate(offsetDate(new Date().toISOString().split('T')[0], 1));
+    setBackorderDate(offsetDate(localDateStr(), 1));
     setBackorderSlotId(order.delivery_slot?.id ?? null);
     setDeliveryOrder(order);
   }
@@ -367,6 +455,24 @@ export default function LivraisonsPage() {
 
   const totalOrders = filteredOrders.length;
   const livrees = deliveredOrders.length;
+
+  // Map orderId → infos tournée (pour badges)
+  const routedOrderMap = useMemo(() => {
+    const map = new Map<string, { routeNumber: string; driverName: string; routeId: string }>();
+    const activeStatuses = new Set(['draft', 'assigned', 'in_progress', 'partially_delivered']);
+    routes.forEach(route => {
+      if (!activeStatuses.has(route.status)) return;
+      const driverName = route.driver
+        ? `${route.driver.first_name} ${route.driver.last_name}`
+        : '';
+      route.route_orders.forEach(ro => {
+        if (ro.status !== 'cancelled') {
+          map.set(ro.order_id, { routeNumber: route.route_number, driverName, routeId: route.id });
+        }
+      });
+    });
+    return map;
+  }, [routes]);
 
   // ── Print ────────────────────────────────────────────────────────────────────
 
@@ -695,7 +801,12 @@ export default function LivraisonsPage() {
                       {slotRoutes.length > 0 && (
                         <div className="space-y-2 mb-4">
                           {slotRoutes.map(route => (
-                            <RouteCard key={route.id} route={route} orders={orders} />
+                            <RouteCard
+                              key={route.id}
+                              route={route}
+                              orders={orders}
+                              onCancelled={routeId => setRoutes(prev => prev.filter(r => r.id !== routeId))}
+                            />
                           ))}
                         </div>
                       )}
@@ -770,6 +881,16 @@ export default function LivraisonsPage() {
                                       <p className={`font-semibold text-gray-900 text-sm ${isDelivered ? 'line-through text-gray-400' : ''}`}>
                                         {order.client?.nom ?? '—'}
                                       </p>
+                                      {(() => {
+                                        const info = routedOrderMap.get(order.id);
+                                        if (!info) return null;
+                                        return (
+                                          <span className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded-full mt-0.5">
+                                            <Navigation size={9} />
+                                            {info.routeNumber}{info.driverName ? ` · ${info.driverName}` : ''}
+                                          </span>
+                                        );
+                                      })()}
                                       {order.client?.telephone && (
                                         <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
                                           <Phone size={10} /> {order.client.telephone}
@@ -1000,7 +1121,7 @@ export default function LivraisonsPage() {
                     <input
                       type="date"
                       value={backorderDate}
-                      min={new Date().toISOString().split('T')[0]}
+                      min={localDateStr()}
                       onChange={e => setBackorderDate(e.target.value)}
                       className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:border-blue-400 transition-colors"
                     />

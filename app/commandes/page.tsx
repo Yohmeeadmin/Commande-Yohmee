@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Plus, Search, ShoppingCart, Calendar, CheckCircle, Play, Truck, RefreshCw, Pencil, X, Bell, Trash2, Square, CheckSquare, ChevronDown, ChevronUp, Filter } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { ORDER_STATUSES, OrderStatus } from '@/types';
-import { formatDate, formatPrice } from '@/lib/utils';
+import { formatDate, formatPrice, localDateStr } from '@/lib/utils';
 
 interface DeliverySlot {
   id: string;
@@ -167,7 +167,7 @@ export default function CommandesPage() {
 
   // Stats rapides
   const statsToday = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = localDateStr();
     return orders.filter(o => o.delivery_date === today && o.status !== 'annulee').length;
   }, [orders]);
 

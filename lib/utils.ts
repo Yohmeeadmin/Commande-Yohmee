@@ -113,6 +113,19 @@ export function truncate(text: string, maxLength: number): string {
   return text.substring(0, maxLength - 3) + '...';
 }
 
+/**
+ * Convertit un objet Date en chaîne YYYY-MM-DD en heure locale du navigateur.
+ * Contrairement à toISOString() qui retourne l'heure UTC, cette fonction respecte
+ * le fuseau horaire local — essentiel pour les pays UTC+X (ex : Maroc UTC+1).
+ */
+export function localDateStr(d: Date = new Date()): string {
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, '0'),
+    String(d.getDate()).padStart(2, '0'),
+  ].join('-');
+}
+
 // Debounce fonction
 export function debounce<T extends (...args: any[]) => any>(
   func: T,

@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { ClipboardList, Calendar, Printer, ChevronLeft, ChevronRight, Package, X, Check, Bell, CheckCircle2, RotateCcw } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
-import { formatDate } from '@/lib/utils';
+import { formatDate, localDateStr } from '@/lib/utils';
 import { getProductStateStyle, PACK_TYPES, ProductState } from '@/types';
 import { useAteliers } from '@/lib/useAteliers';
 import { useUser } from '@/contexts/UserContext';
@@ -158,7 +158,7 @@ export default function ProductionPage() {
   const { profile } = useUser();
   const defaultAtelier = profile?.ateliers?.length === 1 ? profile.ateliers[0] : 'all';
 
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(localDateStr());
   const [production, setProduction] = useState<ProductionGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedAtelier, setSelectedAtelier] = useState<string>(defaultAtelier);
@@ -198,7 +198,7 @@ export default function ProductionPage() {
         .from('orders')
         .select('id, numero, delivery_date, reminder_days, total, client:clients(nom), delivery_slot:delivery_slots(name)')
         .not('reminder_days', 'is', null)
-        .gte('delivery_date', today.toISOString().split('T')[0])
+        .gte('delivery_date', localDateStr(today))
         .neq('status', 'livree')
         .neq('status', 'annulee')
         .order('delivery_date');
@@ -374,13 +374,13 @@ export default function ProductionPage() {
   }
 
   const changeDate = (days: number) => {
-    const newDate = new Date(date);
+    const newDate = new Date(date + 'T12:00:00');
     newDate.setDate(newDate.getDate() + days);
-    setDate(newDate.toISOString().split('T')[0]);
+    setDate(localDateStr(newDate));
   };
 
   const goToToday = () => {
-    setDate(new Date().toISOString().split('T')[0]);
+    setDate(localDateStr());
   };
 
   const openPrintModal = () => {
