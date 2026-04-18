@@ -1069,7 +1069,18 @@ export default function LivraisonsPage() {
 
                                       {!isDelivered ? (
                                         <button
-                                          onClick={() => openDeliveryModal(order)}
+                                          onClick={async () => {
+                                            await supabase.rpc('mark_order_delivered', {
+                                              p_order_id: order.id,
+                                              p_is_fully_delivered: true,
+                                              p_delivered_items: null,
+                                            });
+                                            setOrders(prev => prev.map(o =>
+                                              o.id === order.id
+                                                ? { ...o, status: 'livree', is_fully_delivered: true, items: o.items.map(i => ({ ...i, quantity_delivered: i.quantity_ordered })) }
+                                                : o
+                                            ));
+                                          }}
                                           className="p-2 rounded-xl text-gray-400 hover:text-green-600 hover:bg-green-50 active:scale-95 transition-all"
                                         >
                                           <CheckCircle size={20} />
