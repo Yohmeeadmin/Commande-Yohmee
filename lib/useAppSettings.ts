@@ -18,6 +18,20 @@ export interface AppSettings {
   logo_url: string | null;
   primary_color: string;
   client_type_settings: ClientTypeSettings;
+  // Mon entreprise
+  raison_sociale: string | null;
+  rc: string | null;
+  ice_societe: string | null;
+  if_fiscal: string | null;
+  cnss: string | null;
+  tp: string | null;
+  email_societe: string | null;
+  telephone_societe: string | null;
+  site_web: string | null;
+  adresse_siege: string | null;
+  code_postal: string | null;
+  ville_siege: string | null;
+  pays: string | null;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -27,6 +41,19 @@ const DEFAULT_SETTINGS: AppSettings = {
   logo_url: null,
   primary_color: '#2563eb',
   client_type_settings: {},
+  raison_sociale: null,
+  rc: null,
+  ice_societe: null,
+  if_fiscal: null,
+  cnss: null,
+  tp: null,
+  email_societe: null,
+  telephone_societe: null,
+  site_web: null,
+  adresse_siege: null,
+  code_postal: null,
+  ville_siege: null,
+  pays: 'Maroc',
 };
 
 // Cache module-level : évite les re-fetch sur chaque composant qui consomme le hook

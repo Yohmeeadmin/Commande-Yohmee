@@ -24,6 +24,8 @@ export default function NouveauClientPage() {
     horaire_livraison: '',
     note_interne: '',
     is_active: true,
+    code: '',
+    ice: '',
   });
 
   const quartiersDisponibles = form.ville ? (QUARTIERS_PAR_VILLE[form.ville] || []) : [];
@@ -56,6 +58,8 @@ export default function NouveauClientPage() {
         horaire_livraison: form.horaire_livraison || null,
         note_interne: form.note_interne || null,
         is_active: form.is_active,
+        code: form.code || null,
+        ice: form.ice || null,
       });
 
       if (error) throw error;
@@ -192,6 +196,22 @@ export default function NouveauClientPage() {
               rows={2}
               className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
             />
+          </div>
+        </div>
+
+        {/* Facturation */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Code client</label>
+            <input type="text" value={form.code} onChange={e => setForm({ ...form, code: e.target.value })}
+              placeholder="CLT-0001"
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">I.C.E</label>
+            <input type="text" value={form.ice} onChange={e => setForm({ ...form, ice: e.target.value })}
+              placeholder="000000000000000"
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
           </div>
         </div>
 

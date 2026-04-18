@@ -276,6 +276,8 @@ export interface Client {
   jours_livraison: string[];
   horaire_livraison: string | null;
   note_interne: string | null;
+  code: string | null;
+  ice: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;

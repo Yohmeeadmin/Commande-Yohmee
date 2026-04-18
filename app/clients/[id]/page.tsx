@@ -65,6 +65,7 @@ export default function EditClientPage() {
     ville: '', quartier: '', adresse_livraison: '',
     type_client: 'autre', jours_livraison: [] as string[],
     horaire_livraison: '', note_interne: '', is_active: true,
+    code: '', ice: '',
   });
 
   const quartiersDisponibles = form.ville ? (QUARTIERS_PAR_VILLE[form.ville] || []) : [];
@@ -85,6 +86,7 @@ export default function EditClientPage() {
       adresse_livraison: data.adresse_livraison || '', type_client: data.type_client,
       jours_livraison: data.jours_livraison || [], horaire_livraison: data.horaire_livraison || '',
       note_interne: data.note_interne || '', is_active: data.is_active,
+      code: data.code || '', ice: data.ice || '',
     });
     setLoadingData(false);
   }
@@ -195,6 +197,7 @@ export default function EditClientPage() {
         adresse_livraison: form.adresse_livraison || null, type_client: form.type_client,
         jours_livraison: form.jours_livraison, horaire_livraison: form.horaire_livraison || null,
         note_interne: form.note_interne || null, is_active: form.is_active,
+        code: form.code || null, ice: form.ice || null,
       }).eq('id', id);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -343,6 +346,25 @@ export default function EditClientPage() {
               <label className="block text-xs font-semibold text-gray-500 mb-1.5">Adresse de livraison</label>
               <textarea value={form.adresse_livraison} onChange={e => setForm(f => ({ ...f, adresse_livraison: e.target.value }))} rows={2} placeholder="Rue, numéro…"
                 className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm resize-none" />
+            </div>
+          </div>
+
+          {/* Facturation */}
+          <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-3">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wide">Facturation</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1.5">Code client</label>
+                <input type="text" value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))}
+                  placeholder="CLT-0001"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1.5">I.C.E</label>
+                <input type="text" value={form.ice} onChange={e => setForm(f => ({ ...f, ice: e.target.value }))}
+                  placeholder="000000000000000"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+              </div>
             </div>
           </div>
 

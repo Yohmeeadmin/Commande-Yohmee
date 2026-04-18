@@ -10,7 +10,10 @@ import {
 import { supabase } from '@/lib/supabase/client';
 import { Driver, driverFullName, driverInitials } from '@/types';
 import { formatPrice, localDateStr } from '@/lib/utils';
+import { useAppSettings } from '@/lib/useAppSettings';
 import CreateRouteModal from '@/components/livraisons/CreateRouteModal';
+import BLModal from '@/components/livraisons/BLModal';
+import type { BLOrder } from '@/components/livraisons/BonLivraison';
 import { ROUTE_STATUSES, DeliveryRouteWithDetails } from '@/types/delivery-routes';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -24,7 +27,10 @@ interface OrderItem {
   quantity_delivered: number | null;
   unit_price: number;
   article_unit_quantity: number;
-  product_article: { display_name: string } | null;
+  product_article: {
+    display_name: string;
+    product_reference: { vat_rate: number } | null;
+  } | null;
 }
 
 interface DeliveryOrder {
@@ -36,7 +42,7 @@ interface DeliveryOrder {
   note: string | null;
   driver_id: string | null;
   driver_sequence: number | null;
-  client: { nom: string; telephone: string | null; adresse_livraison: string | null } | null;
+  client: { nom: string; telephone: string | null; adresse_livraison: string | null; code: string | null; ice: string | null } | null;
   delivery_slot: Slot | null;
   items: OrderItem[];
 }
@@ -71,10 +77,12 @@ function RouteCard({
   route,
   orders,
   onCancelled,
+  onPrintBLs,
 }: {
   route: DeliveryRouteWithDetails;
   orders: DeliveryOrder[];
   onCancelled?: (routeId: string) => void;
+  onPrintBLs?: (orderIds: string[], title: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -192,11 +200,27 @@ function RouteCard({
 
           {/* Actions */}
           <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
-            {route.driver_id ? (
-              <Link href={`/chauffeur/${route.driver_id}?routeId=${route.id}`} className="text-xs text-blue-600 font-medium hover:underline">
-                Vue chauffeur →
-              </Link>
-            ) : <span />}
+            <div className="flex items-center gap-3">
+              {route.driver_id ? (
+                <Link href={`/chauffeur/${route.driver_id}?routeId=${route.id}`} className="text-xs text-blue-600 font-medium hover:underline">
+                  Vue chauffeur →
+                </Link>
+              ) : null}
+              {onPrintBLs && routeOrders.length > 0 && (
+                <button
+                  onClick={e => {
+                    e.stopPropagation();
+                    onPrintBLs(
+                      routeOrders.map(({ order }) => order.id),
+                      `${route.route_number} — ${routeOrders.length} BL`
+                    );
+                  }}
+                  className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-lg transition-colors font-medium"
+                >
+                  <Printer size={11} /> Imprimer BLs
+                </button>
+              )}
+            </div>
             <button
               onClick={e => { e.stopPropagation(); handleCancel(); }}
               disabled={cancelling}
@@ -214,6 +238,7 @@ function RouteCard({
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function LivraisonsPage() {
+  const { settings } = useAppSettings();
   const todayStr = localDateStr();
   const [date, setDate] = useState(todayStr);
   const [selectedSlot, setSelectedSlot] = useState('');
@@ -241,6 +266,10 @@ export default function LivraisonsPage() {
   const [showCreateRoute, setShowCreateRoute] = useState(false);
   const [createRouteInitialSlot, setCreateRouteInitialSlot] = useState<Slot | null>(null);
 
+  // ── BL ───────────────────────────────────────────────────────────────────
+  const [blOrders, setBlOrders] = useState<BLOrder[] | null>(null);
+  const [blTitle, setBlTitle] = useState('');
+
   // ── Load ────────────────────────────────────────────────────────────────────
 
   const loadData = useCallback(async (d: string) => {
@@ -253,9 +282,9 @@ export default function LivraisonsPage() {
         supabase.from('delivery_slots').select('*').eq('is_active', true).order('sort_order'),
         supabase.from('orders').select(`
           id, numero, status, is_fully_delivered, total, note, driver_id, driver_sequence,
-          client:clients(nom, telephone, adresse_livraison),
+          client:clients(nom, telephone, adresse_livraison, code, ice),
           delivery_slot:delivery_slots(id, name, start_time, end_time, sort_order),
-          items:order_items(id, product_article_id, quantity_ordered, quantity_delivered, unit_price, article_unit_quantity, product_article:product_articles(display_name))
+          items:order_items(id, product_article_id, quantity_ordered, quantity_delivered, unit_price, article_unit_quantity, product_article:product_articles(display_name, product_reference:product_references(vat_rate)))
         `)
           .eq('delivery_date', d)
           .not('status', 'eq', 'annulee')
@@ -534,6 +563,48 @@ export default function LivraisonsPage() {
     setShowCreateRoute(true);
   }
 
+  function orderToBL(order: DeliveryOrder): BLOrder {
+    return {
+      numero: order.numero.replace(/^CMD-/, 'BL-'),
+      delivery_date: date,
+      logoUrl: settings.logo_url,
+      company: {
+        raison_sociale: settings.raison_sociale,
+        adresse_siege: settings.adresse_siege,
+        code_postal: settings.code_postal,
+        ville_siege: settings.ville_siege,
+        telephone_societe: settings.telephone_societe,
+        email_societe: settings.email_societe,
+        site_web: settings.site_web,
+        rc: settings.rc,
+        if_fiscal: settings.if_fiscal,
+        ice_societe: settings.ice_societe,
+        tp: settings.tp,
+        cnss: settings.cnss,
+      },
+      client: {
+        nom: order.client?.nom ?? '—',
+        code: order.client?.code ?? null,
+        ice: order.client?.ice ?? null,
+        adresse_livraison: order.client?.adresse_livraison ?? null,
+      },
+      items: order.items.map(item => ({
+        display_name: item.product_article?.display_name ?? '—',
+        vat_rate: item.product_article?.product_reference?.vat_rate ?? 20,
+        unit_price: item.unit_price,
+        quantity: item.quantity_ordered,
+      })),
+    };
+  }
+
+  function openBL(orderIds: string[], title: string) {
+    const bls = orders
+      .filter(o => orderIds.includes(o.id))
+      .map(o => orderToBL(o));
+    setBlOrders(bls);
+    setBlTitle(title);
+  }
+
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
@@ -806,6 +877,7 @@ export default function LivraisonsPage() {
                               route={route}
                               orders={orders}
                               onCancelled={routeId => setRoutes(prev => prev.filter(r => r.id !== routeId))}
+                              onPrintBLs={openBL}
                             />
                           ))}
                         </div>
@@ -964,7 +1036,15 @@ export default function LivraisonsPage() {
                                       ))}
                                     </ul>
                                   )}
-                                  <p className="text-xs text-gray-400 mt-1.5">{order.numero} · {formatPrice(order.total)}</p>
+                                  <div className="flex items-center justify-between mt-1.5">
+                                    <p className="text-xs text-gray-400">{order.numero} · {formatPrice(order.total)}</p>
+                                    <button
+                                      onClick={() => openBL([order.id], `BL — ${order.client?.nom ?? order.numero}`)}
+                                      className="text-xs text-gray-400 hover:text-blue-600 hover:bg-blue-50 px-2 py-0.5 rounded-lg transition-colors flex items-center gap-1"
+                                    >
+                                      <Printer size={11} /> BL
+                                    </button>
+                                  </div>
                                 </div>
                               </div>
                             );
@@ -1163,6 +1243,15 @@ export default function LivraisonsPage() {
             )}
           </div>
         </>
+      )}
+
+      {/* ── Modal BL ───────────────────────────────────────────────────────── */}
+      {blOrders && (
+        <BLModal
+          orders={blOrders}
+          title={blTitle}
+          onClose={() => setBlOrders(null)}
+        />
       )}
 
       {/* ── Modal création tournée ──────────────────────────────────────────── */}
