@@ -168,13 +168,33 @@ export default function ProductionPage() {
   const [rappelOrders, setRappelOrders] = useState<any[]>([]);
   const [rappelLoading, setRappelLoading] = useState(false);
 
-  // Suivi des articles terminés (reset si on change de date)
-  const [completedKeys, setCompletedKeys] = useState<Set<string>>(new Set());
+  // Suivi des articles terminés — persisté dans localStorage par date
+  const lsKey = (d: string) => `prod_done_${d}`;
+
+  const [completedKeys, setCompletedKeys] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(lsKey(localDateStr()));
+      return raw ? new Set(JSON.parse(raw)) : new Set();
+    } catch { return new Set(); }
+  });
   const [confirmItem, setConfirmItem] = useState<{ key: string; name: string; pieces: number } | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
 
-  // Reset completed quand on change de date
-  useEffect(() => { setCompletedKeys(new Set()); setShowCompleted(false); }, [date]);
+  // Charger/réinitialiser depuis localStorage quand la date change
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(lsKey(date));
+      setCompletedKeys(raw ? new Set(JSON.parse(raw)) : new Set());
+    } catch { setCompletedKeys(new Set()); }
+    setShowCompleted(false);
+  }, [date]);
+
+  // Sauvegarder dans localStorage à chaque changement
+  useEffect(() => {
+    try {
+      localStorage.setItem(lsKey(date), JSON.stringify([...completedKeys]));
+    } catch { /* ignore */ }
+  }, [completedKeys, date]);
 
   const itemKey = (atelierCode: string, item: ProductionItem) =>
     `${atelierCode}|${item.refCode}|${item.packType}|${item.packQuantity}|${item.productState}`;
