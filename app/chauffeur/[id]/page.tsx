@@ -2,10 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { Phone, MapPin, Package, CheckCircle, Navigation, ChevronRight, X } from 'lucide-react';
+import { Phone, MapPin, Package, CheckCircle, Navigation, ChevronRight, X, FileText } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { formatPrice, localDateStr } from '@/lib/utils';
 import { DeliveryRouteWithDetails, ROUTE_STATUSES } from '@/types/delivery-routes';
+import { useAppSettings } from '@/lib/useAppSettings';
+import BLModal from '@/components/livraisons/BLModal';
+import type { BLOrder } from '@/components/livraisons/BonLivraison';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -15,7 +18,11 @@ interface OrderItem {
   id: string;
   quantity_ordered: number;
   quantity_delivered: number | null;
-  product_article: { display_name: string } | null;
+  unit_price: number;
+  product_article: {
+    display_name: string;
+    product_reference: { vat_rate: number } | null;
+  } | null;
 }
 
 interface DeliveryOrder {
@@ -25,7 +32,7 @@ interface DeliveryOrder {
   total: number;
   note: string | null;
   delivery_slot: Slot | null;
-  client: { nom: string; telephone: string | null; adresse_livraison: string | null } | null;
+  client: { nom: string; telephone: string | null; adresse_livraison: string | null; code: string | null; ice: string | null } | null;
   items: OrderItem[];
 }
 
@@ -50,11 +57,13 @@ export default function DriverViewPage() {
   const driverId = params.id as string;
   const routeId = searchParams.get('routeId');
 
+  const { settings } = useAppSettings();
   const [driver, setDriver] = useState<Driver | null>(null);
   const [route, setRoute] = useState<DeliveryRouteWithDetails | null>(null);
   const [orders, setOrders] = useState<DeliveryOrder[]>([]);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loading, setLoading] = useState(true);
+  const [blOrder, setBlOrder] = useState<BLOrder | null>(null);
 
   // ── Modal livraison ──────────────────────────────────────────────────────────
   const [deliveryOrder, setDeliveryOrder] = useState<DeliveryOrder | null>(null);
@@ -123,8 +132,8 @@ export default function DriverViewPage() {
           .select(`
             id, numero, status, total, note,
             delivery_slot:delivery_slots(id, name, start_time, end_time),
-            client:clients(nom, telephone, adresse_livraison),
-            items:order_items(id, quantity_ordered, quantity_delivered, product_article:product_articles(display_name))
+            client:clients(nom, telephone, adresse_livraison, code, ice),
+            items:order_items(id, quantity_ordered, quantity_delivered, unit_price, product_article:product_articles(display_name, product_reference:product_references(vat_rate)))
           `)
           .in('id', orderIds)
           .not('status', 'eq', 'annulee');
@@ -136,8 +145,8 @@ export default function DriverViewPage() {
           .select(`
             id, numero, status, total, note,
             delivery_slot:delivery_slots(id, name, start_time, end_time),
-            client:clients(nom, telephone, adresse_livraison),
-            items:order_items(id, quantity_ordered, quantity_delivered, product_article:product_articles(display_name))
+            client:clients(nom, telephone, adresse_livraison, code, ice),
+            items:order_items(id, quantity_ordered, quantity_delivered, unit_price, product_article:product_articles(display_name, product_reference:product_references(vat_rate)))
           `)
           .eq('delivery_date', localDateStr())
           .eq('driver_id', driverId)
@@ -165,6 +174,45 @@ export default function DriverViewPage() {
   function closeDeliveryModal() {
     setDeliveryOrder(null);
     setDeliveryStep(1);
+  }
+
+  function openBL() {
+    if (!deliveryOrder) return;
+    const bl: BLOrder = {
+      numero: deliveryOrder.numero.replace(/^CMD-/, 'BL-'),
+      delivery_date: localDateStr(),
+      logoUrl: settings.logo_url,
+      company: {
+        raison_sociale: settings.raison_sociale,
+        adresse_siege: settings.adresse_siege,
+        code_postal: settings.code_postal,
+        ville_siege: settings.ville_siege,
+        telephone_societe: settings.telephone_societe,
+        email_societe: settings.email_societe,
+        site_web: settings.site_web,
+        rc: settings.rc,
+        if_fiscal: settings.if_fiscal,
+        ice_societe: settings.ice_societe,
+        tp: settings.tp,
+        cnss: settings.cnss,
+      },
+      client: {
+        nom: deliveryOrder.client?.nom ?? '—',
+        code: deliveryOrder.client?.code ?? null,
+        ice: deliveryOrder.client?.ice ?? null,
+        adresse_livraison: deliveryOrder.client?.adresse_livraison ?? null,
+      },
+      // Seulement les articles avec qty > 0 (les retirés sont exclus)
+      items: deliveryOrder.items
+        .filter(item => (deliveryQtys[item.id] ?? item.quantity_ordered) > 0)
+        .map(item => ({
+          display_name: item.product_article?.display_name ?? '—',
+          vat_rate: item.product_article?.product_reference?.vat_rate ?? 20,
+          unit_price: item.unit_price,
+          quantity: deliveryQtys[item.id] ?? item.quantity_ordered,
+        })),
+    };
+    setBlOrder(bl);
   }
 
   async function confirmFullDelivery() {
@@ -388,6 +436,15 @@ export default function DriverViewPage() {
         </div>
       </div>
 
+      {/* ── BL Modal ─────────────────────────────────────────────────────────── */}
+      {blOrder && (
+        <BLModal
+          orders={[blOrder]}
+          title={`BL — ${blOrder.client.nom}`}
+          onClose={() => setBlOrder(null)}
+        />
+      )}
+
       {/* ── Modal livraison ────────────────────────────────────────────────────── */}
       {deliveryOrder && (
         <>
@@ -442,7 +499,13 @@ export default function DriverViewPage() {
                     );
                   })}
                 </div>
-                <div className="px-5 py-4 border-t border-gray-100" style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px) + 16px, 16px)' }}>
+                <div className="px-5 py-4 border-t border-gray-100 flex items-center gap-3" style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px) + 16px, 16px)' }}>
+                  <button
+                    onClick={openBL}
+                    className="flex items-center gap-1.5 px-4 py-3.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50 active:bg-gray-100 transition-colors shrink-0"
+                  >
+                    <FileText size={15} /> BL
+                  </button>
                   <button
                     onClick={() => {
                       const isPartial = deliveryOrder.items.some(
@@ -451,7 +514,7 @@ export default function DriverViewPage() {
                       if (isPartial) setDeliveryStep(2);
                       else confirmFullDelivery();
                     }}
-                    className="w-full px-4 py-3.5 rounded-xl bg-green-600 text-white text-sm font-semibold hover:bg-green-700 transition-colors"
+                    className="flex-1 px-4 py-3.5 rounded-xl bg-green-600 text-white text-sm font-semibold hover:bg-green-700 transition-colors"
                   >
                     Confirmer la livraison
                   </button>
