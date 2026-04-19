@@ -46,10 +46,16 @@ export default function ChangerMotDePassePage() {
 
     // Marquer must_change_password = false
     if (profile) {
-      await supabase
+      const { error: profileError } = await supabase
         .from('profiles')
         .update({ must_change_password: false })
         .eq('id', profile.id);
+
+      if (profileError) {
+        setError('Mot de passe changé mais impossible de finaliser la configuration. Contactez un administrateur.');
+        setLoading(false);
+        return;
+      }
     }
 
     setSuccess(true);
