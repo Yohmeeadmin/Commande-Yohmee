@@ -13,7 +13,7 @@ async function verifyAdmin(request: NextRequest) {
     .select('role')
     .eq('id', user.id)
     .single();
-  if (profile?.role !== 'admin') return null;
+  if (!profile || profile.role !== 'admin') return null;
   return user;
 }
 

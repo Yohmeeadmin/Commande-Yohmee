@@ -103,9 +103,15 @@ function RouteCard({
   async function handleCancel() {
     if (!confirm('Annuler cette tournée ? Les commandes seront libérées.')) return;
     setCancelling(true);
-    await supabase.from('delivery_routes').update({ status: 'cancelled' }).eq('id', route.id);
-    onCancelled?.(route.id);
-    setCancelling(false);
+    try {
+      const { error } = await supabase.from('delivery_routes').update({ status: 'cancelled' }).eq('id', route.id);
+      if (error) throw error;
+      onCancelled?.(route.id);
+    } catch (err: any) {
+      alert(`Erreur annulation tournée : ${err?.message || 'inconnu'}`);
+    } finally {
+      setCancelling(false);
+    }
   }
 
   return (

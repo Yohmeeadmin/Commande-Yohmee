@@ -64,21 +64,25 @@ export default function NouvelleCommandePage() {
       for (const line of lines) {
         const existing = duplicate.items.find(i => i.product_article_id === line.article_id);
         if (existing) {
-          await supabase.from('order_items')
+          const { error } = await supabase.from('order_items')
             .update({ quantity_ordered: existing.quantity_ordered + line.quantite })
             .eq('order_id', duplicate.id)
             .eq('product_article_id', line.article_id);
+          if (error) throw error;
         } else {
-          await supabase.from('order_items').insert({
+          const { error } = await supabase.from('order_items').insert({
             order_id: duplicate.id,
             product_article_id: line.article_id,
             quantity_ordered: line.quantite,
             unit_price: line.prix_unitaire,
             article_unit_quantity: line.unit_quantity,
           });
+          if (error) throw error;
         }
       }
       router.push(`/commandes/${duplicate.id}`);
+    } catch (err: any) {
+      alert(`Erreur groupement : ${err?.message || 'inconnu'}`);
     } finally {
       setMerging(false);
     }

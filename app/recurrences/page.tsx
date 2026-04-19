@@ -36,16 +36,16 @@ export default function RecurrencesPage() {
 
   async function toggleActive(recurrence: RecurringOrder) {
     try {
-      await supabase
+      const { error } = await supabase
         .from('recurring_orders')
         .update({ is_active: !recurrence.is_active })
         .eq('id', recurrence.id);
-
+      if (error) throw error;
       setRecurrences(recurrences.map(r =>
         r.id === recurrence.id ? { ...r, is_active: !r.is_active } : r
       ));
-    } catch (error) {
-      console.error('Erreur:', error);
+    } catch (err: any) {
+      alert(`Erreur : ${err?.message || 'impossible de modifier la récurrence'}`);
     }
   }
 

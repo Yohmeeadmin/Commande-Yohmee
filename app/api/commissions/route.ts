@@ -56,7 +56,7 @@ export async function PATCH(request: NextRequest) {
     .select('role')
     .eq('id', user.id)
     .single();
-  if (profile?.role !== 'admin') return NextResponse.json({ error: 'Non autorisé' }, { status: 403 });
+  if (!profile || profile.role !== 'admin') return NextResponse.json({ error: 'Non autorisé' }, { status: 403 });
 
   const { ids, status } = await request.json();
   if (!ids?.length || !status) return NextResponse.json({ error: 'Champs manquants' }, { status: 400 });

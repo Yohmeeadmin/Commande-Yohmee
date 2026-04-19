@@ -144,30 +144,53 @@ export default function CommandeDetailPage() {
   async function updateStatus(newStatus: OrderStatus) {
     if (!order) return;
     setUpdating(true);
-    await supabase.from('orders').update({ status: newStatus }).eq('id', order.id);
-    setOrder({ ...order, status: newStatus });
-    setUpdating(false);
+    try {
+      const { error } = await supabase.from('orders').update({ status: newStatus }).eq('id', order.id);
+      if (error) throw error;
+      setOrder({ ...order, status: newStatus });
+    } catch (err: any) {
+      alert(`Erreur mise à jour statut : ${err?.message || 'inconnu'}`);
+      await loadOrder();
+    } finally {
+      setUpdating(false);
+    }
   }
 
   async function markDelivered() {
     if (!order) return;
-    await supabase.rpc('mark_order_delivered', { p_order_id: order.id, p_is_full_delivery: true });
-    loadOrder();
+    try {
+      const { error } = await supabase.rpc('mark_order_delivered', { p_order_id: order.id, p_is_full_delivery: true });
+      if (error) throw error;
+      loadOrder();
+    } catch (err: any) {
+      alert(`Erreur livraison : ${err?.message || 'inconnu'}`);
+    }
   }
 
   async function duplicateOrder() {
     if (!order) return;
-    const { data: newOrder, error } = await supabase.from('orders').insert({ client_id: order.client_id, delivery_date: new Date().toISOString().split('T')[0], delivery_slot_id: order.delivery_slot_id, note: order.note, status: 'brouillon' }).select().single();
-    if (error) { alert('Erreur duplication'); return; }
-    await supabase.from('order_items').insert(items.map(item => ({ order_id: newOrder.id, product_article_id: item.product_article_id, quantity_ordered: item.quantity_ordered, unit_price: item.unit_price, article_unit_quantity: item.article_unit_quantity })));
-    router.push(`/commandes/${newOrder.id}`);
+    try {
+      const { data: newOrder, error: orderErr } = await supabase.from('orders').insert({ client_id: order.client_id, delivery_date: new Date().toISOString().split('T')[0], delivery_slot_id: order.delivery_slot_id, note: order.note, status: 'brouillon' }).select().single();
+      if (orderErr) throw orderErr;
+      const { error: itemsErr } = await supabase.from('order_items').insert(items.map(item => ({ order_id: newOrder.id, product_article_id: item.product_article_id, quantity_ordered: item.quantity_ordered, unit_price: item.unit_price, article_unit_quantity: item.article_unit_quantity })));
+      if (itemsErr) throw itemsErr;
+      router.push(`/commandes/${newOrder.id}`);
+    } catch (err: any) {
+      alert(`Erreur duplication : ${err?.message || 'inconnu'}`);
+    }
   }
 
   async function deleteOrder() {
     if (!order || !confirm('Supprimer cette commande ?')) return;
-    await supabase.from('order_items').delete().eq('order_id', order.id);
-    await supabase.from('orders').delete().eq('id', order.id);
-    router.push('/commandes');
+    try {
+      const { error: itemsErr } = await supabase.from('order_items').delete().eq('order_id', order.id);
+      if (itemsErr) throw itemsErr;
+      const { error: orderErr } = await supabase.from('orders').delete().eq('id', order.id);
+      if (orderErr) throw orderErr;
+      router.push('/commandes');
+    } catch (err: any) {
+      alert(`Erreur suppression : ${err?.message || 'inconnu'}`);
+    }
   }
 
   const getStatusStyle = (status: string) => ORDER_STATUSES.find(st => st.value === status) || { value: status, label: status, color: '#6B7280', bgColor: '#F3F4F6' };
