@@ -64,8 +64,10 @@ export default function CommandesPage() {
   const [slots, setSlots] = useState<DeliverySlot[]>([]);
   const [editOrder, setEditOrder] = useState<OrderWithClient | null>(null);
   const [editSlotId, setEditSlotId] = useState<string>('');
+  const [editDate, setEditDate] = useState<string>('');
   const [editItems, setEditItems] = useState<EditItem[]>([]);
   const [editLoading, setEditLoading] = useState(false);
+  const [editSaveError, setEditSaveError] = useState('');
   // Sélection (desktop)
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -99,6 +101,8 @@ export default function CommandesPage() {
   async function openEditModal(order: OrderWithClient) {
     setEditOrder(order);
     setEditSlotId(order.delivery_slot_id || '');
+    setEditDate(order.delivery_date || '');
+    setEditSaveError('');
     setEditItems([]);
     setEditLoading(true);
     const [{ data: itemsData }, slotsResult] = await Promise.all([
@@ -118,14 +122,27 @@ export default function CommandesPage() {
   async function saveEdit() {
     if (!editOrder) return;
     setEditLoading(true);
-    const newTotal = editItems.reduce((sum, i) => sum + i.quantity_ordered * i.unit_price, 0);
-    await Promise.all([
-      supabase.from('orders').update({ delivery_slot_id: editSlotId || null, total: newTotal }).eq('id', editOrder.id),
-      ...editItems.map(item => supabase.from('order_items').update({ quantity_ordered: item.quantity_ordered }).eq('id', item.id)),
-    ]);
-    setEditOrder(null);
-    loadOrders();
-    setEditLoading(false);
+    setEditSaveError('');
+    try {
+      const newTotal = editItems.reduce((sum, i) => sum + i.quantity_ordered * i.unit_price, 0);
+      const { error: orderError } = await supabase.from('orders').update({
+        delivery_date: editDate || editOrder.delivery_date,
+        delivery_slot_id: editSlotId || null,
+        total: newTotal,
+      }).eq('id', editOrder.id);
+      if (orderError) throw orderError;
+      const itemErrors = await Promise.all(
+        editItems.map(item => supabase.from('order_items').update({ quantity_ordered: item.quantity_ordered }).eq('id', item.id))
+      );
+      const firstItemError = itemErrors.find(r => r.error)?.error;
+      if (firstItemError) throw firstItemError;
+      setEditOrder(null);
+      loadOrders();
+    } catch (err: any) {
+      setEditSaveError(err?.message || 'Erreur lors de la modification');
+    } finally {
+      setEditLoading(false);
+    }
   }
 
   async function deleteSelected() {
@@ -541,19 +558,30 @@ export default function CommandesPage() {
               </div>
             ) : (
               <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-                {/* Créneau */}
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Créneau de livraison</label>
-                  <select
-                    value={editSlotId}
-                    onChange={e => setEditSlotId(e.target.value)}
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm"
-                  >
-                    <option value="">— Sans créneau —</option>
-                    {slots.map(s => (
-                      <option key={s.id} value={s.id}>{s.name} ({s.start_time.slice(0, 5)} – {s.end_time.slice(0, 5)})</option>
-                    ))}
-                  </select>
+                {/* Date + Créneau */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Date livraison</label>
+                    <input
+                      type="date"
+                      value={editDate}
+                      onChange={e => setEditDate(e.target.value)}
+                      className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Créneau</label>
+                    <select
+                      value={editSlotId}
+                      onChange={e => setEditSlotId(e.target.value)}
+                      className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-base"
+                    >
+                      <option value="">— Aucun —</option>
+                      {slots.map(s => (
+                        <option key={s.id} value={s.id}>{s.name} ({s.start_time.slice(0, 5)}–{s.end_time.slice(0, 5)})</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
                 {/* Articles */}
                 <div>
@@ -586,12 +614,19 @@ export default function CommandesPage() {
               </div>
             )}
 
+            <div className="px-5 pt-2 flex-shrink-0">
+              {editSaveError && (
+                <div className="mb-2 px-3 py-2 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs">
+                  {editSaveError}
+                </div>
+              )}
+            </div>
             <div className="flex gap-3 px-5 py-4 border-t border-gray-100 flex-shrink-0">
-              <button onClick={() => setEditOrder(null)} className="flex-1 py-3 border border-gray-200 rounded-2xl text-gray-700 font-semibold text-sm">
+              <button onClick={() => { setEditOrder(null); setEditSaveError(''); }} className="flex-1 py-3 border border-gray-200 rounded-2xl text-gray-700 font-semibold text-sm">
                 Annuler
               </button>
               <button onClick={saveEdit} disabled={editLoading} className="flex-1 py-3 bg-blue-600 text-white rounded-2xl font-bold text-sm disabled:opacity-50">
-                Enregistrer
+                {editLoading ? 'Enregistrement…' : 'Enregistrer'}
               </button>
             </div>
           </div>
