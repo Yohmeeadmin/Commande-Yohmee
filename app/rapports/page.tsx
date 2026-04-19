@@ -1,7 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { BarChart3, TrendingUp, Package, Layers, Calendar, ChevronDown } from 'lucide-react';
+import { BarChart3, TrendingUp, Package, Layers, Calendar, ChevronDown, FileText, Printer } from 'lucide-react';
+import BLModal from '@/components/livraisons/BLModal';
+import type { BLOrder } from '@/components/livraisons/BonLivraison';
+import { useAppSettings } from '@/lib/useAppSettings';
 import { supabase } from '@/lib/supabase/client';
 import {
   REPORT_PERIODS,
@@ -14,10 +17,21 @@ import {
 import { useAteliers } from '@/lib/useAteliers';
 import { formatPrice, formatDate, formatNumber } from '@/lib/utils';
 
-type ReportView = 'articles' | 'references' | 'ateliers';
+type ReportView = 'articles' | 'references' | 'ateliers' | 'bons_livraison';
+
+interface BLRecord {
+  id: string;
+  numero: string;
+  order_id: string | null;
+  client_nom: string | null;
+  delivery_date: string;
+  items: Array<{ display_name: string; vat_rate: number; unit_price: number; quantity: number }>;
+  created_at: string;
+}
 
 export default function RapportsPage() {
   const { ateliers, getStyle: getAtelierStyle } = useAteliers();
+  const { settings } = useAppSettings();
   const [view, setView] = useState<ReportView>('articles');
   const [period, setPeriod] = useState<ReportPeriod>('week');
   const [customStart, setCustomStart] = useState('');
@@ -28,6 +42,8 @@ export default function RapportsPage() {
   const [salesByArticle, setSalesByArticle] = useState<SalesReportByArticle[]>([]);
   const [productionByRef, setProductionByRef] = useState<ProductionReportByReference[]>([]);
   const [productionByAtelier, setProductionByAtelier] = useState<ProductionReportByAtelier[]>([]);
+  const [blRecords, setBlRecords] = useState<BLRecord[]>([]);
+  const [previewBL, setPreviewBL] = useState<BLOrder | null>(null);
 
   const dateRange = getReportDateRange(period, customStart, customEnd);
 
@@ -105,6 +121,15 @@ export default function RapportsPage() {
           .order('delivery_date');
         if (error) throw error;
         setProductionByAtelier(data || []);
+      } else if (view === 'bons_livraison') {
+        const { data, error } = await supabase
+          .from('bons_livraison')
+          .select('*')
+          .gte('delivery_date', dateRange.start)
+          .lte('delivery_date', dateRange.end)
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        setBlRecords((data as BLRecord[]) || []);
       }
     } catch (error: any) {
       console.error('Erreur chargement:', error?.message || error?.code || JSON.stringify(error));
@@ -151,9 +176,10 @@ export default function RapportsPage() {
         {/* Tabs vue */}
         <div className="flex gap-2 overflow-x-auto scrollbar-none">
           {([
-            { key: 'articles',    label: 'Par article',    icon: Package },
-            { key: 'references',  label: 'Par référence',  icon: Layers },
-            { key: 'ateliers',    label: 'Par atelier',    icon: BarChart3 },
+            { key: 'articles',         label: 'Par article',    icon: Package },
+            { key: 'references',       label: 'Par référence',  icon: Layers },
+            { key: 'ateliers',         label: 'Par atelier',    icon: BarChart3 },
+            { key: 'bons_livraison',   label: 'BL édités',      icon: FileText },
           ] as { key: ReportView; label: string; icon: React.ComponentType<{ size?: number }> }[]).map(tab => {
             const Icon = tab.icon;
             return (
@@ -490,7 +516,92 @@ export default function RapportsPage() {
               )}
             </div>
           )}
+          {/* BL édités */}
+          {view === 'bons_livraison' && (
+            blRecords.length === 0 ? <EmptyState /> : (
+              <>
+                {/* Mobile */}
+                <div className="space-y-2 lg:hidden">
+                  {blRecords.map(bl => {
+                    const totalHT = (bl.items || []).reduce((s, i) => s + i.unit_price * i.quantity, 0);
+                    const totalTTC = (bl.items || []).reduce((s, i) => s + i.unit_price * i.quantity * (1 + i.vat_rate / 100), 0);
+                    return (
+                      <div key={bl.id} className="bg-white rounded-2xl border border-gray-100 p-4">
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <div>
+                            <p className="font-semibold text-gray-900 text-sm">{bl.numero}</p>
+                            <p className="text-xs text-gray-500">{bl.client_nom ?? '—'}</p>
+                          </div>
+                          <button onClick={() => setPreviewBL({ numero: bl.numero, delivery_date: bl.delivery_date, client: { nom: bl.client_nom ?? '—' }, items: bl.items || [], logoUrl: settings.logo_url, company: { raison_sociale: settings.raison_sociale, adresse_siege: settings.adresse_siege, code_postal: settings.code_postal, ville_siege: settings.ville_siege, telephone_societe: settings.telephone_societe, email_societe: settings.email_societe, site_web: settings.site_web, rc: settings.rc, if_fiscal: settings.if_fiscal, ice_societe: settings.ice_societe, tp: settings.tp } })}
+                            className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                            <Printer size={15} />
+                          </button>
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-gray-500">
+                          <span>{new Date(bl.delivery_date).toLocaleDateString('fr-FR')}</span>
+                          <span className="font-semibold text-gray-800">{formatPrice(totalTTC)} TTC</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Desktop */}
+                <div className="hidden lg:block bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                  <table className="w-full">
+                    <thead className="bg-gray-50 border-b border-gray-100">
+                      <tr>
+                        <th className="text-left px-4 py-3 text-sm font-medium text-gray-500">Référence</th>
+                        <th className="text-left px-4 py-3 text-sm font-medium text-gray-500">Client</th>
+                        <th className="text-left px-4 py-3 text-sm font-medium text-gray-500">Date</th>
+                        <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">Total HT</th>
+                        <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">Total TTC</th>
+                        <th className="px-4 py-3" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {blRecords.map(bl => {
+                        const totalHT = (bl.items || []).reduce((s, i) => s + i.unit_price * i.quantity, 0);
+                        const totalTTC = (bl.items || []).reduce((s, i) => s + i.unit_price * i.quantity * (1 + i.vat_rate / 100), 0);
+                        const blOrder: BLOrder = { numero: bl.numero, delivery_date: bl.delivery_date, client: { nom: bl.client_nom ?? '—' }, items: bl.items || [], logoUrl: settings.logo_url, company: { raison_sociale: settings.raison_sociale, adresse_siege: settings.adresse_siege, code_postal: settings.code_postal, ville_siege: settings.ville_siege, telephone_societe: settings.telephone_societe, email_societe: settings.email_societe, site_web: settings.site_web, rc: settings.rc, if_fiscal: settings.if_fiscal, ice_societe: settings.ice_societe, tp: settings.tp } };
+                        return (
+                          <tr key={bl.id} className="border-b border-gray-50 hover:bg-gray-50">
+                            <td className="px-4 py-3 font-mono text-sm font-medium text-gray-900">{bl.numero}</td>
+                            <td className="px-4 py-3 text-sm text-gray-700">{bl.client_nom ?? '—'}</td>
+                            <td className="px-4 py-3 text-sm text-gray-500">{new Date(bl.delivery_date).toLocaleDateString('fr-FR')}</td>
+                            <td className="px-4 py-3 text-right text-sm">{formatPrice(totalHT)}</td>
+                            <td className="px-4 py-3 text-right font-semibold text-gray-900">{formatPrice(totalTTC)}</td>
+                            <td className="px-4 py-3 text-right">
+                              <button onClick={() => setPreviewBL(blOrder)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                                <Printer size={15} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot className="bg-gray-50 border-t border-gray-100">
+                      <tr>
+                        <td colSpan={3} className="px-4 py-3 text-sm font-semibold text-gray-600">{blRecords.length} BL</td>
+                        <td className="px-4 py-3 text-right text-sm font-semibold text-gray-700">
+                          {formatPrice(blRecords.reduce((s, bl) => s + (bl.items || []).reduce((ss, i) => ss + i.unit_price * i.quantity, 0), 0))}
+                        </td>
+                        <td className="px-4 py-3 text-right font-bold text-gray-900">
+                          {formatPrice(blRecords.reduce((s, bl) => s + (bl.items || []).reduce((ss, i) => ss + i.unit_price * i.quantity * (1 + i.vat_rate / 100), 0), 0))}
+                        </td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </>
+            )
+          )}
         </>
+      )}
+
+      {previewBL && (
+        <BLModal orders={[previewBL]} title={`BL — ${previewBL.client.nom}`} onClose={() => setPreviewBL(null)} />
       )}
     </div>
   );

@@ -249,6 +249,14 @@ export default function DriverViewPage() {
             quantity: blModalQtys[item.id] ?? item.quantity_ordered,
           })),
       };
+      // Sauvegarde en base
+      await supabase.from('bons_livraison').insert({
+        numero: bl.numero,
+        order_id: blModalOrder.id,
+        client_nom: bl.client.nom,
+        delivery_date: bl.delivery_date,
+        items: bl.items,
+      });
       setBlOrder(bl);
       closeBLModal();
     } finally {

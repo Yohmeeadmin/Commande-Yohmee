@@ -655,6 +655,14 @@ export default function LivraisonsPage() {
         }
       }
       const bl = orderToBL(blDeliveryOrder, blDeliveryQtys);
+      // Sauvegarde en base
+      await supabase.from('bons_livraison').insert({
+        numero: bl.numero,
+        order_id: blDeliveryOrder.id,
+        client_nom: bl.client.nom,
+        delivery_date: bl.delivery_date,
+        items: bl.items,
+      });
       setBlOrders([bl]);
       setBlTitle(`BL — ${blDeliveryOrder.client?.nom ?? blDeliveryOrder.numero}`);
       closeBLDelivery();
