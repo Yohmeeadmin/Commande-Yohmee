@@ -6,17 +6,29 @@ import Link from 'next/link';
 import {
   ArrowLeft, Save, AlertCircle, ShoppingCart, Package,
   TrendingUp, TrendingDown, AlertTriangle,
-  Trash2, ChevronRight, RefreshCw,
+  Trash2, ChevronRight, RefreshCw, UserCheck, Plus, X, Pencil,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { CLIENT_TYPES, JOURS_SEMAINE } from '@/types';
 import { VILLES_MAROC, QUARTIERS_PAR_VILLE } from '@/lib/maroc-geo';
 import { formatDate, formatPrice } from '@/lib/utils';
+import { useUser } from '@/contexts/UserContext';
 
 interface OrderItem { display_name: string; quantity_ordered: number; unit_price: number }
 interface OrderHistory { id: string; numero: string; delivery_date: string; status: string; total: number; items: OrderItem[] }
 interface ArticleStat { display_name: string; total_qty: number; total_amount: number; order_count: number }
 interface MonthStats { orders: number; amount: number }
+
+interface CommercialUser { id: string; first_name: string; last_name: string; email: string }
+interface Assignment {
+  id: string;
+  commission_first_order: number;
+  commission_recurring_pct: number;
+  commission_recurring_months: number;
+  commission_recurring_until: string | null;
+  assigned_at: string;
+  user: CommercialUser;
+}
 
 const PERIODS = [
   { label: '30j', days: 30 },
@@ -43,11 +55,24 @@ function TrendBadge({ current, previous }: { current: number; previous: number }
 export default function EditClientPage() {
   const router = useRouter();
   const { id } = useParams<{ id: string }>();
+  const { profile: currentUser } = useUser();
+  const isAdmin = currentUser?.role === 'admin';
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [activeTab, setActiveTab] = useState<'infos' | 'historique'>('infos');
+  const [activeTab, setActiveTab] = useState<'infos' | 'historique' | 'commerciaux'>('infos');
   const [saved, setSaved] = useState(false);
+
+  // Assignments state
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [commercials, setCommercials] = useState<CommercialUser[]>([]);
+  const [loadingAssignments, setLoadingAssignments] = useState(false);
+  const [assignmentsLoaded, setAssignmentsLoaded] = useState(false);
+  const [showAssignForm, setShowAssignForm] = useState(false);
+  const [editingAssignment, setEditingAssignment] = useState<Assignment | null>(null);
+  const [assignForm, setAssignForm] = useState({
+    user_id: '', commission_first_order: '', commission_recurring_pct: '', commission_recurring_months: '',
+  });
 
   // History state
   const [periodDays, setPeriodDays] = useState(90);
@@ -76,6 +101,9 @@ export default function EditClientPage() {
   useEffect(() => {
     if (activeTab === 'historique' && !historyLoaded) {
       loadHistory();
+    }
+    if (activeTab === 'commerciaux' && !assignmentsLoaded && isAdmin) {
+      loadAssignments();
     }
   }, [activeTab, id]);
 
@@ -191,6 +219,77 @@ export default function EditClientPage() {
     jours_livraison: f.jours_livraison.includes(jour) ? f.jours_livraison.filter(j => j !== jour) : [...f.jours_livraison, jour],
   }));
 
+  async function loadAssignments() {
+    setLoadingAssignments(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const [assignRes, commercialsRes] = await Promise.all([
+        fetch(`/api/client-assignments?client_id=${id}`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        }),
+        supabase.from('profiles').select('id, first_name, last_name, email').eq('role', 'commercial').eq('is_active', true).order('first_name'),
+      ]);
+      const assignData = await assignRes.json();
+      setAssignments(assignData || []);
+      setCommercials((commercialsRes.data as CommercialUser[]) || []);
+      setAssignmentsLoaded(true);
+    } finally {
+      setLoadingAssignments(false);
+    }
+  }
+
+  async function handleSaveAssignment() {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const body = {
+      client_id: id,
+      user_id: assignForm.user_id,
+      commission_first_order: Number(assignForm.commission_first_order) || 0,
+      commission_recurring_pct: Number(assignForm.commission_recurring_pct) || 0,
+      commission_recurring_months: Number(assignForm.commission_recurring_months) || 0,
+    };
+    if (editingAssignment) {
+      await fetch(`/api/client-assignments/${editingAssignment.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify(body),
+      });
+    } else {
+      await fetch('/api/client-assignments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify(body),
+      });
+    }
+    setShowAssignForm(false);
+    setEditingAssignment(null);
+    setAssignForm({ user_id: '', commission_first_order: '', commission_recurring_pct: '', commission_recurring_months: '' });
+    setAssignmentsLoaded(false);
+    loadAssignments();
+  }
+
+  async function handleDeleteAssignment(assignId: string) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    await fetch(`/api/client-assignments/${assignId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    setAssignments(prev => prev.filter(a => a.id !== assignId));
+  }
+
+  function openEditAssignment(a: Assignment) {
+    setEditingAssignment(a);
+    setAssignForm({
+      user_id: a.user.id,
+      commission_first_order: String(a.commission_first_order),
+      commission_recurring_pct: String(a.commission_recurring_pct),
+      commission_recurring_months: String(a.commission_recurring_months),
+    });
+    setShowAssignForm(true);
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.nom) return;
@@ -280,6 +379,14 @@ export default function EditClientPage() {
         >
           Historique
         </button>
+        {isAdmin && (
+          <button
+            onClick={() => setActiveTab('commerciaux')}
+            className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${activeTab === 'commerciaux' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
+          >
+            Commerciaux
+          </button>
+        )}
       </div>
 
       {/* ─── INFOS ─── */}
@@ -669,6 +776,153 @@ export default function EditClientPage() {
                 </div>
               )}
             </>
+          )}
+        </div>
+      )}
+
+      {/* ─── COMMERCIAUX ─── */}
+      {activeTab === 'commerciaux' && isAdmin && (
+        <div className="space-y-4">
+
+          {/* Bouton ajouter */}
+          {!showAssignForm && (
+            <button
+              onClick={() => {
+                setEditingAssignment(null);
+                setAssignForm({ user_id: '', commission_first_order: '', commission_recurring_pct: '', commission_recurring_months: '' });
+                setShowAssignForm(true);
+              }}
+              className="w-full flex items-center justify-center gap-2 py-3 border-2 border-dashed border-blue-200 rounded-2xl text-blue-600 text-sm font-semibold hover:bg-blue-50 transition-colors"
+            >
+              <Plus size={16} /> Attribuer un commercial
+            </button>
+          )}
+
+          {/* Formulaire ajout/édition */}
+          {showAssignForm && (
+            <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-bold text-blue-900">{editingAssignment ? 'Modifier l\'attribution' : 'Attribuer un commercial'}</p>
+                <button onClick={() => { setShowAssignForm(false); setEditingAssignment(null); }} className="text-blue-400 hover:text-blue-600">
+                  <X size={18} />
+                </button>
+              </div>
+
+              {!editingAssignment && (
+                <div>
+                  <label className="block text-xs font-semibold text-blue-700 mb-1.5">Commercial *</label>
+                  <select
+                    value={assignForm.user_id}
+                    onChange={e => setAssignForm(f => ({ ...f, user_id: e.target.value }))}
+                    className="w-full px-3 py-2.5 border border-blue-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base bg-white"
+                  >
+                    <option value="">Sélectionner…</option>
+                    {commercials
+                      .filter(c => !assignments.some(a => a.user.id === c.id))
+                      .map(c => (
+                        <option key={c.id} value={c.id}>{c.first_name} {c.last_name}</option>
+                      ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-blue-700 mb-1.5">1ère commande %</label>
+                  <div className="relative">
+                    <input
+                      type="number" min="0" max="100" step="0.5"
+                      value={assignForm.commission_first_order}
+                      onChange={e => setAssignForm(f => ({ ...f, commission_first_order: e.target.value }))}
+                      placeholder="10"
+                      className="w-full px-3 py-2.5 pr-7 border border-blue-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base bg-white"
+                    />
+                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">%</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-blue-700 mb-1.5">Récurrent %</label>
+                  <div className="relative">
+                    <input
+                      type="number" min="0" max="100" step="0.5"
+                      value={assignForm.commission_recurring_pct}
+                      onChange={e => setAssignForm(f => ({ ...f, commission_recurring_pct: e.target.value }))}
+                      placeholder="5"
+                      className="w-full px-3 py-2.5 pr-7 border border-blue-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base bg-white"
+                    />
+                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400">%</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-blue-700 mb-1.5">Durée (mois)</label>
+                  <input
+                    type="number" min="0" max="60"
+                    value={assignForm.commission_recurring_months}
+                    onChange={e => setAssignForm(f => ({ ...f, commission_recurring_months: e.target.value }))}
+                    placeholder="3"
+                    className="w-full px-3 py-2.5 border border-blue-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base bg-white"
+                  />
+                </div>
+              </div>
+
+              <button
+                onClick={handleSaveAssignment}
+                disabled={!editingAssignment && !assignForm.user_id}
+                className="w-full py-3 bg-blue-600 text-white rounded-xl text-sm font-bold disabled:opacity-50"
+              >
+                {editingAssignment ? 'Enregistrer' : 'Attribuer'}
+              </button>
+            </div>
+          )}
+
+          {/* Liste des attributions */}
+          {loadingAssignments ? (
+            <div className="flex justify-center py-8"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600" /></div>
+          ) : assignments.length === 0 ? (
+            <div className="text-center py-10 text-gray-400">
+              <UserCheck size={32} className="mx-auto mb-2 opacity-30" />
+              <p className="text-sm">Aucun commercial attribué</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {assignments.map(a => (
+                <div key={a.id} className="bg-white rounded-2xl border border-gray-100 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1">
+                      <p className="font-semibold text-gray-900 text-sm">{a.user.first_name} {a.user.last_name}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{a.user.email}</p>
+                    </div>
+                    <div className="flex gap-1.5 flex-shrink-0">
+                      <button onClick={() => openEditAssignment(a)} className="w-8 h-8 flex items-center justify-center rounded-xl bg-gray-100 text-gray-500 hover:bg-blue-50 hover:text-blue-600 transition-colors">
+                        <Pencil size={13} />
+                      </button>
+                      <button onClick={() => handleDeleteAssignment(a.id)} className="w-8 h-8 flex items-center justify-center rounded-xl bg-red-50 text-red-400 hover:text-red-600 transition-colors">
+                        <X size={13} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 mt-3">
+                    <div className="bg-emerald-50 rounded-xl px-3 py-2 text-center">
+                      <p className="text-lg font-black text-emerald-700">{a.commission_first_order}%</p>
+                      <p className="text-[10px] text-emerald-600 mt-0.5 leading-tight">1ère commande</p>
+                    </div>
+                    <div className="bg-blue-50 rounded-xl px-3 py-2 text-center">
+                      <p className="text-lg font-black text-blue-700">{a.commission_recurring_pct}%</p>
+                      <p className="text-[10px] text-blue-600 mt-0.5 leading-tight">récurrent</p>
+                    </div>
+                    <div className="bg-purple-50 rounded-xl px-3 py-2 text-center">
+                      <p className="text-lg font-black text-purple-700">{a.commission_recurring_months}</p>
+                      <p className="text-[10px] text-purple-600 mt-0.5 leading-tight">mois</p>
+                    </div>
+                  </div>
+                  {a.commission_recurring_until && (
+                    <p className="text-xs text-gray-400 mt-2 text-center">
+                      Récurrent jusqu'au {new Date(a.commission_recurring_until).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}

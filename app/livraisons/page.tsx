@@ -42,6 +42,7 @@ interface DeliveryOrder {
   note: string | null;
   driver_id: string | null;
   driver_sequence: number | null;
+  client_id: string | null;
   client: { nom: string; raison_sociale: string | null; telephone: string | null; adresse_livraison: string | null; code: string | null; ice: string | null } | null;
   delivery_slot: Slot | null;
   items: OrderItem[];
@@ -289,7 +290,7 @@ export default function LivraisonsPage() {
         supabase.from('drivers').select('*').eq('is_active', true).order('first_name'),
         supabase.from('delivery_slots').select('*').eq('is_active', true).order('sort_order'),
         supabase.from('orders').select(`
-          id, numero, status, is_fully_delivered, total, note, driver_id, driver_sequence,
+          id, numero, status, is_fully_delivered, total, note, driver_id, driver_sequence, client_id,
           client:clients(nom, raison_sociale, telephone, adresse_livraison, code, ice),
           delivery_slot:delivery_slots(id, name, start_time, end_time, sort_order),
           items:order_items(id, product_article_id, quantity_ordered, quantity_delivered, unit_price, article_unit_quantity, product_article:product_articles(display_name, product_reference:product_references(vat_rate)))
@@ -664,6 +665,17 @@ export default function LivraisonsPage() {
         delivery_date: bl.delivery_date,
         items: bl.items,
       });
+      // Déclenche le calcul des commissions si le client est suivi
+      if (blDeliveryOrder.client_id) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          fetch('/api/commissions/trigger', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+            body: JSON.stringify({ order_id: blDeliveryOrder.id, client_id: blDeliveryOrder.client_id }),
+          }).catch(() => {}); // fire-and-forget
+        }
+      }
       setBlOrders([bl]);
       setBlTitle(`BL — ${blDeliveryOrder.client?.nom ?? blDeliveryOrder.numero}`);
       closeBLDelivery();

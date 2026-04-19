@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { BarChart3, TrendingUp, Package, Layers, Calendar, ChevronDown, FileText, Printer, AlertTriangle } from 'lucide-react';
+import { BarChart3, TrendingUp, Package, Layers, Calendar, ChevronDown, FileText, Printer, AlertTriangle, BadgeDollarSign, CheckCircle, Banknote, ChevronRight } from 'lucide-react';
 import BLModal from '@/components/livraisons/BLModal';
 import type { BLOrder } from '@/components/livraisons/BonLivraison';
 import { useAppSettings } from '@/lib/useAppSettings';
@@ -16,8 +16,22 @@ import {
 } from '@/types';
 import { useAteliers } from '@/lib/useAteliers';
 import { formatPrice, formatDate, formatNumber } from '@/lib/utils';
+import { useUser } from '@/contexts/UserContext';
 
-type ReportView = 'articles' | 'references' | 'ateliers' | 'bons_livraison' | 'commandes_incompletes';
+type ReportView = 'articles' | 'references' | 'ateliers' | 'bons_livraison' | 'commandes_incompletes' | 'commissions';
+
+interface Commission {
+  id: string;
+  type: 'first_order' | 'recurring';
+  amount: number;
+  rate: number;
+  status: 'pending' | 'validated' | 'paid';
+  bl_generated_at: string;
+  created_at: string;
+  user: { id: string; first_name: string; last_name: string } | null;
+  client: { id: string; nom: string; raison_sociale: string | null; code: string | null } | null;
+  order: { id: string; numero: string; delivery_date: string; total: number } | null;
+}
 
 interface IncompleteOrderItem {
   display_name: string;
@@ -53,6 +67,8 @@ interface BLRecord {
 export default function RapportsPage() {
   const { ateliers, getStyle: getAtelierStyle } = useAteliers();
   const { settings } = useAppSettings();
+  const { profile } = useUser();
+  const isAdmin = profile?.role === 'admin';
   const [view, setView] = useState<ReportView>('articles');
   const [period, setPeriod] = useState<ReportPeriod>('week');
   const [customStart, setCustomStart] = useState('');
@@ -67,6 +83,9 @@ export default function RapportsPage() {
   const [previewBL, setPreviewBL] = useState<BLOrder | null>(null);
   const [incompleteOrders, setIncompleteOrders] = useState<IncompleteOrder[]>([]);
   const [missingProductStats, setMissingProductStats] = useState<MissingProductStat[]>([]);
+  const [commissions, setCommissions] = useState<Commission[]>([]);
+  const [selectedCommissions, setSelectedCommissions] = useState<Set<string>>(new Set());
+  const [updatingCommissions, setUpdatingCommissions] = useState(false);
 
   const dateRange = getReportDateRange(period, customStart, customEnd);
 
@@ -206,6 +225,15 @@ export default function RapportsPage() {
             .map(([name, s]) => ({ display_name: name, total_missing: s.total_missing, occurrence_count: s.occurrences, clients: Array.from(s.clients) }))
             .sort((a, b) => b.occurrence_count - a.occurrence_count)
         );
+      } else if (view === 'commissions') {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+        const res = await fetch(`/api/commissions?start=${dateRange.start}&end=${dateRange.end}`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        const json = await res.json();
+        setCommissions(json.data || []);
+        setSelectedCommissions(new Set());
       }
     } catch (error: any) {
       console.error('Erreur chargement:', error?.message || error?.code || JSON.stringify(error));
@@ -234,6 +262,33 @@ export default function RapportsPage() {
 
   const periodLabel = REPORT_PERIODS.find(p => p.value === period)?.label || '';
 
+  async function handleCommissionStatus(status: 'validated' | 'paid') {
+    if (selectedCommissions.size === 0) return;
+    setUpdatingCommissions(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      await fetch('/api/commissions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ ids: Array.from(selectedCommissions), status }),
+      });
+      setCommissions(prev => prev.map(c => selectedCommissions.has(c.id) ? { ...c, status } : c));
+      setSelectedCommissions(new Set());
+    } finally {
+      setUpdatingCommissions(false);
+    }
+  }
+
+  // Agrégats commissions par commercial (admin)
+  const commissionsByUser = commissions.reduce((acc, c) => {
+    const uid = c.user?.id ?? 'unknown';
+    if (!acc[uid]) acc[uid] = { user: c.user, pending: 0, validated: 0, paid: 0, total: 0 };
+    acc[uid][c.status] += c.amount;
+    acc[uid].total += c.amount;
+    return acc;
+  }, {} as Record<string, { user: Commission['user']; pending: number; validated: number; paid: number; total: number }>);
+
   return (
     <div className="space-y-4 lg:space-y-6">
 
@@ -257,6 +312,7 @@ export default function RapportsPage() {
             { key: 'ateliers',              label: 'Par atelier',    icon: BarChart3 },
             { key: 'bons_livraison',        label: 'BL édités',      icon: FileText },
             { key: 'commandes_incompletes', label: 'Incomplètes',    icon: AlertTriangle },
+            { key: 'commissions',           label: 'Commissions',    icon: BadgeDollarSign },
           ] as { key: ReportView; label: string; icon: React.ComponentType<{ size?: number }> }[]).map(tab => {
             const Icon = tab.icon;
             return (
@@ -757,6 +813,120 @@ export default function RapportsPage() {
                   </div>
                 </div>
 
+              </div>
+            )
+          )}
+
+          {/* Vue Commissions */}
+          {view === 'commissions' && (
+            commissions.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
+                <BadgeDollarSign className="mx-auto mb-3 text-gray-300" size={32} />
+                <p className="text-gray-500 text-sm">Aucune commission sur cette période</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Résumé par commercial (admin seulement) */}
+                {isAdmin && Object.keys(commissionsByUser).length > 0 && (
+                  <div className="space-y-2">
+                    {Object.values(commissionsByUser).map(u => (
+                      <div key={u.user?.id} className="bg-white rounded-2xl border border-gray-100 p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="font-semibold text-gray-900 text-sm">{u.user?.first_name} {u.user?.last_name}</p>
+                          <p className="text-lg font-black text-gray-900">{formatPrice(u.total)}</p>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="bg-amber-50 rounded-xl px-3 py-2 text-center">
+                            <p className="text-sm font-bold text-amber-700">{formatPrice(u.pending)}</p>
+                            <p className="text-[10px] text-amber-600 mt-0.5">En attente</p>
+                          </div>
+                          <div className="bg-blue-50 rounded-xl px-3 py-2 text-center">
+                            <p className="text-sm font-bold text-blue-700">{formatPrice(u.validated)}</p>
+                            <p className="text-[10px] text-blue-600 mt-0.5">Validée</p>
+                          </div>
+                          <div className="bg-emerald-50 rounded-xl px-3 py-2 text-center">
+                            <p className="text-sm font-bold text-emerald-700">{formatPrice(u.paid)}</p>
+                            <p className="text-[10px] text-emerald-600 mt-0.5">Payée</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Actions admin (valider / payer) */}
+                {isAdmin && selectedCommissions.size > 0 && (
+                  <div className="flex gap-2 p-3 bg-blue-50 rounded-2xl border border-blue-100">
+                    <span className="text-sm text-blue-700 font-medium flex-1">{selectedCommissions.size} sélectionnée(s)</span>
+                    <button
+                      onClick={() => handleCommissionStatus('validated')}
+                      disabled={updatingCommissions}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-bold disabled:opacity-50"
+                    >
+                      <CheckCircle size={13} /> Valider
+                    </button>
+                    <button
+                      onClick={() => handleCommissionStatus('paid')}
+                      disabled={updatingCommissions}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-bold disabled:opacity-50"
+                    >
+                      <Banknote size={13} /> Payer
+                    </button>
+                  </div>
+                )}
+
+                {/* Liste détaillée */}
+                <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                  <div className="divide-y divide-gray-50">
+                    {commissions.map(c => (
+                      <div key={c.id} className="px-4 py-3 flex items-start gap-3">
+                        {isAdmin && (
+                          <input
+                            type="checkbox"
+                            className="mt-1 w-4 h-4 rounded accent-blue-600 flex-shrink-0"
+                            checked={selectedCommissions.has(c.id)}
+                            onChange={e => setSelectedCommissions(prev => {
+                              const next = new Set(prev);
+                              e.target.checked ? next.add(c.id) : next.delete(c.id);
+                              return next;
+                            })}
+                          />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                              c.type === 'first_order' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
+                            }`}>
+                              {c.type === 'first_order' ? '1ère commande' : 'Récurrent'}
+                            </span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                              c.status === 'paid' ? 'bg-emerald-100 text-emerald-700' :
+                              c.status === 'validated' ? 'bg-blue-100 text-blue-700' :
+                              'bg-amber-100 text-amber-700'
+                            }`}>
+                              {c.status === 'paid' ? 'Payée' : c.status === 'validated' ? 'Validée' : 'En attente'}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1 mt-1">
+                            <p className="text-sm font-semibold text-gray-900 truncate">
+                              {c.client?.raison_sociale || c.client?.nom || '—'}
+                            </p>
+                            {c.client?.code && <span className="text-xs text-gray-400 flex-shrink-0">{c.client.code}</span>}
+                          </div>
+                          {isAdmin && c.user && (
+                            <p className="text-xs text-gray-400">{c.user.first_name} {c.user.last_name}</p>
+                          )}
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <p className="text-xs text-gray-400">{c.order?.numero} · {c.order?.delivery_date ? formatDate(c.order.delivery_date) : '—'}</p>
+                            <span className="text-xs text-gray-300">·</span>
+                            <p className="text-xs text-gray-400">{c.rate}% sur {formatPrice(c.order?.total ?? 0)}</p>
+                          </div>
+                        </div>
+                        <p className="text-base font-black text-gray-900 flex-shrink-0">{formatPrice(c.amount)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             )
           )}
