@@ -104,8 +104,11 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
           setProfile(prof);
           setLoading(false);
 
-          if (prof.must_change_password && !pathnameRef.current.startsWith('/changer-mot-de-passe')) {
-            router.push('/changer-mot-de-passe');
+          if (prof.must_change_password) {
+            if (!pathnameRef.current.startsWith('/changer-mot-de-passe')) {
+              router.push('/changer-mot-de-passe');
+            }
+            // Ne pas tomber sur la redirection PUBLIC_PATHS — l'utilisateur doit remplir le formulaire
             return;
           }
 
