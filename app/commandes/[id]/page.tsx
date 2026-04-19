@@ -381,7 +381,7 @@ export default function CommandeDetailPage() {
 
     {/* Barre d'actions fixe en bas */}
     {canEdit || canDeliver ? (
-      <div className="fixed bottom-0 left-0 right-0 z-20 bg-white border-t border-gray-100 px-4 py-3 flex gap-2 lg:hidden"
+      <div className="fixed bottom-0 left-0 right-0 z-20 bg-white border-t border-gray-100 px-4 py-3 flex gap-2"
         style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px) + 12px, 16px)' }}>
         {canEdit && (
           <button
@@ -448,29 +448,37 @@ export default function CommandeDetailPage() {
 
           {/* Corps scrollable */}
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-            {/* Date + Créneau */}
-            <div className="grid grid-cols-2 gap-3">
+            {/* Date */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1.5">Date livraison</label>
+              <input type="date" value={editForm.delivery_date} onChange={e => setEditForm(f => ({ ...f, delivery_date: e.target.value }))}
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+
+            {/* Créneau ou horaire selon le type client */}
+            {order.client?.type_client === 'particulier' ? (
               <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1.5">Date livraison</label>
-                <input type="date" value={editForm.delivery_date} onChange={e => setEditForm(f => ({ ...f, delivery_date: e.target.value }))}
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <label className="block text-xs font-semibold text-gray-500 mb-1.5">Horaire livraison</label>
+                <input type="time" value={editForm.delivery_time} onChange={e => setEditForm(f => ({ ...f, delivery_time: e.target.value, delivery_slot_id: '' }))}
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
+            ) : (
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1.5">Créneau</label>
-                <select value={editForm.delivery_slot_id} onChange={e => setEditForm(f => ({ ...f, delivery_slot_id: e.target.value }))}
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                <select value={editForm.delivery_slot_id} onChange={e => setEditForm(f => ({ ...f, delivery_slot_id: e.target.value, delivery_time: '' }))}
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
                   <option value="">— Aucun —</option>
-                  {deliverySlots.map(s => <option key={s.id} value={s.id}>{s.name} {s.start_time.slice(0,5)}</option>)}
+                  {deliverySlots.map(s => <option key={s.id} value={s.id}>{s.name} {s.start_time.slice(0,5)}–{s.end_time.slice(0,5)}</option>)}
                 </select>
               </div>
-            </div>
+            )}
 
             {/* Note */}
             <div>
               <label className="block text-xs font-semibold text-gray-500 mb-1.5">Note</label>
               <input type="text" value={editForm.note} onChange={e => setEditForm(f => ({ ...f, note: e.target.value }))}
                 placeholder="Note…"
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
 
             {/* Recherche article */}
@@ -479,7 +487,7 @@ export default function CommandeDetailPage() {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={15} />
                 <input type="text" placeholder="Rechercher…" value={searchProduct} onChange={e => setSearchProduct(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 {searchProduct && <button onClick={() => setSearchProduct('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"><X size={14} /></button>}
               </div>
               {searchProduct && (
