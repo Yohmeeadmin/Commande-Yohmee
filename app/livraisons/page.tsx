@@ -279,6 +279,9 @@ export default function LivraisonsPage() {
   const [blBackorderSlotId, setBlBackorderSlotId] = useState<string | null>(null);
   const [blConfirming, setBlConfirming] = useState(false);
 
+  // ── BL existants : order_ids ayant déjà un BL généré ─────────────────────
+  const [blOrderIds, setBlOrderIds] = useState<Set<string>>(new Set());
+
   // ── Load ────────────────────────────────────────────────────────────────────
 
   const loadData = useCallback(async (d: string) => {
@@ -286,7 +289,7 @@ export default function LivraisonsPage() {
     try {
       await supabase.rpc('generate_orders_from_recurring', { target_date: d });
 
-      const [{ data: driversData }, { data: slotsData }, { data: ordersData }, { data: routesData }] = await Promise.all([
+      const [{ data: driversData }, { data: slotsData }, { data: ordersData }, { data: routesData }, { data: blData }] = await Promise.all([
         supabase.from('drivers').select('*').eq('is_active', true).order('first_name'),
         supabase.from('delivery_slots').select('*').eq('is_active', true).order('sort_order'),
         supabase.from('orders').select(`
@@ -309,12 +312,14 @@ export default function LivraisonsPage() {
         `)
           .eq('delivery_date', d)
           .not('status', 'eq', 'cancelled'),
+        supabase.from('bons_livraison').select('order_id').eq('delivery_date', d).not('order_id', 'is', null),
       ]);
 
       setDrivers(driversData || []);
       setSlots(slotsData || []);
       setOrders((ordersData as DeliveryOrder[]) || []);
       setRoutes((routesData as DeliveryRouteWithDetails[]) || []);
+      setBlOrderIds(new Set((blData || []).map((b: any) => b.order_id)));
     } finally {
       setLoading(false);
     }
@@ -357,6 +362,10 @@ export default function LivraisonsPage() {
 
   async function confirmFullDelivery() {
     if (!deliveryOrder) return;
+    if (!blOrderIds.has(deliveryOrder.id)) {
+      alert('Un bon de livraison doit être généré avant de confirmer la livraison.');
+      return;
+    }
     await supabase.rpc('mark_order_delivered', {
       p_order_id: deliveryOrder.id,
       p_is_fully_delivered: true,
@@ -375,6 +384,10 @@ export default function LivraisonsPage() {
 
   async function confirmPartialWithBackorder(createBackorder: boolean) {
     if (!deliveryOrder) return;
+    if (!blOrderIds.has(deliveryOrder.id)) {
+      alert('Un bon de livraison doit être généré avant de confirmer la livraison.');
+      return;
+    }
     const deliveredItems = deliveryOrder.items.map(item => ({
       order_item_id: item.id,
       quantity_delivered: deliveryQtys[item.id] ?? item.quantity_ordered,
@@ -676,6 +689,8 @@ export default function LivraisonsPage() {
           }).catch(() => {}); // fire-and-forget
         }
       }
+      // Marque ce BL comme existant pour débloquer la confirmation
+      setBlOrderIds(prev => new Set([...prev, blDeliveryOrder.id]));
       setBlOrders([bl]);
       setBlTitle(`BL — ${blDeliveryOrder.client?.nom ?? blDeliveryOrder.numero}`);
       closeBLDelivery();
@@ -1090,6 +1105,8 @@ export default function LivraisonsPage() {
 
                                       {!isDelivered ? (
                                         <button
+                                          title={blOrderIds.has(order.id) ? 'Confirmer la livraison' : 'Générer le BL avant de confirmer'}
+                                          disabled={!blOrderIds.has(order.id)}
                                           onClick={async () => {
                                             await supabase.rpc('mark_order_delivered', {
                                               p_order_id: order.id,
@@ -1102,7 +1119,7 @@ export default function LivraisonsPage() {
                                                 : o
                                             ));
                                           }}
-                                          className="p-2 rounded-xl text-gray-400 hover:text-green-600 hover:bg-green-50 active:scale-95 transition-all"
+                                          className={`p-2 rounded-xl transition-all ${blOrderIds.has(order.id) ? 'text-gray-400 hover:text-green-600 hover:bg-green-50 active:scale-95' : 'text-gray-200 cursor-not-allowed'}`}
                                         >
                                           <CheckCircle size={20} />
                                         </button>
