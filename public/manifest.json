@@ -3,31 +3,31 @@
   "short_name": "BDK",
   "description": "Gestion des commandes BDK",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "portrait-primary",
   "background_color": "#f8fafc",
   "theme_color": "#2563eb",
-  "orientation": "portrait-primary",
   "lang": "fr",
   "icons": [
     {
-      "src": "/logo-favicon.png",
+      "src": "/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/logo-favicon.png",
+      "src": "/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/logo-favicon.png",
-      "sizes": "any",
+      "src": "/icon-512-maskable.png",
+      "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
     }
   ],
-  "screenshots": [],
   "categories": ["business", "productivity"]
 }

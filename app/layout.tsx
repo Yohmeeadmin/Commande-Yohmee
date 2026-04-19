@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { UserProvider } from "@/contexts/UserContext";
 import AppShell from "@/components/layout/AppShell";
+import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -45,6 +46,7 @@ export default function RootLayout({
   return (
     <html lang="fr" className={`${inter.className} h-full`}>
       <body className="h-full bg-gray-50">
+        <ServiceWorkerRegistration />
         <UserProvider>
           <AppShell>
             {children}
