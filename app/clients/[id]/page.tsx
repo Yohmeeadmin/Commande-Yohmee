@@ -60,12 +60,14 @@ export default function EditClientPage() {
   const [previousMonth, setPreviousMonth] = useState<MonthStats>({ orders: 0, amount: 0 });
   const [daysSinceLastOrder, setDaysSinceLastOrder] = useState<number | null>(null);
 
+  const [nomSynced, setNomSynced] = useState(false);
   const [form, setForm] = useState({
-    nom: '', contact_nom: '', telephone: '', email: '',
+    nom: '', raison_sociale: '', prenom: '',
+    contact_nom: '', telephone: '', email: '',
     ville: '', quartier: '', adresse_livraison: '',
     type_client: 'autre', jours_livraison: [] as string[],
     horaire_livraison: '', note_interne: '', is_active: true,
-    code: '', ice: '',
+    code: '', ice: '', rc: '',
   });
 
   const quartiersDisponibles = form.ville ? (QUARTIERS_PAR_VILLE[form.ville] || []) : [];
@@ -80,13 +82,16 @@ export default function EditClientPage() {
   async function loadClient() {
     const { data, error } = await supabase.from('clients').select('*').eq('id', id).single();
     if (error || !data) { router.push('/clients'); return; }
+    const hasDifferentRS = data.raison_sociale && data.raison_sociale !== data.nom;
+    setNomSynced(!hasDifferentRS && !!data.raison_sociale);
     setForm({
-      nom: data.nom, contact_nom: data.contact_nom || '', telephone: data.telephone || '',
+      nom: data.nom, raison_sociale: data.raison_sociale || '', prenom: data.prenom || '',
+      contact_nom: data.contact_nom || '', telephone: data.telephone || '',
       email: data.email || '', ville: data.ville || '', quartier: data.quartier || '',
       adresse_livraison: data.adresse_livraison || '', type_client: data.type_client,
       jours_livraison: data.jours_livraison || [], horaire_livraison: data.horaire_livraison || '',
       note_interne: data.note_interne || '', is_active: data.is_active,
-      code: data.code || '', ice: data.ice || '',
+      code: data.code || '', ice: data.ice || '', rc: data.rc || '',
     });
     setLoadingData(false);
   }
@@ -192,12 +197,13 @@ export default function EditClientPage() {
     setLoading(true);
     try {
       await supabase.from('clients').update({
-        nom: form.nom, contact_nom: form.contact_nom || null, telephone: form.telephone || null,
+        nom: form.nom, raison_sociale: form.raison_sociale || null, prenom: form.prenom || null,
+        contact_nom: form.contact_nom || null, telephone: form.telephone || null,
         email: form.email || null, ville: form.ville || null, quartier: form.quartier || null,
         adresse_livraison: form.adresse_livraison || null, type_client: form.type_client,
         jours_livraison: form.jours_livraison, horaire_livraison: form.horaire_livraison || null,
         note_interne: form.note_interne || null, is_active: form.is_active,
-        code: form.code || null, ice: form.ice || null,
+        code: form.code || null, ice: form.ice || null, rc: form.rc || null,
       }).eq('id', id);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -283,37 +289,84 @@ export default function EditClientPage() {
           {/* Coordonnées */}
           <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-3">
             <p className="text-xs font-bold text-gray-400 uppercase tracking-wide">Coordonnées</p>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1.5">Nom / Société *</label>
-              <input type="text" value={form.nom} onChange={e => setForm(f => ({ ...f, nom: e.target.value }))} required
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1.5">Contact</label>
-                <input type="text" value={form.contact_nom} onChange={e => setForm(f => ({ ...f, contact_nom: e.target.value }))} placeholder="Prénom Nom"
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+
+            {form.type_client === 'particulier' ? (
+              /* ── Particulier ── */
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1.5">Prénom</label>
+                  <input type="text" value={form.prenom} onChange={e => setForm(f => ({ ...f, prenom: e.target.value }))} placeholder="Prénom"
+                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1.5">Nom *</label>
+                  <input type="text" value={form.nom} onChange={e => setForm(f => ({ ...f, nom: e.target.value }))} required
+                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" />
+                </div>
               </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1.5">Type</label>
-                <select value={form.type_client} onChange={e => setForm(f => ({ ...f, type_client: e.target.value }))}
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm">
-                  {CLIENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                </select>
-              </div>
-            </div>
+            ) : (
+              /* ── Entreprise ── */
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1.5">Raison sociale</label>
+                    <input type="text" value={form.raison_sociale}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setForm(f => ({ ...f, raison_sociale: val, nom: nomSynced ? val : f.nom }));
+                      }}
+                      placeholder="BDK FOOD SARL"
+                      className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1.5">
+                      Nom commercial *{' '}
+                      {nomSynced && form.raison_sociale && <span className="text-blue-400 font-normal">(auto)</span>}
+                    </label>
+                    <input type="text" value={form.nom}
+                      onChange={e => { setNomSynced(false); setForm(f => ({ ...f, nom: e.target.value })); }} required
+                      className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1.5">Contact</label>
+                    <input type="text" value={form.contact_nom} onChange={e => setForm(f => ({ ...f, contact_nom: e.target.value }))} placeholder="Prénom Nom"
+                      className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1.5">Type</label>
+                    <select value={form.type_client} onChange={e => setForm(f => ({ ...f, type_client: e.target.value }))}
+                      className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-base">
+                      {CLIENT_TYPES.filter(t => t.value !== 'particulier').map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </>
+            )}
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1.5">Téléphone</label>
                 <input type="tel" value={form.telephone} onChange={e => setForm(f => ({ ...f, telephone: e.target.value }))}
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-500 mb-1.5">Email</label>
                 <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" />
               </div>
             </div>
+
+            {form.type_client === 'particulier' && (
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1.5">Type</label>
+                <select value={form.type_client} onChange={e => setForm(f => ({ ...f, type_client: e.target.value }))}
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-base">
+                  {CLIENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+              </div>
+            )}
           </div>
 
           {/* Adresse */}
@@ -357,14 +410,24 @@ export default function EditClientPage() {
                 <label className="block text-xs font-semibold text-gray-500 mb-1.5">Code client</label>
                 <input type="text" value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))}
                   placeholder="CLT-0001"
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" />
               </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1.5">I.C.E</label>
-                <input type="text" value={form.ice} onChange={e => setForm(f => ({ ...f, ice: e.target.value }))}
-                  placeholder="000000000000000"
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
-              </div>
+              {form.type_client !== 'particulier' && (
+                <>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1.5">I.C.E</label>
+                    <input type="text" value={form.ice} onChange={e => setForm(f => ({ ...f, ice: e.target.value }))}
+                      placeholder="000000000000000"
+                      className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1.5">R.C</label>
+                    <input type="text" value={form.rc} onChange={e => setForm(f => ({ ...f, rc: e.target.value }))}
+                      placeholder="123456"
+                      className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" />
+                  </div>
+                </>
+              )}
             </div>
           </div>
 

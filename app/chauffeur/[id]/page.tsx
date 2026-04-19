@@ -32,7 +32,7 @@ interface DeliveryOrder {
   total: number;
   note: string | null;
   delivery_slot: Slot | null;
-  client: { nom: string; telephone: string | null; adresse_livraison: string | null; code: string | null; ice: string | null } | null;
+  client: { nom: string; raison_sociale: string | null; telephone: string | null; adresse_livraison: string | null; code: string | null; ice: string | null } | null;
   items: OrderItem[];
 }
 
@@ -133,7 +133,7 @@ export default function DriverViewPage() {
           .select(`
             id, numero, status, total, note,
             delivery_slot:delivery_slots(id, name, start_time, end_time),
-            client:clients(nom, telephone, adresse_livraison, code, ice),
+            client:clients(nom, raison_sociale, telephone, adresse_livraison, code, ice),
             items:order_items(id, quantity_ordered, quantity_delivered, unit_price, product_article:product_articles(display_name, product_reference:product_references(vat_rate)))
           `)
           .in('id', orderIds)
@@ -146,7 +146,7 @@ export default function DriverViewPage() {
           .select(`
             id, numero, status, total, note,
             delivery_slot:delivery_slots(id, name, start_time, end_time),
-            client:clients(nom, telephone, adresse_livraison, code, ice),
+            client:clients(nom, raison_sociale, telephone, adresse_livraison, code, ice),
             items:order_items(id, quantity_ordered, quantity_delivered, unit_price, product_article:product_articles(display_name, product_reference:product_references(vat_rate)))
           `)
           .eq('delivery_date', localDateStr())
@@ -236,6 +236,7 @@ export default function DriverViewPage() {
         },
         client: {
           nom: blModalOrder.client?.nom ?? '—',
+          raison_sociale: blModalOrder.client?.raison_sociale ?? null,
           code: blModalOrder.client?.code ?? null,
           ice: blModalOrder.client?.ice ?? null,
           adresse_livraison: blModalOrder.client?.adresse_livraison ?? null,

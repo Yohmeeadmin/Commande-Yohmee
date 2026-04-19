@@ -1,9 +1,19 @@
 'use client';
 
-import { X, Trash2, CheckCircle, Save, ChevronDown, Bell, Clock, Calendar } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { X, Trash2, CheckCircle, Save, ChevronDown, Bell, Clock, Calendar, AlertTriangle, GitMerge } from 'lucide-react';
 import { OrderLine, OrderForm } from './types';
 import { DeliverySlot } from '@/types';
 import { formatPrice } from '@/lib/utils';
+import { supabase } from '@/lib/supabase/client';
+
+interface DuplicateOrder {
+  id: string;
+  numero: string;
+  status: string;
+  items: { product_article_id: string; quantity_ordered: number; unit_price: number; article_unit_quantity: number }[];
+}
 
 interface Props {
   lines: OrderLine[];
@@ -22,8 +32,57 @@ export default function CartSheet({
   lines, form, deliverySlots, submitting, deliveryHint,
   onUpdateQty, onRemove, onFormChange, onSubmit, onClose,
 }: Props) {
+  const router = useRouter();
   const total = lines.reduce((s, l) => s + l.quantite * l.prix_unitaire, 0);
   const totalQty = lines.reduce((s, l) => s + l.quantite, 0);
+
+  const [duplicate, setDuplicate] = useState<DuplicateOrder | null>(null);
+  const [merging, setMerging] = useState(false);
+
+  // Détection doublon : même client, même date
+  useEffect(() => {
+    if (!form.client_id || !form.date_livraison) { setDuplicate(null); return; }
+    let cancelled = false;
+    supabase
+      .from('orders')
+      .select('id, numero, status, items:order_items(product_article_id, quantity_ordered, unit_price, article_unit_quantity)')
+      .eq('client_id', form.client_id)
+      .eq('delivery_date', form.date_livraison)
+      .neq('status', 'annulee')
+      .limit(1)
+      .single()
+      .then(({ data }: { data: any }) => {
+        if (!cancelled) setDuplicate(data as DuplicateOrder | null);
+      });
+    return () => { cancelled = true; };
+  }, [form.client_id, form.date_livraison]);
+
+  async function handleMerge() {
+    if (!duplicate) return;
+    setMerging(true);
+    try {
+      for (const line of lines) {
+        const existing = duplicate.items.find(i => i.product_article_id === line.article_id);
+        if (existing) {
+          await supabase.from('order_items')
+            .update({ quantity_ordered: existing.quantity_ordered + line.quantite })
+            .eq('order_id', duplicate.id)
+            .eq('product_article_id', line.article_id);
+        } else {
+          await supabase.from('order_items').insert({
+            order_id: duplicate.id,
+            product_article_id: line.article_id,
+            quantity_ordered: line.quantite,
+            unit_price: line.prix_unitaire,
+            article_unit_quantity: line.unit_quantity,
+          });
+        }
+      }
+      router.push(`/commandes/${duplicate.id}`);
+    } finally {
+      setMerging(false);
+    }
+  }
 
   return (
     <>
@@ -50,11 +109,41 @@ export default function CartSheet({
         {/* Contenu scrollable */}
         <div className="flex-1 overflow-y-auto">
 
+          {/* Alerte doublon */}
+          {duplicate && (
+            <div className="mx-4 mt-4 bg-amber-50 border border-amber-200 rounded-2xl p-4">
+              <div className="flex items-start gap-2.5 mb-3">
+                <AlertTriangle size={17} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-bold text-amber-900">Commande existante</p>
+                  <p className="text-xs text-amber-700 mt-0.5">
+                    La commande <span className="font-semibold">{duplicate.numero}</span> existe déjà pour ce client à cette date.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleMerge}
+                  disabled={merging || lines.length === 0}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-amber-600 text-white rounded-xl text-sm font-bold disabled:opacity-50 active:scale-95 transition-transform"
+                >
+                  <GitMerge size={15} />
+                  {merging ? 'Groupement…' : 'Grouper'}
+                </button>
+                <button
+                  onClick={onClose}
+                  className="flex-1 py-2.5 border border-amber-200 text-amber-800 rounded-xl text-sm font-semibold active:scale-95 transition-transform"
+                >
+                  Annuler
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Lignes panier */}
           <div className="px-4 pt-4 space-y-3">
             {lines.map(line => (
               <div key={line.id} className="bg-gray-50 rounded-2xl p-3">
-                {/* Ligne 1 : nom + poubelle */}
                 <div className="flex items-start justify-between mb-2.5">
                   <div className="flex-1 min-w-0 pr-2">
                     <p className="font-medium text-gray-900 text-sm leading-snug">{line.article_display_name}</p>
@@ -67,7 +156,6 @@ export default function CartSheet({
                     <Trash2 size={15} />
                   </button>
                 </div>
-                {/* Ligne 2 : quantité + prix total */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <button
@@ -111,7 +199,7 @@ export default function CartSheet({
                 type="date"
                 value={form.date_livraison}
                 onChange={e => onFormChange({ date_livraison: e.target.value })}
-                className="flex-1 bg-transparent text-right font-semibold text-gray-900 focus:outline-none"
+                className="flex-1 bg-transparent text-right font-semibold text-gray-900 focus:outline-none text-base"
               />
             </div>
 
@@ -124,7 +212,7 @@ export default function CartSheet({
                   type="time"
                   value={form.delivery_time}
                   onChange={e => onFormChange({ delivery_time: e.target.value })}
-                  className="flex-1 bg-transparent font-semibold text-purple-900 text-right focus:outline-none"
+                  className="flex-1 bg-transparent font-semibold text-purple-900 text-right focus:outline-none text-base"
                 />
               </div>
             ) : deliverySlots.length > 0 ? (
@@ -134,7 +222,7 @@ export default function CartSheet({
                   <select
                     value={form.delivery_slot_id}
                     onChange={e => onFormChange({ delivery_slot_id: e.target.value })}
-                    className="bg-transparent font-semibold text-gray-900 text-right focus:outline-none appearance-none"
+                    className="bg-transparent font-semibold text-gray-900 text-right focus:outline-none appearance-none text-base"
                   >
                     <option value="">—</option>
                     {deliverySlots.map(s => (

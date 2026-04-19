@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
   if (!admin) return NextResponse.json({ error: 'Non autorisé' }, { status: 403 });
 
   const body = await request.json();
-  const { first_name, last_name, email, role, modules, ateliers } = body;
+  const { first_name, last_name, email, role, modules, ateliers, driver_id } = body;
 
   if (!email || !first_name || !last_name || !role) {
     return NextResponse.json({ error: 'Champs manquants' }, { status: 400 });
@@ -66,6 +66,7 @@ export async function POST(request: NextRequest) {
     role,
     modules: modules || [],
     ateliers: ateliers || [],
+    driver_id: driver_id || null,
     is_active: true,
     must_change_password: true,
   });

@@ -34,24 +34,18 @@ export default function MobileFlow({
   function handleSelectClient(client: Client) {
     setSelectedClient(client);
 
-    const typeCfg = clientTypeSettings?.[client.type_client];
-    if (typeCfg) {
-      if (typeCfg.mode === 'creneau') {
-        const slotId = typeCfg.creneau_id ?? '';
-        setForm(f => ({ ...f, client_id: client.id, delivery_slot_id: slotId, delivery_time: '' }));
-        const slot = deliverySlots.find(s => s.id === slotId);
-        setDeliveryHint({ mode: 'creneau', label: slot ? `${slot.name} (${slot.start_time.slice(0, 5)}–${slot.end_time.slice(0, 5)})` : 'Livraison par créneau' });
-      } else if (typeCfg.mode === 'heure') {
-        const defaultTime = client.horaire_livraison || typeCfg.heure || '';
-        setForm(f => ({ ...f, client_id: client.id, delivery_slot_id: '', delivery_time: defaultTime }));
-        setDeliveryHint({ mode: 'heure', label: '' });
-      } else {
-        setForm(f => ({ ...f, client_id: client.id }));
-        setDeliveryHint(null);
-      }
+    if (client.type_client === 'particulier') {
+      // Particulier → heure de livraison
+      const defaultTime = client.horaire_livraison || '';
+      setForm(f => ({ ...f, client_id: client.id, delivery_slot_id: '', delivery_time: defaultTime }));
+      setDeliveryHint({ mode: 'heure', label: '' });
     } else {
-      setForm(f => ({ ...f, client_id: client.id }));
-      setDeliveryHint(null);
+      // Entreprise → créneau (pré-sélection depuis les réglages si configuré)
+      const typeCfg = clientTypeSettings?.[client.type_client];
+      const slotId = typeCfg?.mode === 'creneau' ? (typeCfg.creneau_id ?? '') : '';
+      setForm(f => ({ ...f, client_id: client.id, delivery_slot_id: slotId, delivery_time: '' }));
+      const slot = deliverySlots.find(s => s.id === slotId);
+      setDeliveryHint({ mode: 'creneau', label: slot ? `${slot.name} (${slot.start_time.slice(0, 5)}–${slot.end_time.slice(0, 5)})` : '' });
     }
   }
 

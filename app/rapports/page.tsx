@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { BarChart3, TrendingUp, Package, Layers, Calendar, ChevronDown, FileText, Printer } from 'lucide-react';
+import { BarChart3, TrendingUp, Package, Layers, Calendar, ChevronDown, FileText, Printer, AlertTriangle } from 'lucide-react';
 import BLModal from '@/components/livraisons/BLModal';
 import type { BLOrder } from '@/components/livraisons/BonLivraison';
 import { useAppSettings } from '@/lib/useAppSettings';
@@ -17,7 +17,28 @@ import {
 import { useAteliers } from '@/lib/useAteliers';
 import { formatPrice, formatDate, formatNumber } from '@/lib/utils';
 
-type ReportView = 'articles' | 'references' | 'ateliers' | 'bons_livraison';
+type ReportView = 'articles' | 'references' | 'ateliers' | 'bons_livraison' | 'commandes_incompletes';
+
+interface IncompleteOrderItem {
+  display_name: string;
+  quantity_ordered: number;
+  quantity_delivered: number;
+  missing: number;
+}
+
+interface IncompleteOrder {
+  id: string;
+  client_nom: string;
+  delivery_date: string;
+  missing_items: IncompleteOrderItem[];
+}
+
+interface MissingProductStat {
+  display_name: string;
+  total_missing: number;
+  occurrence_count: number;
+  clients: string[];
+}
 
 interface BLRecord {
   id: string;
@@ -44,6 +65,8 @@ export default function RapportsPage() {
   const [productionByAtelier, setProductionByAtelier] = useState<ProductionReportByAtelier[]>([]);
   const [blRecords, setBlRecords] = useState<BLRecord[]>([]);
   const [previewBL, setPreviewBL] = useState<BLOrder | null>(null);
+  const [incompleteOrders, setIncompleteOrders] = useState<IncompleteOrder[]>([]);
+  const [missingProductStats, setMissingProductStats] = useState<MissingProductStat[]>([]);
 
   const dateRange = getReportDateRange(period, customStart, customEnd);
 
@@ -130,6 +153,59 @@ export default function RapportsPage() {
           .order('created_at', { ascending: false });
         if (error) throw error;
         setBlRecords((data as BLRecord[]) || []);
+      } else if (view === 'commandes_incompletes') {
+        const { data: ordersData, error } = await supabase
+          .from('orders')
+          .select(`
+            id, delivery_date,
+            client:clients(nom),
+            items:order_items(
+              quantity_ordered, quantity_delivered,
+              product_article:product_articles(display_name)
+            )
+          `)
+          .gte('delivery_date', dateRange.start)
+          .lte('delivery_date', dateRange.end)
+          .eq('status', 'livree');
+        if (error) throw error;
+
+        const rawOrders = (ordersData || []) as any[];
+        const incomplete = rawOrders.filter(o =>
+          (o.items || []).some((i: any) => i.quantity_delivered !== null && i.quantity_delivered < i.quantity_ordered)
+        );
+
+        setIncompleteOrders(incomplete.map(o => ({
+          id: o.id,
+          client_nom: o.client?.nom ?? '—',
+          delivery_date: o.delivery_date,
+          missing_items: (o.items || [])
+            .filter((i: any) => i.quantity_delivered !== null && i.quantity_delivered < i.quantity_ordered)
+            .map((i: any) => ({
+              display_name: i.product_article?.display_name ?? '—',
+              quantity_ordered: i.quantity_ordered,
+              quantity_delivered: i.quantity_delivered,
+              missing: i.quantity_ordered - i.quantity_delivered,
+            })),
+        })));
+
+        const productMap = new Map<string, { total_missing: number; occurrences: number; clients: Set<string> }>();
+        incomplete.forEach((o: any) => {
+          (o.items || [])
+            .filter((i: any) => i.quantity_delivered !== null && i.quantity_delivered < i.quantity_ordered)
+            .forEach((i: any) => {
+              const name = i.product_article?.display_name ?? '—';
+              const existing = productMap.get(name) ?? { total_missing: 0, occurrences: 0, clients: new Set<string>() };
+              existing.total_missing += i.quantity_ordered - i.quantity_delivered;
+              existing.occurrences += 1;
+              existing.clients.add(o.client?.nom ?? '—');
+              productMap.set(name, existing);
+            });
+        });
+        setMissingProductStats(
+          Array.from(productMap.entries())
+            .map(([name, s]) => ({ display_name: name, total_missing: s.total_missing, occurrence_count: s.occurrences, clients: Array.from(s.clients) }))
+            .sort((a, b) => b.occurrence_count - a.occurrence_count)
+        );
       }
     } catch (error: any) {
       console.error('Erreur chargement:', error?.message || error?.code || JSON.stringify(error));
@@ -176,10 +252,11 @@ export default function RapportsPage() {
         {/* Tabs vue */}
         <div className="flex gap-2 overflow-x-auto scrollbar-none">
           {([
-            { key: 'articles',         label: 'Par article',    icon: Package },
-            { key: 'references',       label: 'Par référence',  icon: Layers },
-            { key: 'ateliers',         label: 'Par atelier',    icon: BarChart3 },
-            { key: 'bons_livraison',   label: 'BL édités',      icon: FileText },
+            { key: 'articles',              label: 'Par article',    icon: Package },
+            { key: 'references',            label: 'Par référence',  icon: Layers },
+            { key: 'ateliers',              label: 'Par atelier',    icon: BarChart3 },
+            { key: 'bons_livraison',        label: 'BL édités',      icon: FileText },
+            { key: 'commandes_incompletes', label: 'Incomplètes',    icon: AlertTriangle },
           ] as { key: ReportView; label: string; icon: React.ComponentType<{ size?: number }> }[]).map(tab => {
             const Icon = tab.icon;
             return (
@@ -595,6 +672,92 @@ export default function RapportsPage() {
                   </table>
                 </div>
               </>
+            )
+          )}
+          {/* Commandes incomplètes */}
+          {view === 'commandes_incompletes' && (
+            incompleteOrders.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
+                <div className="w-14 h-14 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <AlertTriangle className="text-green-400" size={24} />
+                </div>
+                <p className="text-gray-500">Aucune commande incomplète sur cette période</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+
+                {/* Résumé */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <div className="bg-white rounded-2xl border border-gray-100 p-4">
+                    <p className="text-2xl font-black text-orange-500">{incompleteOrders.length}</p>
+                    <p className="text-xs text-gray-500 mt-1">Commandes incomplètes</p>
+                  </div>
+                  <div className="bg-white rounded-2xl border border-gray-100 p-4">
+                    <p className="text-2xl font-black text-gray-900">{missingProductStats.length}</p>
+                    <p className="text-xs text-gray-500 mt-1">Produits concernés</p>
+                  </div>
+                  <div className="bg-white rounded-2xl border border-gray-100 p-4">
+                    <p className="text-2xl font-black text-gray-900">
+                      {missingProductStats.reduce((s, p) => s + p.total_missing, 0)}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">Unités manquantes</p>
+                  </div>
+                </div>
+
+                {/* Produits souvent manquants */}
+                {missingProductStats.length > 0 && (
+                  <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                    <div className="px-4 py-3 border-b border-gray-100">
+                      <p className="font-semibold text-gray-800 text-sm">Produits fréquemment manquants</p>
+                    </div>
+                    <div className="divide-y divide-gray-50">
+                      {missingProductStats.map((p, i) => (
+                        <div key={i} className="px-4 py-3 flex items-center gap-3">
+                          <span className="w-6 h-6 rounded-full bg-orange-100 text-orange-600 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                            {p.occurrence_count}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">{p.display_name}</p>
+                            <p className="text-xs text-gray-400 truncate">{p.clients.slice(0, 3).join(', ')}{p.clients.length > 3 ? ` +${p.clients.length - 3}` : ''}</p>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <p className="text-sm font-bold text-orange-600">−{p.total_missing}</p>
+                            <p className="text-xs text-gray-400">{p.occurrence_count > 1 ? `${p.occurrence_count} fois` : '1 fois'}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Liste des commandes */}
+                <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-gray-100">
+                    <p className="font-semibold text-gray-800 text-sm">Détail des commandes</p>
+                  </div>
+                  <div className="divide-y divide-gray-50">
+                    {incompleteOrders.map(order => (
+                      <div key={order.id} className="px-4 py-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="font-medium text-gray-900 text-sm">{order.client_nom}</p>
+                          <p className="text-xs text-gray-400">{new Date(order.delivery_date).toLocaleDateString('fr-FR')}</p>
+                        </div>
+                        <div className="space-y-1">
+                          {order.missing_items.map((item, idx) => (
+                            <div key={idx} className="flex items-center justify-between text-xs">
+                              <span className="text-gray-600 truncate flex-1 mr-2">{item.display_name}</span>
+                              <span className="flex-shrink-0 text-orange-600 font-semibold">
+                                {item.quantity_delivered}/{item.quantity_ordered} <span className="text-gray-400 font-normal">(−{item.missing})</span>
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+              </div>
             )
           )}
         </>

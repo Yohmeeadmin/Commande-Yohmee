@@ -18,6 +18,7 @@ export interface UserProfile {
   must_change_password: boolean;
   modules: AppModule[];
   ateliers: string[]; // [] = tous les ateliers
+  driver_id: string | null;
   created_at: string;
 }
 

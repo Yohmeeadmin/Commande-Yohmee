@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, Edit2, RotateCcw, Power, X, Copy, Check, Eye, EyeOff, ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react';
+import { Plus, Edit2, RotateCcw, Power, X, Copy, Check, Eye, EyeOff, ChevronDown, ChevronUp, ChevronsUpDown, Truck } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { useUser } from '@/contexts/UserContext';
 import { UserProfile, UserRole, AppModule, ROLES, ALL_MODULES, ROLE_DEFAULT_MODULES } from '@/types/auth';
@@ -33,6 +33,12 @@ async function apiPatch(path: string, body: object) {
 
 // ─── Types locaux ────────────────────────────────────────────────────────────
 
+interface Driver {
+  id: string;
+  first_name: string;
+  last_name: string;
+}
+
 interface UserForm {
   first_name: string;
   last_name: string;
@@ -40,6 +46,7 @@ interface UserForm {
   role: UserRole;
   modules: AppModule[];
   ateliers: string[];
+  driver_id: string;
 }
 
 const emptyForm = (): UserForm => ({
@@ -49,6 +56,7 @@ const emptyForm = (): UserForm => ({
   role: 'autre',
   modules: [],
   ateliers: [],
+  driver_id: '',
 });
 
 // ─── Page ────────────────────────────────────────────────────────────────────
@@ -56,6 +64,7 @@ const emptyForm = (): UserForm => ({
 export default function UtilisateursPage() {
   const { profile: currentProfile } = useUser();
   const [users, setUsers] = useState<UserProfile[]>([]);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortKey, setSortKey] = useState<string>('nom');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -66,7 +75,7 @@ export default function UtilisateursPage() {
   const [tempPassword, setTempPassword] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => { loadUsers(); }, []);
+  useEffect(() => { loadUsers(); loadDrivers(); }, []);
 
   async function loadUsers() {
     const token = await getToken();
@@ -75,6 +84,15 @@ export default function UtilisateursPage() {
     });
     if (res.ok) setUsers(await res.json());
     setLoading(false);
+  }
+
+  async function loadDrivers() {
+    const { data } = await supabase
+      .from('drivers')
+      .select('id, first_name, last_name')
+      .eq('is_active', true)
+      .order('first_name');
+    setDrivers((data as Driver[]) || []);
   }
 
   async function handleCreate(form: UserForm) {
@@ -202,7 +220,18 @@ export default function UtilisateursPage() {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="text-sm font-medium text-gray-700">{roleLabel(user.role)}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-gray-700">{roleLabel(user.role)}</span>
+                        {user.role === 'livraison' && user.driver_id && (() => {
+                          const d = drivers.find(dr => dr.id === user.driver_id);
+                          return d ? (
+                            <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full font-medium">
+                              <Truck size={11} />
+                              {d.first_name} {d.last_name}
+                            </span>
+                          ) : null;
+                        })()}
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <span className="text-sm text-gray-600">{user.modules.length} module{user.modules.length > 1 ? 's' : ''}</span>
@@ -263,6 +292,7 @@ export default function UtilisateursPage() {
         <UserFormModal
           title="Ajouter un utilisateur"
           initialForm={emptyForm()}
+          drivers={drivers}
           onSubmit={handleCreate}
           onClose={() => setShowCreate(false)}
           submitLabel="Créer l'utilisateur"
@@ -280,7 +310,9 @@ export default function UtilisateursPage() {
             role: editingUser.role,
             modules: editingUser.modules,
             ateliers: editingUser.ateliers,
+            driver_id: editingUser.driver_id || '',
           }}
+          drivers={drivers}
           onSubmit={handleEdit}
           onClose={() => setEditingUser(null)}
           submitLabel="Enregistrer"
@@ -310,6 +342,7 @@ export default function UtilisateursPage() {
 function UserFormModal({
   title,
   initialForm,
+  drivers,
   onSubmit,
   onClose,
   submitLabel,
@@ -317,6 +350,7 @@ function UserFormModal({
 }: {
   title: string;
   initialForm: UserForm;
+  drivers: Driver[];
   onSubmit: (form: UserForm) => Promise<void>;
   onClose: () => void;
   submitLabel: string;
@@ -330,6 +364,8 @@ function UserFormModal({
       ...f,
       role,
       modules: ROLE_DEFAULT_MODULES[role],
+      // Effacer le livreur si on change de rôle
+      driver_id: role === 'livraison' ? f.driver_id : '',
     }));
   }
 
@@ -421,6 +457,31 @@ function UserFormModal({
             </select>
             <p className="text-xs text-gray-400 mt-1">Les modules sont pré-remplis selon le rôle, vous pouvez les ajuster.</p>
           </div>
+
+          {/* Livreur associé — visible seulement si rôle = livraison */}
+          {form.role === 'livraison' && (
+            <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
+              <label className="block text-sm font-semibold text-blue-900 mb-2 flex items-center gap-1.5">
+                <Truck size={15} />
+                Livreur associé
+              </label>
+              <select
+                value={form.driver_id}
+                onChange={e => setForm(f => ({ ...f, driver_id: e.target.value }))}
+                className="w-full px-4 py-2.5 border border-blue-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm"
+              >
+                <option value="">— Aucun livreur associé —</option>
+                {drivers.map(d => (
+                  <option key={d.id} value={d.id}>{d.first_name} {d.last_name}</option>
+                ))}
+              </select>
+              <p className="text-xs text-blue-600 mt-2">
+                {form.driver_id
+                  ? 'Ce compte sera automatiquement redirigé vers la vue tournée de ce livreur à la connexion.'
+                  : 'Sans livreur associé, ce compte verra la vue livraisons standard.'}
+              </p>
+            </div>
+          )}
 
           {/* Modules */}
           <div>

@@ -109,6 +109,12 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
             return;
           }
 
+          // Chauffeur lié → rediriger vers sa vue tournée
+          if (prof.role === 'livraison' && prof.driver_id && !pathnameRef.current.startsWith('/chauffeur')) {
+            router.push(`/chauffeur/${prof.driver_id}`);
+            return;
+          }
+
           if (PUBLIC_PATHS.some(p => pathnameRef.current.startsWith(p))) {
             router.push('/');
           }

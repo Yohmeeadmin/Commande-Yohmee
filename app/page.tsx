@@ -9,6 +9,7 @@ import { formatPrice } from '@/lib/utils';
 
 interface OrderItem {
   quantity_ordered: number;
+  quantity_delivered: number | null;
   unit_price: number;
   product_article: {
     display_name: string;
@@ -56,7 +57,7 @@ async function getTodayOrders(): Promise<DashboardOrder[]> {
       client:clients(nom),
       delivery_slot:delivery_slots(id, name, start_time, end_time),
       items:order_items(
-        quantity_ordered, unit_price,
+        quantity_ordered, quantity_delivered, unit_price,
         product_article:product_articles(
           display_name,
           product_reference:product_references(atelier)
@@ -115,9 +116,13 @@ function KPIGrid({ orders, lateOrders }: { orders: DashboardOrder[]; lateOrders:
   const livrees = orders.filter(o => o.status === 'livree').length;
   const restantes = orders.filter(o => o.status !== 'livree').length;
   const panierMoy = nb > 0 ? ca / nb : 0;
+  const incompletes = orders.filter(o =>
+    o.status === 'livree' &&
+    o.items.some(i => i.quantity_delivered !== null && i.quantity_delivered !== undefined && i.quantity_delivered < i.quantity_ordered)
+  ).length;
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
       <KPICard label="CA du jour" value={formatPrice(ca)} />
       <KPICard label="Commandes" value={String(nb)} />
       <KPICard label="Livrées" value={String(livrees)} accent="text-green-600" />
@@ -125,6 +130,12 @@ function KPIGrid({ orders, lateOrders }: { orders: DashboardOrder[]; lateOrders:
         label="Restantes"
         value={String(restantes)}
         accent={restantes > 0 ? 'text-amber-600' : 'text-gray-900'}
+      />
+      <KPICard
+        label="Incomplètes"
+        value={String(incompletes)}
+        accent={incompletes > 0 ? 'text-orange-500' : 'text-gray-900'}
+        sub="livrées partiellement"
       />
       <KPICard
         label="En retard"
@@ -140,16 +151,17 @@ function KPIGrid({ orders, lateOrders }: { orders: DashboardOrder[]; lateOrders:
 function PerformanceStats({ orders }: { orders: DashboardOrder[] }) {
   const total = orders.length;
   const livrees = orders.filter(o => o.status === 'livree').length;
-  const enCours = orders.filter(o => ['confirmee', 'production'].includes(o.status)).length;
+  const enProduction = orders.filter(o => o.status === 'production').length;
+  const aLivrer = orders.filter(o => o.status === 'confirmee').length;
 
   const txLivraison = total > 0 ? Math.round((livrees / total) * 100) : 0;
-  const txProduction = total > 0 ? Math.round((enCours / total) * 100) : 0;
-  const txCompletion = total > 0 ? Math.round(((livrees + enCours) / total) * 100) : 0;
+  const txProduction = total > 0 ? Math.round((enProduction / total) * 100) : 0;
+  const txALivrer = total > 0 ? Math.round((aLivrer / total) * 100) : 0;
 
   const stats = [
     { label: 'Livraison', value: `${txLivraison}%`, color: 'text-green-700', bg: 'bg-green-50', bar: 'bg-green-500', pct: txLivraison },
     { label: 'En production', value: `${txProduction}%`, color: 'text-orange-700', bg: 'bg-orange-50', bar: 'bg-orange-400', pct: txProduction },
-    { label: 'Complétion', value: `${txCompletion}%`, color: 'text-blue-700', bg: 'bg-blue-50', bar: 'bg-blue-500', pct: txCompletion },
+    { label: 'À livrer', value: `${txALivrer}%`, color: 'text-blue-700', bg: 'bg-blue-50', bar: 'bg-blue-500', pct: txALivrer },
   ];
 
   return (

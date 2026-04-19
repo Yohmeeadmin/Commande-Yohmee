@@ -27,6 +27,7 @@ export interface BLOrder {
   delivery_date: string; // YYYY-MM-DD
   client: {
     nom: string;
+    raison_sociale?: string | null;
     code?: string | null;
     ice?: string | null;
     adresse_livraison?: string | null;
@@ -171,7 +172,7 @@ export default function BonLivraison({ order }: { order: BLOrder }) {
         {/* Adressé à */}
         <div style={{ flex: 1, border: '1px solid #ccc', padding: '5mm', minHeight: '35mm' }}>
           <div style={{ fontSize: '10px', color: '#555', marginBottom: '3px' }}>Adressé à :</div>
-          <div style={{ fontWeight: 'bold', fontSize: '13px' }}>{order.client.nom}</div>
+          <div style={{ fontWeight: 'bold', fontSize: '13px' }}>{order.client.raison_sociale || order.client.nom}</div>
           {order.client.ice && <div>I.C.E : {order.client.ice}</div>}
           {order.client.adresse_livraison && (
             <div style={{ marginTop: '2mm', color: '#444' }}>{order.client.adresse_livraison}</div>

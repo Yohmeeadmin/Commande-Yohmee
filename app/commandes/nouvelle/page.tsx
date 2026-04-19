@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Save, Plus, Trash2, Search, CheckCircle, Bell, X, UserPlus, Clock, Calendar } from 'lucide-react';
+import { ArrowLeft, Save, Plus, Trash2, Search, CheckCircle, Bell, X, UserPlus, Clock, Calendar, AlertTriangle, GitMerge } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import {
   Client, Category, ProductArticle, ProductReference,
@@ -38,6 +38,52 @@ export default function NouvelleCommandePage() {
   });
   const [submitting, setSubmitting] = useState(false);
 
+  // ─── Détection doublon ───────────────────────────────────
+  const [duplicate, setDuplicate] = useState<{ id: string; numero: string; status: string; items: { product_article_id: string; quantity_ordered: number; unit_price: number; article_unit_quantity: number }[] } | null>(null);
+  const [merging, setMerging] = useState(false);
+
+  useEffect(() => {
+    if (!form.client_id || !form.date_livraison) { setDuplicate(null); return; }
+    let cancelled = false;
+    supabase
+      .from('orders')
+      .select('id, numero, status, items:order_items(product_article_id, quantity_ordered, unit_price, article_unit_quantity)')
+      .eq('client_id', form.client_id)
+      .eq('delivery_date', form.date_livraison)
+      .neq('status', 'annulee')
+      .limit(1)
+      .single()
+      .then(({ data }: { data: any }) => { if (!cancelled) setDuplicate(data); });
+    return () => { cancelled = true; };
+  }, [form.client_id, form.date_livraison]);
+
+  async function handleMerge() {
+    if (!duplicate) return;
+    setMerging(true);
+    try {
+      for (const line of lines) {
+        const existing = duplicate.items.find(i => i.product_article_id === line.article_id);
+        if (existing) {
+          await supabase.from('order_items')
+            .update({ quantity_ordered: existing.quantity_ordered + line.quantite })
+            .eq('order_id', duplicate.id)
+            .eq('product_article_id', line.article_id);
+        } else {
+          await supabase.from('order_items').insert({
+            order_id: duplicate.id,
+            product_article_id: line.article_id,
+            quantity_ordered: line.quantite,
+            unit_price: line.prix_unitaire,
+            article_unit_quantity: line.unit_quantity,
+          });
+        }
+      }
+      router.push(`/commandes/${duplicate.id}`);
+    } finally {
+      setMerging(false);
+    }
+  }
+
   // ─── Desktop only ────────────────────────────────────────
   const [searchProduct, setSearchProduct] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -53,19 +99,18 @@ export default function NouvelleCommandePage() {
     const client = clients.find(c => c.id === form.client_id);
     if (!client) { setDeliveryHint(null); return; }
 
-    const typeCfg = settings.client_type_settings?.[client.type_client];
-    if (!typeCfg) { setDeliveryHint(null); return; }
-
-    if (typeCfg.mode === 'creneau') {
-      const slotId = typeCfg.creneau_id ?? '';
-      setForm(f => ({ ...f, delivery_slot_id: slotId, delivery_time: '' }));
-      const slot = deliverySlots.find(s => s.id === slotId);
-      setDeliveryHint({ mode: 'creneau', label: slot ? `${slot.name} (${slot.start_time.slice(0, 5)}–${slot.end_time.slice(0, 5)})` : 'Livraison par créneau' });
-    } else {
-      // Mode heure — vider le créneau, pré-remplir l'heure
-      const defaultTime = client.horaire_livraison || typeCfg.heure || '';
+    if (client.type_client === 'particulier') {
+      // Particulier → heure de livraison
+      const defaultTime = client.horaire_livraison || '';
       setForm(f => ({ ...f, delivery_slot_id: '', delivery_time: defaultTime }));
       setDeliveryHint({ mode: 'heure', label: '' });
+    } else {
+      // Entreprise → créneau (pré-sélection depuis les réglages si configuré)
+      const typeCfg = settings.client_type_settings?.[client.type_client];
+      const slotId = typeCfg?.mode === 'creneau' ? (typeCfg.creneau_id ?? '') : '';
+      setForm(f => ({ ...f, delivery_slot_id: slotId, delivery_time: '' }));
+      const slot = deliverySlots.find(s => s.id === slotId);
+      setDeliveryHint({ mode: 'creneau', label: slot ? `${slot.name} (${slot.start_time.slice(0, 5)}–${slot.end_time.slice(0, 5)})` : '' });
     }
   }, [form.client_id, clients, settings.client_type_settings, deliverySlots]);
 
@@ -223,6 +268,35 @@ export default function NouvelleCommandePage() {
             <p className="text-gray-500 mt-1">Créer une nouvelle commande</p>
           </div>
         </div>
+
+        {/* Alerte doublon */}
+        {duplicate && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-4">
+            <AlertTriangle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-amber-900">Commande déjà existante</p>
+              <p className="text-sm text-amber-700 mt-0.5">
+                La commande <span className="font-semibold">{duplicate.numero}</span> existe déjà pour ce client à cette date ({duplicate.items.length} article{duplicate.items.length > 1 ? 's' : ''}).
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={handleMerge}
+                disabled={merging || lines.length === 0}
+                className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 text-white rounded-xl text-sm font-bold hover:bg-amber-700 disabled:opacity-50 transition-colors"
+              >
+                <GitMerge size={15} />
+                {merging ? 'Groupement…' : 'Grouper'}
+              </button>
+              <button
+                onClick={() => router.push('/commandes')}
+                className="px-4 py-2 border border-amber-200 text-amber-800 rounded-xl text-sm font-semibold hover:bg-amber-100 transition-colors"
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-3 gap-6">
           {/* Gauche */}

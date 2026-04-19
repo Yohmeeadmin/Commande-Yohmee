@@ -42,7 +42,7 @@ interface DeliveryOrder {
   note: string | null;
   driver_id: string | null;
   driver_sequence: number | null;
-  client: { nom: string; telephone: string | null; adresse_livraison: string | null; code: string | null; ice: string | null } | null;
+  client: { nom: string; raison_sociale: string | null; telephone: string | null; adresse_livraison: string | null; code: string | null; ice: string | null } | null;
   delivery_slot: Slot | null;
   items: OrderItem[];
 }
@@ -290,7 +290,7 @@ export default function LivraisonsPage() {
         supabase.from('delivery_slots').select('*').eq('is_active', true).order('sort_order'),
         supabase.from('orders').select(`
           id, numero, status, is_fully_delivered, total, note, driver_id, driver_sequence,
-          client:clients(nom, telephone, adresse_livraison, code, ice),
+          client:clients(nom, raison_sociale, telephone, adresse_livraison, code, ice),
           delivery_slot:delivery_slots(id, name, start_time, end_time, sort_order),
           items:order_items(id, product_article_id, quantity_ordered, quantity_delivered, unit_price, article_unit_quantity, product_article:product_articles(display_name, product_reference:product_references(vat_rate)))
         `)
@@ -592,6 +592,7 @@ export default function LivraisonsPage() {
       },
       client: {
         nom: order.client?.nom ?? '—',
+        raison_sociale: order.client?.raison_sociale ?? null,
         code: order.client?.code ?? null,
         ice: order.client?.ice ?? null,
         adresse_livraison: order.client?.adresse_livraison ?? null,
@@ -1237,7 +1238,7 @@ export default function LivraisonsPage() {
                               ...prev,
                               [item.id]: Math.min(item.quantity_ordered, Math.max(0, parseInt(e.target.value) || 0))
                             }))}
-                            className={`w-20 text-center border rounded-lg px-2 py-1.5 text-sm font-semibold focus:outline-none transition-colors ${isShort ? 'border-amber-300 bg-amber-50 focus:border-amber-500' : 'border-gray-200 focus:border-blue-400'}`}
+                            className={`w-20 text-center border rounded-lg px-2 py-1.5 text-base font-semibold focus:outline-none transition-colors ${isShort ? 'border-amber-300 bg-amber-50 focus:border-amber-500' : 'border-gray-200 focus:border-blue-400'}`}
                           />
                         </div>
                       </div>
@@ -1280,7 +1281,7 @@ export default function LivraisonsPage() {
                       value={backorderDate}
                       min={localDateStr()}
                       onChange={e => setBackorderDate(e.target.value)}
-                      className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:border-blue-400 transition-colors"
+                      className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-base font-medium focus:outline-none focus:border-blue-400 transition-colors"
                     />
                   </div>
                   {slots.length > 0 && (
@@ -1357,7 +1358,7 @@ export default function LivraisonsPage() {
                               ...prev,
                               [item.id]: Math.min(item.quantity_ordered, Math.max(0, parseInt(e.target.value) || 0)),
                             }))}
-                            className={`w-20 text-center border rounded-lg px-2 py-1.5 text-sm font-semibold focus:outline-none transition-colors ${isShort ? 'border-amber-300 bg-amber-50' : 'border-gray-200'}`}
+                            className={`w-20 text-center border rounded-lg px-2 py-1.5 text-base font-semibold focus:outline-none transition-colors ${isShort ? 'border-amber-300 bg-amber-50' : 'border-gray-200'}`}
                           />
                         </div>
                       </div>
@@ -1399,7 +1400,7 @@ export default function LivraisonsPage() {
                     <input
                       type="date" value={blBackorderDate} min={date}
                       onChange={e => setBlBackorderDate(e.target.value)}
-                      className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:border-blue-400"
+                      className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-base font-medium focus:outline-none focus:border-blue-400"
                     />
                   </div>
                   {slots.length > 0 && (
