@@ -15,10 +15,20 @@ interface DeliverySlot {
 }
 
 interface EditItem {
-  id: string;
+  id: string;           // order_items.id pour les existants, uuid temp pour les nouveaux
+  article_id?: string;  // product_articles.id pour les nouveaux
   display_name: string;
   quantity_ordered: number;
   unit_price: number;
+  isNew?: boolean;
+}
+
+interface ArticleForSearch {
+  id: string;
+  display_name: string;
+  quantity: number;
+  custom_price: number | null;
+  product_reference: { base_unit_price: number };
 }
 
 interface OrderWithClient {
@@ -68,6 +78,9 @@ export default function CommandesPage() {
   const [editItems, setEditItems] = useState<EditItem[]>([]);
   const [editLoading, setEditLoading] = useState(false);
   const [editSaveError, setEditSaveError] = useState('');
+  const [allArticles, setAllArticles] = useState<ArticleForSearch[]>([]);
+  const [searchArticle, setSearchArticle] = useState('');
+  const [deletedItemIds, setDeletedItemIds] = useState<string[]>([]);
   // Sélection (desktop)
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -103,15 +116,20 @@ export default function CommandesPage() {
     setEditSlotId(order.delivery_slot_id || '');
     setEditDate(order.delivery_date || '');
     setEditSaveError('');
+    setSearchArticle('');
+    setDeletedItemIds([]);
     setEditItems([]);
     setEditLoading(true);
-    const [{ data: itemsData }, slotsResult] = await Promise.all([
-      supabase.from('order_items').select('id, quantity_ordered, unit_price, product_article:product_articles(display_name)').eq('order_id', order.id).order('created_at'),
+    const [{ data: itemsData }, slotsResult, articlesResult] = await Promise.all([
+      supabase.from('order_items').select('id, quantity_ordered, unit_price, product_article_id, product_article:product_articles(display_name)').eq('order_id', order.id).order('created_at'),
       slots.length === 0 ? supabase.from('delivery_slots').select('*').eq('is_active', true).order('sort_order') : Promise.resolve({ data: null }),
+      allArticles.length === 0 ? supabase.from('product_articles').select('id, display_name, quantity, custom_price, product_reference:product_references(base_unit_price)').eq('is_active', true).order('display_name') : Promise.resolve({ data: null }),
     ]);
     if (slotsResult.data) setSlots(slotsResult.data);
+    if (articlesResult.data) setAllArticles(articlesResult.data as ArticleForSearch[]);
     setEditItems((itemsData || []).map((item: any) => ({
       id: item.id,
+      article_id: item.product_article_id,
       display_name: item.product_article?.display_name || '',
       quantity_ordered: item.quantity_ordered,
       unit_price: item.unit_price,
@@ -131,11 +149,39 @@ export default function CommandesPage() {
         total: newTotal,
       }).eq('id', editOrder.id);
       if (orderError) throw orderError;
-      const itemErrors = await Promise.all(
-        editItems.map(item => supabase.from('order_items').update({ quantity_ordered: item.quantity_ordered }).eq('id', item.id))
-      );
-      const firstItemError = itemErrors.find(r => r.error)?.error;
-      if (firstItemError) throw firstItemError;
+
+      const existingItems = editItems.filter(i => !i.isNew);
+      const newItems = editItems.filter(i => i.isNew);
+
+      if (existingItems.length > 0) {
+        const updateResults = await Promise.all(
+          existingItems.map(item => supabase.from('order_items').update({ quantity_ordered: item.quantity_ordered }).eq('id', item.id))
+        );
+        const firstErr = updateResults.find(r => r.error)?.error;
+        if (firstErr) throw firstErr;
+      }
+
+      if (newItems.length > 0) {
+        const { error: insertError } = await supabase.from('order_items').insert(
+          newItems.map(item => {
+            const articleDef = allArticles.find(a => a.id === item.article_id);
+            return {
+              order_id: editOrder.id,
+              product_article_id: item.article_id,
+              quantity_ordered: item.quantity_ordered,
+              unit_price: item.unit_price,
+              article_unit_quantity: articleDef?.quantity ?? 1,
+            };
+          })
+        );
+        if (insertError) throw insertError;
+      }
+
+      if (deletedItemIds.length > 0) {
+        const { error: deleteError } = await supabase.from('order_items').delete().in('id', deletedItemIds);
+        if (deleteError) throw deleteError;
+      }
+
       setEditOrder(null);
       loadOrders();
     } catch (err: any) {
@@ -583,24 +629,87 @@ export default function CommandesPage() {
                     </select>
                   </div>
                 </div>
-                {/* Articles */}
+                {/* Recherche pour ajouter un article */}
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Quantités</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Ajouter un article</label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={15} />
+                    <input
+                      type="text"
+                      placeholder="Rechercher un produit…"
+                      value={searchArticle}
+                      onChange={e => setSearchArticle(e.target.value)}
+                      className="w-full pl-9 pr-9 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    {searchArticle && (
+                      <button onClick={() => setSearchArticle('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                  {searchArticle && (
+                    <div className="mt-1 max-h-40 overflow-y-auto border border-gray-100 rounded-xl divide-y divide-gray-50 bg-white shadow-sm">
+                      {allArticles
+                        .filter(a => a.display_name.toLowerCase().includes(searchArticle.toLowerCase()))
+                        .slice(0, 12)
+                        .map(article => {
+                          const price = article.custom_price !== null ? article.custom_price : article.product_reference.base_unit_price * article.quantity;
+                          return (
+                            <button
+                              key={article.id}
+                              type="button"
+                              onClick={() => {
+                                setEditItems(prev => {
+                                  const existing = prev.find(i => i.article_id === article.id);
+                                  if (existing) return prev.map(i => i.article_id === article.id ? { ...i, quantity_ordered: i.quantity_ordered + 1 } : i);
+                                  return [...prev, { id: crypto.randomUUID(), article_id: article.id, display_name: article.display_name, quantity_ordered: 1, unit_price: price, isNew: true }];
+                                });
+                                setSearchArticle('');
+                              }}
+                              className="w-full flex items-center justify-between px-3 py-2.5 active:bg-blue-50 text-left"
+                            >
+                              <span className="text-sm text-gray-900 flex-1 min-w-0 truncate">{article.display_name}</span>
+                              <span className="text-xs text-gray-400 ml-2 flex-shrink-0">{formatPrice(price)}</span>
+                            </button>
+                          );
+                        })}
+                      {allArticles.filter(a => a.display_name.toLowerCase().includes(searchArticle.toLowerCase())).length === 0 && (
+                        <p className="text-center text-gray-400 text-sm py-3">Aucun résultat</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Articles de la commande */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Articles ({editItems.length})</label>
                   <div className="space-y-2">
                     {editItems.map(item => (
-                      <div key={item.id} className="flex items-center justify-between gap-3 p-3 bg-gray-50 rounded-xl">
-                        <span className="text-sm text-gray-900 flex-1 min-w-0 truncate">{item.display_name}</span>
-                        <div className="flex items-center gap-2 flex-shrink-0">
+                      <div key={item.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-900 truncate">{item.display_name}</p>
+                          <p className="text-xs text-gray-400">{formatPrice(item.unit_price)}/u · {formatPrice(item.quantity_ordered * item.unit_price)}</p>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
                           <button
-                            onClick={() => setEditItems(prev => prev.map(i => i.id === item.id ? { ...i, quantity_ordered: Math.max(0, i.quantity_ordered - 1) } : i))}
-                            className="w-8 h-8 flex items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 font-bold text-lg"
+                            onClick={() => setEditItems(prev => prev.map(i => i.id === item.id ? { ...i, quantity_ordered: Math.max(1, i.quantity_ordered - 1) } : i))}
+                            className="w-8 h-8 flex items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 font-bold"
                           >−</button>
-                          <span className="w-10 text-center text-sm font-bold text-gray-900">{item.quantity_ordered}</span>
+                          <span className="w-8 text-center text-sm font-bold text-gray-900">{item.quantity_ordered}</span>
                           <button
                             onClick={() => setEditItems(prev => prev.map(i => i.id === item.id ? { ...i, quantity_ordered: i.quantity_ordered + 1 } : i))}
-                            className="w-8 h-8 flex items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 font-bold text-lg"
+                            className="w-8 h-8 flex items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 font-bold"
                           >+</button>
                         </div>
+                        <button
+                          onClick={() => {
+                            if (!item.isNew) setDeletedItemIds(prev => [...prev, item.id]);
+                            setEditItems(prev => prev.filter(i => i.id !== item.id));
+                          }}
+                          className="p-1.5 text-red-400 active:text-red-600 flex-shrink-0"
+                        >
+                          <Trash2 size={15} />
+                        </button>
                       </div>
                     ))}
                   </div>
