@@ -279,6 +279,12 @@ export default function LivraisonsPage() {
   const [blBackorderSlotId, setBlBackorderSlotId] = useState<string | null>(null);
   const [blConfirming, setBlConfirming] = useState(false);
 
+  // ── BL bulk (tournée entière) ─────────────────────────────────────────────
+  const [bulkBLOrders, setBulkBLOrders] = useState<{ order: DeliveryOrder; qtys: Record<string, number> }[] | null>(null);
+  const [bulkBLTitle, setBulkBLTitle] = useState('');
+  const [bulkConfirming, setBulkConfirming] = useState(false);
+  const [bulkError, setBulkError] = useState('');
+
   // ── BL existants : order_ids ayant déjà un BL généré ─────────────────────
   const [blOrderIds, setBlOrderIds] = useState<Set<string>>(new Set());
 
@@ -623,11 +629,21 @@ export default function LivraisonsPage() {
   }
 
   function openBL(orderIds: string[], title: string) {
-    const bls = orders
-      .filter(o => orderIds.includes(o.id))
-      .map(o => orderToBL(o));
-    setBlOrders(bls);
-    setBlTitle(title);
+    const matching = orders.filter(o => orderIds.includes(o.id));
+    if (matching.length === 1) {
+      // BL individuel : ouvre le modal avec quantités
+      openBLDelivery(matching[0]);
+      return;
+    }
+    // BL groupé : ouvre le modal bulk
+    const bulk = matching.map(o => {
+      const qtys: Record<string, number> = {};
+      o.items.forEach(item => { qtys[item.id] = item.quantity_ordered; });
+      return { order: o, qtys };
+    });
+    setBulkBLOrders(bulk);
+    setBulkBLTitle(title);
+    setBulkError('');
   }
 
   function openBLDelivery(order: DeliveryOrder) {
@@ -696,6 +712,49 @@ export default function LivraisonsPage() {
       closeBLDelivery();
     } finally {
       setBlConfirming(false);
+    }
+  }
+
+  async function confirmBulkBL() {
+    if (!bulkBLOrders) return;
+    setBulkConfirming(true);
+    setBulkError('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const generatedBLs: BLOrder[] = [];
+      const newBlOrderIds: string[] = [];
+
+      for (const { order, qtys } of bulkBLOrders) {
+        const bl = orderToBL(order, qtys);
+        const { error } = await supabase.from('bons_livraison').insert({
+          numero: bl.numero,
+          order_id: order.id,
+          client_nom: bl.client.nom,
+          delivery_date: bl.delivery_date,
+          items: bl.items,
+        });
+        if (error) throw new Error(`${order.client?.nom ?? order.numero} : ${error.message}`);
+        generatedBLs.push(bl);
+        newBlOrderIds.push(order.id);
+        if (order.client_id && session) {
+          fetch('/api/commissions/trigger', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+            body: JSON.stringify({ order_id: order.id, client_id: order.client_id }),
+          }).catch(() => {});
+        }
+      }
+
+      setBlOrderIds(prev => new Set([...prev, ...newBlOrderIds]));
+      setBulkBLOrders(null);
+      // Lance l'impression
+      setBlOrders(generatedBLs);
+      setBlTitle(bulkBLTitle);
+      setTimeout(() => window.print(), 300);
+    } catch (err: any) {
+      setBulkError(err?.message || 'Erreur lors de la génération des BLs');
+    } finally {
+      setBulkConfirming(false);
     }
   }
 
@@ -1348,6 +1407,100 @@ export default function LivraisonsPage() {
                 </div>
               </>
             )}
+          </div>
+        </>
+      )}
+
+      {/* ── Modal BL bulk (tournée entière) ───────────────────────────────── */}
+      {bulkBLOrders && (
+        <>
+          <div className="fixed inset-0 bg-black/40 z-50" onClick={() => !bulkConfirming && setBulkBLOrders(null)} />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-xl lg:inset-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-2xl lg:w-full lg:max-w-2xl flex flex-col" style={{ maxHeight: '90vh' }}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 flex-shrink-0">
+              <div>
+                <h2 className="font-bold text-gray-900">Valider la tournée</h2>
+                <p className="text-sm text-gray-400">{bulkBLTitle} · {bulkBLOrders.length} commandes</p>
+              </div>
+              {!bulkConfirming && (
+                <button onClick={() => setBulkBLOrders(null)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-xl">
+                  <X size={18} />
+                </button>
+              )}
+            </div>
+
+            {/* Liste des commandes */}
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+              {bulkBLOrders.map(({ order, qtys }, idx) => (
+                <div key={order.id} className="border border-gray-100 rounded-2xl overflow-hidden">
+                  {/* En-tête commande */}
+                  <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50">
+                    <div>
+                      <p className="font-semibold text-gray-900 text-sm">{order.client?.nom ?? order.numero}</p>
+                      <p className="text-xs text-gray-400">{order.numero}</p>
+                    </div>
+                    <p className="text-xs font-semibold text-blue-600">
+                      {formatPrice(order.items.reduce((s, item) => s + (qtys[item.id] ?? item.quantity_ordered) * item.unit_price, 0))}
+                    </p>
+                  </div>
+                  {/* Articles */}
+                  <div className="divide-y divide-gray-50 px-1">
+                    {order.items.map(item => (
+                      <div key={item.id} className="flex items-center gap-3 px-3 py-2.5">
+                        <span className="flex-1 text-sm text-gray-800 min-w-0 truncate">{item.product_article?.display_name}</span>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <button
+                            onClick={() => setBulkBLOrders(prev => prev!.map((b, i) => i !== idx ? b : {
+                              ...b, qtys: { ...b.qtys, [item.id]: Math.max(0, (b.qtys[item.id] ?? item.quantity_ordered) - 1) }
+                            }))}
+                            className="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 font-bold text-sm"
+                          >−</button>
+                          <span className="w-7 text-center text-sm font-bold text-gray-900">
+                            {qtys[item.id] ?? item.quantity_ordered}
+                          </span>
+                          <button
+                            onClick={() => setBulkBLOrders(prev => prev!.map((b, i) => i !== idx ? b : {
+                              ...b, qtys: { ...b.qtys, [item.id]: (b.qtys[item.id] ?? item.quantity_ordered) + 1 }
+                            }))}
+                            className="w-7 h-7 flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 font-bold text-sm"
+                          >+</button>
+                        </div>
+                        <span className="text-xs text-gray-400 w-16 text-right flex-shrink-0">
+                          {formatPrice((qtys[item.id] ?? item.quantity_ordered) * item.unit_price)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Footer */}
+            {bulkError && (
+              <div className="mx-4 mb-2 px-3 py-2 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs flex-shrink-0">
+                {bulkError}
+              </div>
+            )}
+            <div className="flex gap-3 px-4 py-4 border-t border-gray-100 flex-shrink-0">
+              <button
+                onClick={() => setBulkBLOrders(null)}
+                disabled={bulkConfirming}
+                className="px-4 py-3 border border-gray-200 rounded-2xl text-gray-700 font-semibold text-sm disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={confirmBulkBL}
+                disabled={bulkConfirming}
+                className="flex-1 py-3 bg-blue-600 text-white rounded-2xl font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {bulkConfirming ? (
+                  <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" /> Génération en cours…</>
+                ) : (
+                  <><Printer size={15} /> Valider et imprimer {bulkBLOrders.length} BLs</>
+                )}
+              </button>
+            </div>
           </div>
         </>
       )}
