@@ -63,6 +63,7 @@ export default function CommandeDetailPage() {
   const [editLines, setEditLines] = useState<EditLine[]>([]);
   const [searchProduct, setSearchProduct] = useState('');
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   useEffect(() => { loadOrder(); }, [params.id]);
 
@@ -109,15 +110,35 @@ export default function CommandeDetailPage() {
   async function handleSave() {
     if (!order || !editForm.client_id || editLines.length === 0) return;
     setSaving(true);
+    setSaveError('');
     try {
       const newTotal = editLines.reduce((s, l) => s + l.quantite * l.prix_unitaire, 0);
-      await supabase.from('orders').update({ client_id: editForm.client_id, delivery_date: editForm.delivery_date, delivery_slot_id: editForm.delivery_slot_id || null, delivery_time: editForm.delivery_time || null, note: editForm.note || null, total: newTotal }).eq('id', order.id);
-      await supabase.from('order_items').delete().eq('order_id', order.id);
-      await supabase.from('order_items').insert(editLines.map(l => ({ order_id: order.id, product_article_id: l.article_id, quantity_ordered: l.quantite, unit_price: l.prix_unitaire, article_unit_quantity: l.unit_quantity })));
+
+      const { error: updateError } = await supabase.from('orders').update({
+        client_id: editForm.client_id,
+        delivery_date: editForm.delivery_date,
+        delivery_slot_id: editForm.delivery_slot_id || null,
+        delivery_time: editForm.delivery_time || null,
+        note: editForm.note || null,
+        total: newTotal,
+      }).eq('id', order.id);
+      if (updateError) throw updateError;
+
+      const { error: deleteError } = await supabase.from('order_items').delete().eq('order_id', order.id);
+      if (deleteError) throw deleteError;
+
+      const { error: insertError } = await supabase.from('order_items').insert(
+        editLines.map(l => ({ order_id: order.id, product_article_id: l.article_id, quantity_ordered: l.quantite, unit_price: l.prix_unitaire, article_unit_quantity: l.unit_quantity }))
+      );
+      if (insertError) throw insertError;
+
       await loadOrder();
       setEditOpen(false);
-    } catch (err) { console.error(err); }
-    finally { setSaving(false); }
+    } catch (err: any) {
+      setSaveError(err?.message || 'Erreur lors de la modification');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function updateStatus(newStatus: OrderStatus) {
@@ -548,8 +569,15 @@ export default function CommandeDetailPage() {
           </div>
 
           {/* Footer */}
+          <div className="px-5 pt-2 pb-0 flex-shrink-0">
+            {saveError && (
+              <div className="mb-2 px-3 py-2 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs">
+                {saveError}
+              </div>
+            )}
+          </div>
           <div className="flex gap-3 px-5 py-3 border-t border-gray-100 flex-shrink-0">
-            <button onClick={() => setEditOpen(false)} className="flex-1 py-3 border border-gray-200 rounded-2xl text-gray-700 font-semibold text-sm">
+            <button onClick={() => { setEditOpen(false); setSaveError(''); }} className="flex-1 py-3 border border-gray-200 rounded-2xl text-gray-700 font-semibold text-sm">
               Annuler
             </button>
             <button onClick={handleSave} disabled={saving || !editForm.client_id || editLines.length === 0}
