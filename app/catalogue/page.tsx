@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plus, Search, Package, ChevronDown, ChevronRight, Edit2, Archive, Layers, Table2, Settings, X, Trash2, ChevronUp, ChevronsUpDown, LayoutGrid } from 'lucide-react';
+import { Plus, Search, Package, ChevronDown, ChevronRight, Edit2, Archive, Layers, Table2, Settings, X, Trash2, ChevronUp, ChevronsUpDown, LayoutGrid, Tag } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import {
   ProductReference,
@@ -40,12 +40,15 @@ export default function CataloguePage() {
   const [expandedRefs, setExpandedRefs] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<'cards' | 'tableau'>('cards');
   const [showAteliersModal, setShowAteliersModal] = useState(false);
+  const [showCategoriesModal, setShowCategoriesModal] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [sortKey, setSortKey] = useState<string>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [newAtelierLabel, setNewAtelierLabel] = useState('');
   const [newAtelierColor, setNewAtelierColor] = useState(COLOR_PRESETS[0]);
   const [savingAtelier, setSavingAtelier] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [savingCategory, setSavingCategory] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -104,6 +107,32 @@ export default function CataloguePage() {
     if (error) { alert(`Erreur suppression : ${error.message}`); return; }
     if (selectedAtelier === atelier.value) setSelectedAtelier('all');
     await refreshAteliers();
+  }
+
+  async function addCategory() {
+    if (!newCategoryName.trim()) return;
+    setSavingCategory(true);
+    try {
+      const { data, error } = await supabase.from('categories').insert({
+        nom: newCategoryName.trim(),
+        ordre: categories.length + 1,
+      }).select().single();
+      if (error) { alert(`Erreur : ${error.message}`); return; }
+      setCategories(prev => [...prev, data as Category]);
+      setNewCategoryName('');
+    } finally {
+      setSavingCategory(false);
+    }
+  }
+
+  async function deleteCategory(cat: Category) {
+    const inUse = references.some(r => r.category_id === cat.id);
+    if (inUse) { alert(`Impossible de supprimer "${cat.nom}" : des références l'utilisent encore.`); return; }
+    if (!confirm(`Supprimer la catégorie "${cat.nom}" ?`)) return;
+    const { error } = await supabase.from('categories').delete().eq('id', cat.id);
+    if (error) { alert(`Erreur : ${error.message}`); return; }
+    setCategories(prev => prev.filter(c => c.id !== cat.id));
+    if (selectedCategory === cat.id) setSelectedCategory('all');
   }
 
   async function toggleReferenceActive(ref: ProductReference) {
@@ -231,6 +260,13 @@ export default function CataloguePage() {
             </button>
           </div>
           <button
+            onClick={() => setShowCategoriesModal(true)}
+            className="p-2 lg:px-4 lg:py-2.5 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors flex items-center gap-2"
+          >
+            <Tag size={18} />
+            <span className="hidden lg:inline font-medium">Catégories</span>
+          </button>
+          <button
             onClick={() => setShowAteliersModal(true)}
             className="p-2 lg:px-4 lg:py-2.5 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors flex items-center gap-2"
           >
@@ -288,35 +324,52 @@ export default function CataloguePage() {
         {/* Panneau filtres */}
         {showFilters && (
           <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-3 animate-slide-up">
-            <div className="flex flex-col sm:flex-row gap-3">
-              <select
-                value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
-                className="flex-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-              >
-                <option value="all">Toutes les catégories</option>
-                {categories.map((cat) => (
-                  <option key={cat.id} value={cat.id}>{cat.nom}</option>
-                ))}
-              </select>
-              <label className="flex items-center gap-2 cursor-pointer px-3 py-2.5 border border-gray-200 rounded-xl bg-white">
-                <input
-                  type="checkbox"
-                  checked={showInactive}
-                  onChange={(e) => setShowInactive(e.target.checked)}
-                  className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                />
-                <span className="text-sm text-gray-700">Voir inactifs</span>
-              </label>
-            </div>
+            <label className="flex items-center gap-2 cursor-pointer px-3 py-2.5 border border-gray-200 rounded-xl bg-white w-fit">
+              <input
+                type="checkbox"
+                checked={showInactive}
+                onChange={(e) => setShowInactive(e.target.checked)}
+                className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-700">Voir inactifs</span>
+            </label>
             {activeFiltersCount > 0 && (
               <button
                 onClick={() => { setSelectedCategory('all'); setSelectedAtelier('all'); setShowInactive(false); }}
-                className="text-sm text-red-500 font-medium"
+                className="text-sm text-red-500 font-medium block"
               >
                 Réinitialiser les filtres
               </button>
             )}
+          </div>
+        )}
+
+        {/* Chips catégories */}
+        {categories.length > 0 && (
+          <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
+            <button
+              onClick={() => setSelectedCategory('all')}
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                selectedCategory === 'all'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              Toutes
+            </button>
+            {categories.map((cat) => (
+              <button
+                key={cat.id}
+                onClick={() => setSelectedCategory(cat.id)}
+                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                  selectedCategory === cat.id
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                {cat.nom}
+              </button>
+            ))}
           </div>
         )}
 
@@ -615,6 +668,72 @@ export default function CataloguePage() {
             );
           })}
         </div>
+      )}
+
+      {/* Modal gestion catégories */}
+      {showCategoriesModal && (
+        <>
+          <div className="fixed inset-0 bg-black/40 z-50" onClick={() => setShowCategoriesModal(false)} />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-xl lg:relative lg:inset-auto lg:rounded-2xl lg:max-w-md lg:mx-auto">
+            <div className="flex justify-center pt-3 pb-1 lg:hidden">
+              <div className="w-10 h-1 bg-gray-200 rounded-full" />
+            </div>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <h2 className="text-lg font-bold text-gray-900">Gérer les catégories</h2>
+              <button onClick={() => setShowCategoriesModal(false)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+              <div className="space-y-2">
+                {categories.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-4">Aucune catégorie</p>
+                ) : (
+                  categories.map((cat) => {
+                    const count = references.filter(r => r.category_id === cat.id).length;
+                    return (
+                      <div key={cat.id} className="flex items-center justify-between px-4 py-3 rounded-xl border border-gray-100">
+                        <div className="flex items-center gap-3">
+                          <Tag size={15} className="text-gray-400" />
+                          <span className="font-medium text-gray-900">{cat.nom}</span>
+                          <span className="text-xs text-gray-400">{count} réf.</span>
+                        </div>
+                        {can('catalogue.delete') && (
+                          <button
+                            onClick={() => deleteCategory(cat)}
+                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+              <div className="border-t border-gray-100 pt-4 space-y-3">
+                <p className="text-sm font-medium text-gray-700">Ajouter une catégorie</p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Nom de la catégorie"
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && addCategory()}
+                    className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    onClick={addCategory}
+                    disabled={!newCategoryName.trim() || savingCategory}
+                    className="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {savingCategory ? '…' : <Plus size={18} />}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
       {/* Modal gestion ateliers */}
