@@ -164,7 +164,17 @@ export default function CartSheet({
                     >
                       −
                     </button>
-                    <span className="w-7 text-center font-bold text-gray-900">{line.quantite}</span>
+                    <input
+                      type="number"
+                      min={1}
+                      value={line.quantite}
+                      onChange={e => {
+                        const val = parseInt(e.target.value, 10);
+                        if (!isNaN(val) && val >= 1) onUpdateQty(line.id, val - line.quantite);
+                      }}
+                      onFocus={e => e.target.select()}
+                      className="w-12 text-center font-bold text-gray-900 bg-white border border-gray-200 rounded-lg py-1 focus:outline-none focus:border-blue-400 text-base"
+                    />
                     <button
                       onClick={() => onUpdateQty(line.id, 1)}
                       className="w-8 h-8 flex items-center justify-center bg-blue-600 rounded-full text-white text-lg font-bold active:scale-90 transition-transform"

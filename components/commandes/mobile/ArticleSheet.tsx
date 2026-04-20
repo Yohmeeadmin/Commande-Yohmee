@@ -10,9 +10,10 @@ interface Props {
   lines: OrderLine[];
   onAdd: (article: ArticleWithRef) => void;
   onClose: () => void;
+  typeClient?: string;
 }
 
-export default function ArticleSheet({ articles, lines, onAdd, onClose }: Props) {
+export default function ArticleSheet({ articles, lines, onAdd, onClose, typeClient }: Props) {
   const ref = articles[0]?.product_reference;
 
   return (
@@ -42,7 +43,7 @@ export default function ArticleSheet({ articles, lines, onAdd, onClose }: Props)
         <div className="p-4 space-y-3 flex-1 overflow-y-auto">
           <p className="text-sm text-gray-400 font-medium">Choisissez un format</p>
           {articles.map(article => {
-            const price = calculateArticlePrice(article, article.product_reference);
+            const price = calculateArticlePrice(article, article.product_reference, typeClient);
             const stateStyle = getProductStateStyle(article.product_state);
             const packLabel = PACK_TYPES.find(p => p.value === article.pack_type)?.label ?? article.pack_type;
             const inCart = lines.find(l => l.article_id === article.id);

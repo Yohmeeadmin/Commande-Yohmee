@@ -13,6 +13,7 @@ import { ORDER_STATUSES, OrderStatus, calculateArticlePrice, getProductStateStyl
 import { formatDate, formatPrice } from '@/lib/utils';
 import { useAteliers } from '@/lib/useAteliers';
 import { useAppSettings } from '@/lib/useAppSettings';
+import { usePermissions } from '@/lib/permissions';
 import type { ArticleWithRef } from '@/components/commandes/mobile/types';
 
 interface OrderWithDetails {
@@ -46,6 +47,7 @@ export default function CommandeDetailPage() {
   const router = useRouter();
   const { getStyle: getAtelierStyle } = useAteliers();
   const { settings } = useAppSettings();
+  const { can } = usePermissions();
 
   const [order, setOrder] = useState<OrderWithDetails | null>(null);
   const [items, setItems] = useState<OrderItem[]>([]);
@@ -106,7 +108,7 @@ export default function CommandeDetailPage() {
     setEditLines(prev => {
       const existing = prev.find(l => l.article_id === article.id);
       if (existing) return prev.map(l => l.article_id === article.id ? { ...l, quantite: l.quantite + 1 } : l);
-      const price = clientPrices[article.id] ?? calculateArticlePrice(article, article.product_reference);
+      const price = clientPrices[article.id] ?? calculateArticlePrice(article, article.product_reference, order?.client?.type_client);
       return [...prev, { id: crypto.randomUUID(), article_id: article.id, article_display_name: article.display_name, quantite: 1, prix_unitaire: price, unit_quantity: article.quantity }];
     });
     setSearchProduct('');
@@ -343,24 +345,26 @@ export default function CommandeDetailPage() {
       </div>
 
       {/* Changement statut */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-4">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Statut</p>
-        <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
-          {ORDER_STATUSES.map(s => (
-            <button
-              key={s.value}
-              onClick={() => updateStatus(s.value)}
-              disabled={updating}
-              className="flex-shrink-0 px-3 py-2 rounded-xl text-xs font-bold transition-all border"
-              style={order.status === s.value
-                ? { backgroundColor: s.color, color: 'white', borderColor: s.color }
-                : { backgroundColor: s.bgColor, color: s.color, borderColor: s.bgColor }}
-            >
-              {s.label}
-            </button>
-          ))}
+      {can('commandes.change_status') && (
+        <div className="bg-white rounded-2xl border border-gray-100 p-4">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Statut</p>
+          <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
+            {ORDER_STATUSES.map(s => (
+              <button
+                key={s.value}
+                onClick={() => updateStatus(s.value)}
+                disabled={updating}
+                className="flex-shrink-0 px-3 py-2 rounded-xl text-xs font-bold transition-all border"
+                style={order.status === s.value
+                  ? { backgroundColor: s.color, color: 'white', borderColor: s.color }
+                  : { backgroundColor: s.bgColor, color: s.color, borderColor: s.bgColor }}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Articles */}
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
@@ -429,10 +433,10 @@ export default function CommandeDetailPage() {
     </div>
 
     {/* Barre d'actions fixe en bas */}
-    {canEdit || canDeliver ? (
+    {(canEdit && can('commandes.edit')) || (canDeliver && can('commandes.change_status')) ? (
       <div className="fixed bottom-0 left-0 right-0 z-20 bg-white border-t border-gray-100 px-4 py-3 flex gap-2"
         style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px) + 12px, 16px)' }}>
-        {canEdit && (
+        {canEdit && can('commandes.edit') && (
           <button
             onClick={openEdit}
             className="flex-1 flex items-center justify-center gap-2 py-3 bg-blue-600 text-white rounded-2xl font-bold text-sm active:bg-blue-700"
@@ -440,7 +444,7 @@ export default function CommandeDetailPage() {
             <Pencil size={16} /> Modifier
           </button>
         )}
-        {canDeliver && (
+        {canDeliver && can('commandes.change_status') && (
           <button
             onClick={markDelivered}
             className="flex-1 flex items-center justify-center gap-2 py-3 bg-emerald-500 text-white rounded-2xl font-bold text-sm active:bg-emerald-600"
@@ -467,10 +471,12 @@ export default function CommandeDetailPage() {
               className="w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl text-gray-700 active:bg-gray-100">
               <Copy size={20} className="text-gray-400" /> <span className="font-medium">Dupliquer</span>
             </button>
-            <button onClick={() => { setShowActions(false); deleteOrder(); }}
-              className="w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl text-red-600 active:bg-red-50">
-              <Trash2 size={20} /> <span className="font-medium">Supprimer</span>
-            </button>
+            {can('commandes.delete') && (
+              <button onClick={() => { setShowActions(false); deleteOrder(); }}
+                className="w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl text-red-600 active:bg-red-50">
+                <Trash2 size={20} /> <span className="font-medium">Supprimer</span>
+              </button>
+            )}
           </div>
         </div>
       </>

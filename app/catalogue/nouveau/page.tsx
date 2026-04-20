@@ -23,6 +23,8 @@ interface ArticleForm {
   product_state: ProductState;
   custom_price: string;
   is_price_modified: boolean;
+  prix_pro: string;
+  prix_particulier: string;
 }
 
 export default function NouvelleReferencePage() {
@@ -66,6 +68,8 @@ export default function NouvelleReferencePage() {
       product_state: 'frais',
       custom_price: '',
       is_price_modified: false,
+      prix_pro: '',
+      prix_particulier: '',
     };
     setArticles([...articles, newArticle]);
   }
@@ -177,6 +181,8 @@ export default function NouvelleReferencePage() {
           custom_price: a.is_price_modified && a.custom_price !== ''
             ? parseFloat(a.custom_price)
             : null,
+          prix_pro: a.prix_pro !== '' ? parseFloat(a.prix_pro) : null,
+          prix_particulier: a.prix_particulier !== '' ? parseFloat(a.prix_particulier) : null,
           is_active: true,
         }));
 
@@ -556,6 +562,38 @@ export default function NouvelleReferencePage() {
                             </button>
                           )}
                         </div>
+                      </div>
+                    </div>
+
+                    {/* Prix par type client */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                          🏢 Prix Pro (MAD)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={article.prix_pro}
+                          onChange={(e) => updateArticle(article.id, 'prix_pro', e.target.value)}
+                          placeholder={`Défaut: ${calculatedPrice.toFixed(2)}`}
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                          👤 Prix Particulier (MAD)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={article.prix_particulier}
+                          onChange={(e) => updateArticle(article.id, 'prix_particulier', e.target.value)}
+                          placeholder={`Défaut: ${calculatedPrice.toFixed(2)}`}
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
                       </div>
                     </div>
 

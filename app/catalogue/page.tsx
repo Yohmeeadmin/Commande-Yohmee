@@ -14,6 +14,7 @@ import {
 } from '@/types';
 import { formatPrice } from '@/lib/utils';
 import { useAteliers, refreshAteliers, AtelierDB } from '@/lib/useAteliers';
+import { usePermissions } from '@/lib/permissions';
 
 const COLOR_PRESETS = [
   { label: 'Brun/Jaune', color: '#92400E', bgColor: '#FEF3C7' },
@@ -27,6 +28,7 @@ const COLOR_PRESETS = [
 ];
 
 export default function CataloguePage() {
+  const { can } = usePermissions();
   const [references, setReferences] = useState<(ProductReference & { articles: ProductArticle[] })[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const { ateliers, getStyle: getAtelierStyle } = useAteliers();
@@ -235,13 +237,15 @@ export default function CataloguePage() {
             <Settings size={18} />
             <span className="hidden lg:inline font-medium">Ateliers</span>
           </button>
-          <Link
-            href="/catalogue/nouveau"
-            className="flex items-center gap-2 px-3 py-2 lg:px-4 lg:py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
-          >
-            <Plus size={20} />
-            <span className="hidden sm:inline">Nouvelle référence</span>
-          </Link>
+          {can('catalogue.create') && (
+            <Link
+              href="/catalogue/nouveau"
+              className="flex items-center gap-2 px-3 py-2 lg:px-4 lg:py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
+            >
+              <Plus size={20} />
+              <span className="hidden sm:inline">Nouvelle référence</span>
+            </Link>
+          )}
         </div>
       </div>
 
@@ -408,15 +412,19 @@ export default function CataloguePage() {
                       <td className="px-6 py-4 text-sm text-gray-600">{activeArticles.length} article{activeArticles.length !== 1 ? 's' : ''}</td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <Link href={`/catalogue/${ref.id}`} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
-                            <Edit2 size={16} />
-                          </Link>
-                          <button
-                            onClick={() => toggleReferenceActive(ref)}
-                            className={`p-2 rounded-lg transition-colors ${ref.is_active ? 'text-gray-400 hover:text-orange-600 hover:bg-orange-50' : 'text-orange-600 bg-orange-50'}`}
-                          >
-                            <Archive size={16} />
-                          </button>
+                          {can('catalogue.edit') && (
+                            <Link href={`/catalogue/${ref.id}`} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
+                              <Edit2 size={16} />
+                            </Link>
+                          )}
+                          {can('catalogue.edit') && (
+                            <button
+                              onClick={() => toggleReferenceActive(ref)}
+                              className={`p-2 rounded-lg transition-colors ${ref.is_active ? 'text-gray-400 hover:text-orange-600 hover:bg-orange-50' : 'text-orange-600 bg-orange-50'}`}
+                            >
+                              <Archive size={16} />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -488,13 +496,15 @@ export default function CataloguePage() {
                     </div>
 
                     <div className="flex items-center gap-1 flex-shrink-0">
-                      <Link
-                        href={`/catalogue/${ref.id}`}
-                        onClick={e => e.stopPropagation()}
-                        className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                      >
-                        <Edit2 size={16} />
-                      </Link>
+                      {can('catalogue.edit') && (
+                        <Link
+                          href={`/catalogue/${ref.id}`}
+                          onClick={e => e.stopPropagation()}
+                          className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        >
+                          <Edit2 size={16} />
+                        </Link>
+                      )}
                       {isExpanded
                         ? <ChevronDown size={18} className="text-gray-400" />
                         : <ChevronRight size={18} className="text-gray-400" />
@@ -577,26 +587,28 @@ export default function CataloguePage() {
                     </div>
 
                     {/* Actions rapides en bas */}
-                    <div className="border-t border-gray-100 px-3 py-2 flex items-center justify-between">
-                      <button
-                        onClick={() => toggleReferenceActive(ref)}
-                        className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
-                          ref.is_active
-                            ? 'text-gray-500 hover:text-orange-600 hover:bg-orange-50'
-                            : 'text-orange-600 bg-orange-50'
-                        }`}
-                      >
-                        <Archive size={13} />
-                        {ref.is_active ? 'Archiver' : 'Réactiver'}
-                      </button>
-                      <Link
-                        href={`/catalogue/${ref.id}`}
-                        className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                      >
-                        <Edit2 size={13} />
-                        Modifier la référence
-                      </Link>
-                    </div>
+                    {can('catalogue.edit') && (
+                      <div className="border-t border-gray-100 px-3 py-2 flex items-center justify-between">
+                        <button
+                          onClick={() => toggleReferenceActive(ref)}
+                          className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                            ref.is_active
+                              ? 'text-gray-500 hover:text-orange-600 hover:bg-orange-50'
+                              : 'text-orange-600 bg-orange-50'
+                          }`}
+                        >
+                          <Archive size={13} />
+                          {ref.is_active ? 'Archiver' : 'Réactiver'}
+                        </button>
+                        <Link
+                          href={`/catalogue/${ref.id}`}
+                          className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        >
+                          <Edit2 size={13} />
+                          Modifier la référence
+                        </Link>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -632,12 +644,14 @@ export default function CataloguePage() {
                       <span className="font-medium text-gray-900">{atelier.label}</span>
                       <span className="text-xs text-gray-400 font-mono">{atelier.value}</span>
                     </div>
-                    <button
-                      onClick={() => deleteAtelier(atelier)}
-                      className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    {can('catalogue.delete') && (
+                      <button
+                        onClick={() => deleteAtelier(atelier)}
+                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>

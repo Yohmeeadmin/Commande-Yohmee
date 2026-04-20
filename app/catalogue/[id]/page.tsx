@@ -16,6 +16,7 @@ import {
 } from '@/types';
 import { useAteliers } from '@/lib/useAteliers';
 import { formatPrice } from '@/lib/utils';
+import { usePermissions } from '@/lib/permissions';
 
 interface ArticleForm {
   id: string;
@@ -25,6 +26,8 @@ interface ArticleForm {
   product_state: ProductState;
   custom_price: string;
   is_price_modified: boolean;
+  prix_pro: string;
+  prix_particulier: string;
   is_active: boolean;
   is_new: boolean; // true si créé localement, pas encore en DB
   is_deleted: boolean; // true si marqué pour suppression
@@ -34,6 +37,7 @@ export default function EditReferencePage() {
   const params = useParams();
   const router = useRouter();
   const { ateliers } = useAteliers();
+  const { can } = usePermissions();
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -93,6 +97,8 @@ export default function EditReferencePage() {
           product_state: a.product_state,
           custom_price: a.custom_price?.toString() || '',
           is_price_modified: a.custom_price !== null,
+          prix_pro: a.prix_pro?.toString() || '',
+          prix_particulier: a.prix_particulier?.toString() || '',
           is_active: a.is_active,
           is_new: false,
           is_deleted: false,
@@ -118,6 +124,8 @@ export default function EditReferencePage() {
       product_state: 'frais',
       custom_price: '',
       is_price_modified: false,
+      prix_pro: '',
+      prix_particulier: '',
       is_active: true,
       is_new: true,
       is_deleted: false,
@@ -235,6 +243,8 @@ export default function EditReferencePage() {
             custom_price: a.is_price_modified && a.custom_price !== ''
               ? parseFloat(a.custom_price)
               : null,
+            prix_pro: a.prix_pro !== '' ? parseFloat(a.prix_pro) : null,
+            prix_particulier: a.prix_particulier !== '' ? parseFloat(a.prix_particulier) : null,
             is_active: a.is_active,
           })));
         if (error) throw error;
@@ -252,6 +262,8 @@ export default function EditReferencePage() {
             custom_price: article.is_price_modified && article.custom_price !== ''
               ? parseFloat(article.custom_price)
               : null,
+            prix_pro: article.prix_pro !== '' ? parseFloat(article.prix_pro) : null,
+            prix_particulier: article.prix_particulier !== '' ? parseFloat(article.prix_particulier) : null,
             is_active: article.is_active,
           })
           .eq('id', article.db_id);
@@ -311,13 +323,15 @@ export default function EditReferencePage() {
             <p className="text-gray-500 mt-1">{reference.code} - {reference.name}</p>
           </div>
         </div>
-        <button
-          onClick={handleDelete}
-          className="p-2.5 text-red-600 hover:bg-red-50 rounded-xl transition-colors"
-          title="Supprimer"
-        >
-          <Trash2 size={20} />
-        </button>
+        {can('catalogue.delete') && (
+          <button
+            onClick={handleDelete}
+            className="p-2.5 text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+            title="Supprimer"
+          >
+            <Trash2 size={20} />
+          </button>
+        )}
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -683,6 +697,38 @@ export default function EditReferencePage() {
                             </button>
                           )}
                         </div>
+                      </div>
+                    </div>
+
+                    {/* Prix par type client */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                          🏢 Prix Pro (MAD)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={article.prix_pro}
+                          onChange={(e) => updateArticle(article.id, 'prix_pro', e.target.value)}
+                          placeholder={`Défaut: ${calculatedPrice.toFixed(2)}`}
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                          👤 Prix Particulier (MAD)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={article.prix_particulier}
+                          onChange={(e) => updateArticle(article.id, 'prix_particulier', e.target.value)}
+                          placeholder={`Défaut: ${calculatedPrice.toFixed(2)}`}
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
                       </div>
                     </div>
 

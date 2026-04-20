@@ -21,7 +21,7 @@ export default function StepClient({ clients, selectedClient, onSelect, onReorde
   const [history, setHistory] = useState<HistoryOrder[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
-  const [quickAddForm, setQuickAddForm] = useState({ nom: '', telephone: '' });
+  const [quickAddForm, setQuickAddForm] = useState({ nom: '', telephone: '', type_client: 'entreprise' });
   const [quickAddLoading, setQuickAddLoading] = useState(false);
 
   async function handleQuickAdd() {
@@ -33,7 +33,7 @@ export default function StepClient({ clients, selectedClient, onSelect, onReorde
         .insert({
           nom: quickAddForm.nom.trim(),
           telephone: quickAddForm.telephone.trim() || null,
-          type_client: 'autre',
+          type_client: quickAddForm.type_client,
           jours_livraison: [],
           is_active: true,
           note_interne: '⚠️ À compléter — créé rapidement depuis une commande',
@@ -44,7 +44,7 @@ export default function StepClient({ clients, selectedClient, onSelect, onReorde
       onClientAdded(data as Client);
       onSelect(data as Client);
       setQuickAddOpen(false);
-      setQuickAddForm({ nom: '', telephone: '' });
+      setQuickAddForm({ nom: '', telephone: '', type_client: 'entreprise' });
     } catch (err) {
       console.error('Erreur création client:', err);
     } finally {
@@ -267,12 +267,29 @@ export default function StepClient({ clients, selectedClient, onSelect, onReorde
               </button>
             </div>
             <div className="space-y-3">
+              {/* Type client */}
+              <div className="flex gap-2">
+                {(['entreprise', 'particulier'] as const).map(type => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => setQuickAddForm(f => ({ ...f, type_client: type }))}
+                    className={`flex-1 py-3 rounded-2xl text-sm font-semibold border-2 transition-colors ${
+                      quickAddForm.type_client === type
+                        ? 'border-blue-600 bg-blue-600 text-white'
+                        : 'border-gray-200 text-gray-500'
+                    }`}
+                  >
+                    {type === 'entreprise' ? '🏢 Entreprise' : '👤 Particulier'}
+                  </button>
+                ))}
+              </div>
               <input
                 type="text"
                 autoFocus
                 value={quickAddForm.nom}
                 onChange={e => setQuickAddForm(f => ({ ...f, nom: e.target.value }))}
-                placeholder="Nom / Société *"
+                placeholder={quickAddForm.type_client === 'particulier' ? 'Nom *' : 'Société *'}
                 className="w-full px-4 py-3.5 border border-gray-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
               />
               <input

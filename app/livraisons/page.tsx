@@ -10,6 +10,7 @@ import {
 import { supabase } from '@/lib/supabase/client';
 import { Driver, driverFullName, driverInitials } from '@/types';
 import { formatPrice, localDateStr } from '@/lib/utils';
+import { usePermissions } from '@/lib/permissions';
 import { useAppSettings } from '@/lib/useAppSettings';
 import CreateRouteModal from '@/components/livraisons/CreateRouteModal';
 import BLModal from '@/components/livraisons/BLModal';
@@ -79,11 +80,15 @@ function RouteCard({
   orders,
   onCancelled,
   onPrintBLs,
+  canCancel,
+  canPrintBLs,
 }: {
   route: DeliveryRouteWithDetails;
   orders: DeliveryOrder[];
   onCancelled?: (routeId: string) => void;
   onPrintBLs?: (orderIds: string[], title: string) => void;
+  canCancel?: boolean;
+  canPrintBLs?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -213,7 +218,7 @@ function RouteCard({
                   Vue chauffeur →
                 </Link>
               ) : null}
-              {onPrintBLs && routeOrders.length > 0 && (
+              {canPrintBLs && onPrintBLs && routeOrders.length > 0 && (
                 <button
                   onClick={e => {
                     e.stopPropagation();
@@ -228,13 +233,15 @@ function RouteCard({
                 </button>
               )}
             </div>
-            <button
-              onClick={e => { e.stopPropagation(); handleCancel(); }}
-              disabled={cancelling}
-              className="text-xs text-red-500 hover:text-red-700 font-medium transition-colors disabled:opacity-40"
-            >
-              {cancelling ? 'Annulation…' : 'Annuler la tournée'}
-            </button>
+            {canCancel && (
+              <button
+                onClick={e => { e.stopPropagation(); handleCancel(); }}
+                disabled={cancelling}
+                className="text-xs text-red-500 hover:text-red-700 font-medium transition-colors disabled:opacity-40"
+              >
+                {cancelling ? 'Annulation…' : 'Annuler la tournée'}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -245,6 +252,7 @@ function RouteCard({
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function LivraisonsPage() {
+  const { can } = usePermissions();
   const { settings } = useAppSettings();
   const todayStr = localDateStr();
   const [date, setDate] = useState(todayStr);
@@ -1019,12 +1027,14 @@ export default function LivraisonsPage() {
                           )}
                         </div>
                         <div className="h-px flex-1 bg-gray-200" />
+                        {can('livraisons.create_route') && (
                         <button
                           onClick={() => openCreateRoute(slot)}
                           className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-full transition-colors shrink-0"
                         >
                           <Plus size={11} /> Tournée
                         </button>
+                        )}
                       </div>
 
                       {/* Tournées du créneau */}
@@ -1037,6 +1047,8 @@ export default function LivraisonsPage() {
                               orders={orders}
                               onCancelled={routeId => setRoutes(prev => prev.filter(r => r.id !== routeId))}
                               onPrintBLs={openBL}
+                              canCancel={can('livraisons.cancel_route')}
+                              canPrintBLs={can('livraisons.print_bl')}
                             />
                           ))}
                         </div>
@@ -1139,59 +1151,63 @@ export default function LivraisonsPage() {
 
                                     {/* Actions */}
                                     <div className="flex items-center gap-1.5 shrink-0">
-                                      {assigningId === order.id ? (
-                                        <div className="flex items-center gap-1 flex-wrap justify-end">
-                                          {drivers.map((d, dIdx) => (
-                                            <button
-                                              key={d.id}
-                                              onClick={() => assignDriver(order.id, d.id)}
-                                              className="text-xs px-2 py-1 rounded-lg font-semibold transition-colors"
-                                              style={{ backgroundColor: DRIVER_COLORS[dIdx % DRIVER_COLORS.length].bg, color: DRIVER_COLORS[dIdx % DRIVER_COLORS.length].text }}
-                                            >
-                                              {driverInitials(d)}
-                                            </button>
-                                          ))}
-                                          {order.driver_id && (
-                                            <button onClick={() => assignDriver(order.id, null)} className="text-xs px-2 py-1 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200">Ret.</button>
-                                          )}
-                                          <button onClick={() => setAssigningId(null)} className="text-xs text-gray-400 px-1">✕</button>
-                                        </div>
-                                      ) : (
-                                        <button
-                                          onClick={() => setAssigningId(order.id)}
-                                          className="text-xs px-2 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:border-blue-300 hover:text-blue-600 transition-colors font-medium"
-                                        >
-                                          {order.driver_id
-                                            ? (() => { const d = drivers.find(d => d.id === order.driver_id); return d ? driverInitials(d) : 'Changer'; })()
-                                            : '+ Ch.'
-                                          }
-                                        </button>
+                                      {can('livraisons.assign_driver') && (
+                                        assigningId === order.id ? (
+                                          <div className="flex items-center gap-1 flex-wrap justify-end">
+                                            {drivers.map((d, dIdx) => (
+                                              <button
+                                                key={d.id}
+                                                onClick={() => assignDriver(order.id, d.id)}
+                                                className="text-xs px-2 py-1 rounded-lg font-semibold transition-colors"
+                                                style={{ backgroundColor: DRIVER_COLORS[dIdx % DRIVER_COLORS.length].bg, color: DRIVER_COLORS[dIdx % DRIVER_COLORS.length].text }}
+                                              >
+                                                {driverInitials(d)}
+                                              </button>
+                                            ))}
+                                            {order.driver_id && (
+                                              <button onClick={() => assignDriver(order.id, null)} className="text-xs px-2 py-1 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200">Ret.</button>
+                                            )}
+                                            <button onClick={() => setAssigningId(null)} className="text-xs text-gray-400 px-1">✕</button>
+                                          </div>
+                                        ) : (
+                                          <button
+                                            onClick={() => setAssigningId(order.id)}
+                                            className="text-xs px-2 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:border-blue-300 hover:text-blue-600 transition-colors font-medium"
+                                          >
+                                            {order.driver_id
+                                              ? (() => { const d = drivers.find(d => d.id === order.driver_id); return d ? driverInitials(d) : 'Changer'; })()
+                                              : '+ Ch.'
+                                            }
+                                          </button>
+                                        )
                                       )}
 
-                                      {!isDelivered ? (
-                                        <button
-                                          title={blOrderIds.has(order.id) ? 'Confirmer la livraison' : 'Générer le BL avant de confirmer'}
-                                          disabled={!blOrderIds.has(order.id)}
-                                          onClick={async () => {
-                                            await supabase.rpc('mark_order_delivered', {
-                                              p_order_id: order.id,
-                                              p_is_fully_delivered: true,
-                                              p_delivered_items: null,
-                                            });
-                                            setOrders(prev => prev.map(o =>
-                                              o.id === order.id
-                                                ? { ...o, status: 'livree', is_fully_delivered: true, items: o.items.map(i => ({ ...i, quantity_delivered: i.quantity_ordered })) }
-                                                : o
-                                            ));
-                                          }}
-                                          className={`p-2 rounded-xl transition-all ${blOrderIds.has(order.id) ? 'text-gray-400 hover:text-green-600 hover:bg-green-50 active:scale-95' : 'text-gray-200 cursor-not-allowed'}`}
-                                        >
-                                          <CheckCircle size={20} />
-                                        </button>
-                                      ) : (
-                                        <div className="p-2 text-green-500">
-                                          <CheckCircle size={20} />
-                                        </div>
+                                      {can('livraisons.confirm_delivery') && (
+                                        !isDelivered ? (
+                                          <button
+                                            title={blOrderIds.has(order.id) ? 'Confirmer la livraison' : 'Générer le BL avant de confirmer'}
+                                            disabled={!blOrderIds.has(order.id)}
+                                            onClick={async () => {
+                                              await supabase.rpc('mark_order_delivered', {
+                                                p_order_id: order.id,
+                                                p_is_fully_delivered: true,
+                                                p_delivered_items: null,
+                                              });
+                                              setOrders(prev => prev.map(o =>
+                                                o.id === order.id
+                                                  ? { ...o, status: 'livree', is_fully_delivered: true, items: o.items.map(i => ({ ...i, quantity_delivered: i.quantity_ordered })) }
+                                                  : o
+                                              ));
+                                            }}
+                                            className={`p-2 rounded-xl transition-all ${blOrderIds.has(order.id) ? 'text-gray-400 hover:text-green-600 hover:bg-green-50 active:scale-95' : 'text-gray-200 cursor-not-allowed'}`}
+                                          >
+                                            <CheckCircle size={20} />
+                                          </button>
+                                        ) : (
+                                          <div className="p-2 text-green-500">
+                                            <CheckCircle size={20} />
+                                          </div>
+                                        )
                                       )}
                                     </div>
                                   </div>
@@ -1210,12 +1226,14 @@ export default function LivraisonsPage() {
                                   )}
                                   <div className="flex items-center justify-between mt-1.5">
                                     <p className="text-xs text-gray-400">{order.numero} · {formatPrice(order.total)}</p>
-                                    <button
-                                      onClick={() => openBLDelivery(order)}
-                                      className="text-xs text-gray-400 hover:text-blue-600 hover:bg-blue-50 px-2 py-0.5 rounded-lg transition-colors flex items-center gap-1"
-                                    >
-                                      <Printer size={11} /> BL
-                                    </button>
+                                    {can('livraisons.generate_bl') && (
+                                      <button
+                                        onClick={() => openBLDelivery(order)}
+                                        className="text-xs text-gray-400 hover:text-blue-600 hover:bg-blue-50 px-2 py-0.5 rounded-lg transition-colors flex items-center gap-1"
+                                      >
+                                        <Printer size={11} /> BL
+                                      </button>
+                                    )}
                                   </div>
                                 </div>
                               </div>

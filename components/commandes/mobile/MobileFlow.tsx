@@ -61,7 +61,7 @@ export default function MobileFlow({
           l.article_id === article.id ? { ...l, quantite: l.quantite + 1 } : l
         );
       }
-      const price = clientPrices?.[article.id] ?? calculateArticlePrice(article, article.product_reference);
+      const price = clientPrices?.[article.id] ?? calculateArticlePrice(article, article.product_reference, selectedClient?.type_client);
       return [...prev, {
         id: crypto.randomUUID(),
         article_id: article.id,

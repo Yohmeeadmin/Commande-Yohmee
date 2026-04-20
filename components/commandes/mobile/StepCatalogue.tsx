@@ -178,6 +178,7 @@ export default function StepCatalogue({
                   lines={lines}
                   getLineQty={getLineQty}
                   onTap={handleGroupTap}
+                  typeClient={client.type_client}
                   highlighted
                 />
               ))}
@@ -200,6 +201,7 @@ export default function StepCatalogue({
               lines={lines}
               getLineQty={getLineQty}
               onTap={handleGroupTap}
+              typeClient={client.type_client}
             />
           ))}
         </div>
@@ -232,6 +234,7 @@ export default function StepCatalogue({
           lines={lines}
           onAdd={onAdd}
           onClose={() => setSheetRef(null)}
+          typeClient={client.type_client}
         />
       )}
 
@@ -253,17 +256,18 @@ export default function StepCatalogue({
 
 // ─── ProductRow ───────────────────────────────────────────
 function ProductRow({
-  group, lines, getLineQty, onTap, highlighted = false,
+  group, lines, getLineQty, onTap, typeClient, highlighted = false,
 }: {
   group: ProductGroup;
   lines: OrderLine[];
   getLineQty: (id: string) => number;
   onTap: (group: ProductGroup) => void;
+  typeClient?: string;
   highlighted?: boolean;
 }) {
   const singleArticle = group.articles.length === 1 ? group.articles[0] : null;
   const price = singleArticle
-    ? calculateArticlePrice(singleArticle, singleArticle.product_reference)
+    ? calculateArticlePrice(singleArticle, singleArticle.product_reference, typeClient)
     : null;
   const packLabel = singleArticle
     ? PACK_TYPES.find(p => p.value === singleArticle.pack_type)?.label

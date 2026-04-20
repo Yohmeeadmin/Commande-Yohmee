@@ -232,7 +232,8 @@ export default function NouvelleCommandePage() {
   function desktopAddArticle(article: ArticleWithRef) {
     setLines(prev => {
       const existing = prev.find(l => l.article_id === article.id);
-      const price = clientPrices[article.id] ?? calculateArticlePrice(article, article.product_reference);
+      const selectedClient = clients.find(c => c.id === form.client_id);
+      const price = clientPrices[article.id] ?? calculateArticlePrice(article, article.product_reference, selectedClient?.type_client);
       if (existing) return prev.map(l => l.article_id === article.id ? { ...l, quantite: l.quantite + 1 } : l);
       return [...prev, {
         id: crypto.randomUUID(),

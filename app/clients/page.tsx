@@ -7,8 +7,10 @@ import { Plus, Search, Users, Phone, Mail, MapPin, LayoutGrid, Table2, Edit2, Al
 import { supabase } from '@/lib/supabase/client';
 import { Client, CLIENT_TYPES } from '@/types';
 import { formatPrice } from '@/lib/utils';
+import { usePermissions } from '@/lib/permissions';
 
 export default function ClientsPage() {
+  const { can } = usePermissions();
   const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
@@ -186,13 +188,15 @@ export default function ClientsPage() {
           >
             <Table2 size={20} />
           </button>
-          <Link
-            href="/clients/nouveau"
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
-          >
-            <Plus size={20} />
-            Nouveau client
-          </Link>
+          {can('clients.create') && (
+            <Link
+              href="/clients/nouveau"
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
+            >
+              <Plus size={20} />
+              Nouveau client
+            </Link>
+          )}
         </div>
       </div>
 
@@ -439,12 +443,14 @@ export default function ClientsPage() {
                       })()}
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <Link
-                        href={`/clients/${client.id}`}
-                        className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors inline-flex"
-                      >
-                        <Edit2 size={16} />
-                      </Link>
+                      {can('clients.edit') && (
+                        <Link
+                          href={`/clients/${client.id}`}
+                          className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors inline-flex"
+                        >
+                          <Edit2 size={16} />
+                        </Link>
+                      )}
                     </td>
                   </tr>
                 ))}

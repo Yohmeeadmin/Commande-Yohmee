@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { RefreshCw, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { formatPrice } from '@/lib/utils';
+import { usePermissions } from '@/lib/permissions';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -110,7 +111,7 @@ function KPICard({
   );
 }
 
-function KPIGrid({ orders, lateOrders }: { orders: DashboardOrder[]; lateOrders: SlimOrder[] }) {
+function KPIGrid({ orders, lateOrders, showFinancials }: { orders: DashboardOrder[]; lateOrders: SlimOrder[]; showFinancials: boolean }) {
   const ca = orders.reduce((s, o) => s + (o.total || 0), 0);
   const nb = orders.length;
   const livrees = orders.filter(o => o.status === 'livree').length;
@@ -123,7 +124,7 @@ function KPIGrid({ orders, lateOrders }: { orders: DashboardOrder[]; lateOrders:
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-      <KPICard label="CA du jour" value={formatPrice(ca)} />
+      {showFinancials && <KPICard label="CA du jour" value={formatPrice(ca)} />}
       <KPICard label="Commandes" value={String(nb)} />
       <KPICard label="Livrées" value={String(livrees)} accent="text-green-600" />
       <KPICard
@@ -137,13 +138,14 @@ function KPIGrid({ orders, lateOrders }: { orders: DashboardOrder[]; lateOrders:
         accent={incompletes > 0 ? 'text-orange-500' : 'text-gray-900'}
         sub="livrées partiellement"
       />
+
       <KPICard
         label="En retard"
         value={String(lateOrders.length)}
         accent={lateOrders.length > 0 ? 'text-red-500' : 'text-gray-900'}
         sub="jours précédents"
       />
-      <KPICard label="Panier moy." value={formatPrice(panierMoy)} />
+      {showFinancials && <KPICard label="Panier moy." value={formatPrice(panierMoy)} />}
     </div>
   );
 }
@@ -419,6 +421,8 @@ function ComparisonBar({
 // ── Page ───────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
+  const { can } = usePermissions();
+  const showFinancials = can('dashboard.view_financials');
   const [todayOrders, setTodayOrders] = useState<DashboardOrder[]>([]);
   const [yesterdayOrders, setYesterdayOrders] = useState<SlimOrder[]>([]);
   const [lateOrders, setLateOrders] = useState<SlimOrder[]>([]);
@@ -481,12 +485,12 @@ export default function DashboardPage() {
       ) : (
         <>
           {/* KPI row */}
-          <KPIGrid orders={todayOrders} lateOrders={lateOrders} />
+          <KPIGrid orders={todayOrders} lateOrders={lateOrders} showFinancials={showFinancials} />
 
           {/* Performance + Comparaison */}
           <div className="grid lg:grid-cols-2 gap-4">
             <PerformanceStats orders={todayOrders} />
-            <ComparisonBar todayOrders={todayOrders} yesterdayOrders={yesterdayOrders} />
+            {showFinancials && <ComparisonBar todayOrders={todayOrders} yesterdayOrders={yesterdayOrders} />}
           </div>
 
           {/* Production + Livraison */}
@@ -496,7 +500,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Top clients */}
-          <TopClients orders={todayOrders} />
+          {showFinancials && <TopClients orders={todayOrders} />}
 
           {/* Footnote */}
           <p className="text-center text-[11px] text-gray-200 pb-2">

@@ -6,8 +6,10 @@ import { Plus, RefreshCw, Play, Pause, Edit2, ArrowLeft } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { RecurringOrder, JOURS_SEMAINE } from '@/types';
 import { formatDate } from '@/lib/utils';
+import { usePermissions } from '@/lib/permissions';
 
 export default function RecurrencesPage() {
+  const { can } = usePermissions();
   const [recurrences, setRecurrences] = useState<RecurringOrder[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -76,13 +78,15 @@ const getJoursDisplay = (jours: string[]) => {
             <p className="text-gray-500 mt-1">{recurrences.filter(r => r.is_active).length} récurrences actives</p>
           </div>
         </div>
-        <Link
-          href="/recurrences/nouvelle"
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
-        >
-          <Plus size={20} />
-          Nouvelle récurrence
-        </Link>
+        {can('recurrences.create') && (
+          <Link
+            href="/recurrences/nouvelle"
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
+          >
+            <Plus size={20} />
+            Nouvelle récurrence
+          </Link>
+        )}
       </div>
 
 
@@ -127,23 +131,27 @@ const getJoursDisplay = (jours: string[]) => {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => toggleActive(recurrence)}
-                    className={`p-2 rounded-lg transition-colors ${
-                      recurrence.is_active
-                        ? 'text-orange-600 hover:bg-orange-50'
-                        : 'text-green-600 hover:bg-green-50'
-                    }`}
-                    title={recurrence.is_active ? 'Suspendre' : 'Activer'}
-                  >
-                    {recurrence.is_active ? <Pause size={20} /> : <Play size={20} />}
-                  </button>
-                  <Link
-                    href={`/recurrences/${recurrence.id}`}
-                    className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                  >
-                    <Edit2 size={20} />
-                  </Link>
+                  {can('recurrences.toggle') && (
+                    <button
+                      onClick={() => toggleActive(recurrence)}
+                      className={`p-2 rounded-lg transition-colors ${
+                        recurrence.is_active
+                          ? 'text-orange-600 hover:bg-orange-50'
+                          : 'text-green-600 hover:bg-green-50'
+                      }`}
+                      title={recurrence.is_active ? 'Suspendre' : 'Activer'}
+                    >
+                      {recurrence.is_active ? <Pause size={20} /> : <Play size={20} />}
+                    </button>
+                  )}
+                  {can('recurrences.edit') && (
+                    <Link
+                      href={`/recurrences/${recurrence.id}`}
+                      className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                    >
+                      <Edit2 size={20} />
+                    </Link>
+                  )}
                 </div>
               </div>
 

@@ -13,6 +13,7 @@ import { CLIENT_TYPES, JOURS_SEMAINE } from '@/types';
 import { VILLES_MAROC, QUARTIERS_PAR_VILLE } from '@/lib/maroc-geo';
 import { formatDate, formatPrice } from '@/lib/utils';
 import { useUser } from '@/contexts/UserContext';
+import { usePermissions } from '@/lib/permissions';
 
 interface OrderItem { display_name: string; quantity_ordered: number; unit_price: number }
 interface OrderHistory { id: string; numero: string; delivery_date: string; status: string; total: number; items: OrderItem[] }
@@ -71,6 +72,7 @@ export default function EditClientPage() {
   const { id } = useParams<{ id: string }>();
   const { profile: currentUser } = useUser();
   const isAdmin = currentUser?.role === 'admin';
+  const { can } = usePermissions();
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -440,9 +442,11 @@ export default function EditClientPage() {
             <span className="text-xs text-gray-400">{CLIENT_TYPES.find(t => t.value === form.type_client)?.label}</span>
           </div>
         </div>
-        <button onClick={() => setShowDeleteConfirm(true)} className="w-9 h-9 flex items-center justify-center rounded-xl bg-red-50 text-red-500">
-          <Trash2 size={16} />
-        </button>
+        {can('clients.delete') && (
+          <button onClick={() => setShowDeleteConfirm(true)} className="w-9 h-9 flex items-center justify-center rounded-xl bg-red-50 text-red-500">
+            <Trash2 size={16} />
+          </button>
+        )}
       </div>
 
       {/* Confirmation suppression */}
@@ -473,12 +477,14 @@ export default function EditClientPage() {
         >
           Historique
         </button>
-        <button
-          onClick={() => setActiveTab('prix')}
-          className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${activeTab === 'prix' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
-        >
-          Prix spéciaux {clientPrices.length > 0 && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">{clientPrices.length}</span>}
-        </button>
+        {can('clients.manage_prices') && (
+          <button
+            onClick={() => setActiveTab('prix')}
+            className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${activeTab === 'prix' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
+          >
+            Prix spéciaux {clientPrices.length > 0 && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">{clientPrices.length}</span>}
+          </button>
+        )}
         {isAdmin && (
           <button
             onClick={() => setActiveTab('commerciaux')}

@@ -183,6 +183,8 @@ export interface ProductArticle {
   quantity: number;
   product_state: ProductState;
   custom_price: number | null;
+  prix_pro: number | null;
+  prix_particulier: number | null;
   display_name: string; // Généré automatiquement
   is_active: boolean;
   created_at: string;
@@ -193,13 +195,22 @@ export interface ProductArticle {
 
 /**
  * Calcul du prix d'un article (côté application)
+ * Priorité : client individuel (géré en amont) > type client > custom_price > calculé
  */
-export function calculateArticlePrice(article: ProductArticle, reference: ProductReference): number {
-  // Si prix personnalisé, l'utiliser
+export function calculateArticlePrice(
+  article: ProductArticle,
+  reference: ProductReference,
+  typeClient?: string
+): number {
+  if (typeClient === 'particulier' && article.prix_particulier !== null) {
+    return article.prix_particulier;
+  }
+  if (typeClient === 'entreprise' && article.prix_pro !== null) {
+    return article.prix_pro;
+  }
   if (article.custom_price !== null) {
     return article.custom_price;
   }
-  // Sinon, calculer: prix unitaire × quantité
   return reference.base_unit_price * article.quantity;
 }
 

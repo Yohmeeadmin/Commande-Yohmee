@@ -6,6 +6,7 @@ import { Plus, Search, ShoppingCart, Calendar, CheckCircle, Play, Truck, Refresh
 import { supabase } from '@/lib/supabase/client';
 import { ORDER_STATUSES, OrderStatus } from '@/types';
 import { formatDate, formatPrice, localDateStr } from '@/lib/utils';
+import { usePermissions } from '@/lib/permissions';
 
 interface DeliverySlot {
   id: string;
@@ -65,6 +66,7 @@ function isUrgent(dateStr: string): boolean {
 }
 
 export default function CommandesPage() {
+  const { can } = usePermissions();
   const [orders, setOrders] = useState<OrderWithClient[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -259,15 +261,19 @@ export default function CommandesPage() {
           <Link href="/recurrences" className="hidden lg:inline-flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-200">
             <RefreshCw size={15} /> Récurrentes
           </Link>
-          <button
-            onClick={() => { setSelectionMode(!selectionMode); setSelectedIds(new Set()); setDeleteConfirm(false); }}
-            className={`hidden lg:inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-colors ${selectionMode ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-700'}`}
-          >
-            <CheckSquare size={15} /> {selectionMode ? 'Annuler' : 'Sélection'}
-          </button>
-          <Link href="/commandes/nouvelle" className="hidden lg:inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700">
-            <Plus size={16} /> Nouvelle commande
-          </Link>
+          {can('commandes.delete') && (
+            <button
+              onClick={() => { setSelectionMode(!selectionMode); setSelectedIds(new Set()); setDeleteConfirm(false); }}
+              className={`hidden lg:inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-colors ${selectionMode ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-700'}`}
+            >
+              <CheckSquare size={15} /> {selectionMode ? 'Annuler' : 'Sélection'}
+            </button>
+          )}
+          {can('commandes.create') && (
+            <Link href="/commandes/nouvelle" className="hidden lg:inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700">
+              <Plus size={16} /> Nouvelle commande
+            </Link>
+          )}
         </div>
       </div>
 
@@ -517,9 +523,9 @@ export default function CommandesPage() {
                         </Link>
 
                         {/* Actions rapides — barre du bas */}
-                        {(canConfirm || canProduce || canDeliver) && (
+                        {(canConfirm || canProduce || canDeliver || can('commandes.edit')) && (
                           <div className="flex border-t border-gray-50 divide-x divide-gray-50">
-                            {canConfirm && (
+                            {canConfirm && can('commandes.change_status') && (
                               <button
                                 onClick={() => updateStatus(order.id, 'confirmee')}
                                 className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold text-emerald-600 active:bg-emerald-50"
@@ -527,7 +533,7 @@ export default function CommandesPage() {
                                 <CheckCircle size={14} /> Confirmer
                               </button>
                             )}
-                            {canProduce && (
+                            {canProduce && can('commandes.change_status') && (
                               <button
                                 onClick={() => updateStatus(order.id, 'production')}
                                 className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold text-amber-600 active:bg-amber-50"
@@ -535,7 +541,7 @@ export default function CommandesPage() {
                                 <Play size={14} /> En production
                               </button>
                             )}
-                            {canDeliver && (
+                            {canDeliver && can('commandes.change_status') && (
                               <button
                                 onClick={() => markDelivered(order.id)}
                                 className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold text-blue-600 active:bg-blue-50"
@@ -543,12 +549,14 @@ export default function CommandesPage() {
                                 <Truck size={14} /> Livrer
                               </button>
                             )}
-                            <button
-                              onClick={() => openEditModal(order)}
-                              className="flex items-center justify-center px-4 py-2.5 text-gray-400 active:bg-gray-50"
-                            >
-                              <Pencil size={14} />
-                            </button>
+                            {can('commandes.edit') && (
+                              <button
+                                onClick={() => openEditModal(order)}
+                                className="flex items-center justify-center px-4 py-2.5 text-gray-400 active:bg-gray-50"
+                              >
+                                <Pencil size={14} />
+                              </button>
+                            )}
                           </div>
                         )}
                         {(order.status === 'livree' || order.status === 'annulee') && (
