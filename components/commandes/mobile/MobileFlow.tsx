@@ -15,7 +15,7 @@ type Step = 'client' | 'catalogue';
 export default function MobileFlow({
   clients, articles, categories, deliverySlots,
   lines, setLines, form, setForm, onSubmit, submitting,
-  clientTypeSettings,
+  clientTypeSettings, clientPrices,
 }: MobileFlowProps) {
   const [step, setStep] = useState<Step>('client');
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -61,7 +61,7 @@ export default function MobileFlow({
           l.article_id === article.id ? { ...l, quantite: l.quantite + 1 } : l
         );
       }
-      const price = calculateArticlePrice(article, article.product_reference);
+      const price = clientPrices?.[article.id] ?? calculateArticlePrice(article, article.product_reference);
       return [...prev, {
         id: crypto.randomUUID(),
         article_id: article.id,

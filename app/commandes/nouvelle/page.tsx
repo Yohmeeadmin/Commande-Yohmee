@@ -37,6 +37,7 @@ export default function NouvelleCommandePage() {
     reminder_days: null,
   });
   const [submitting, setSubmitting] = useState(false);
+  const [clientPrices, setClientPrices] = useState<Record<string, number>>({});
 
   // ─── Détection doublon ───────────────────────────────────
   const [duplicate, setDuplicate] = useState<{ id: string; numero: string; status: string; items: { product_article_id: string; quantity_ordered: number; unit_price: number; article_unit_quantity: number }[] } | null>(null);
@@ -97,6 +98,20 @@ export default function NouvelleCommandePage() {
   const [deliveryHint, setDeliveryHint] = useState<{ mode: 'heure' | 'creneau'; label: string } | null>(null);
 
   useEffect(() => { loadData(); }, []);
+
+  // Charger les prix spéciaux du client sélectionné
+  useEffect(() => {
+    if (!form.client_id) { setClientPrices({}); return; }
+    supabase
+      .from('client_prices')
+      .select('product_article_id, prix_special')
+      .eq('client_id', form.client_id)
+      .then(({ data }: { data: { product_article_id: string; prix_special: number }[] | null }) => {
+        const map: Record<string, number> = {};
+        (data || []).forEach(r => { map[r.product_article_id] = r.prix_special; });
+        setClientPrices(map);
+      });
+  }, [form.client_id]);
 
   useEffect(() => {
     if (!form.client_id) { setDeliveryHint(null); return; }
@@ -217,7 +232,7 @@ export default function NouvelleCommandePage() {
   function desktopAddArticle(article: ArticleWithRef) {
     setLines(prev => {
       const existing = prev.find(l => l.article_id === article.id);
-      const price = calculateArticlePrice(article, article.product_reference);
+      const price = clientPrices[article.id] ?? calculateArticlePrice(article, article.product_reference);
       if (existing) return prev.map(l => l.article_id === article.id ? { ...l, quantite: l.quantite + 1 } : l);
       return [...prev, {
         id: crypto.randomUUID(),
@@ -258,6 +273,7 @@ export default function NouvelleCommandePage() {
           onSubmit={handleSubmit}
           submitting={submitting}
           clientTypeSettings={settings.client_type_settings ?? {}}
+          clientPrices={clientPrices}
         />
       </div>
 

@@ -6,7 +6,7 @@ import Link from 'next/link';
 import {
   ArrowLeft, Save, AlertCircle, ShoppingCart, Package,
   TrendingUp, TrendingDown, AlertTriangle,
-  Trash2, ChevronRight, RefreshCw, UserCheck, Plus, X, Pencil,
+  Trash2, ChevronRight, RefreshCw, UserCheck, Plus, X, Pencil, Tag, Search,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { CLIENT_TYPES, JOURS_SEMAINE } from '@/types';
@@ -18,6 +18,20 @@ interface OrderItem { display_name: string; quantity_ordered: number; unit_price
 interface OrderHistory { id: string; numero: string; delivery_date: string; status: string; total: number; items: OrderItem[] }
 interface ArticleStat { display_name: string; total_qty: number; total_amount: number; order_count: number }
 interface MonthStats { orders: number; amount: number }
+
+interface ClientPrice {
+  id: string;
+  product_article_id: string;
+  prix_special: number;
+  article_name: string;
+  prix_standard: number;
+}
+
+interface ArticleForPrice {
+  id: string;
+  display_name: string;
+  prix_standard: number;
+}
 
 interface CommercialUser { id: string; first_name: string; last_name: string; email: string }
 interface Assignment {
@@ -60,7 +74,7 @@ export default function EditClientPage() {
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [activeTab, setActiveTab] = useState<'infos' | 'historique' | 'commerciaux'>('infos');
+  const [activeTab, setActiveTab] = useState<'infos' | 'historique' | 'prix' | 'commerciaux'>('infos');
   const [saved, setSaved] = useState(false);
 
   // Assignments state
@@ -73,6 +87,17 @@ export default function EditClientPage() {
   const [assignForm, setAssignForm] = useState({
     user_id: '', commission_first_order: '', commission_recurring_pct: '', commission_recurring_months: '',
   });
+
+  // Prix spéciaux state
+  const [clientPrices, setClientPrices] = useState<ClientPrice[]>([]);
+  const [priceArticles, setPriceArticles] = useState<ArticleForPrice[]>([]);
+  const [pricesLoaded, setPricesLoaded] = useState(false);
+  const [priceSearch, setPriceSearch] = useState('');
+  const [newPriceArticleId, setNewPriceArticleId] = useState('');
+  const [newPriceValue, setNewPriceValue] = useState('');
+  const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
+  const [editingPriceValue, setEditingPriceValue] = useState('');
+  const [savingPrice, setSavingPrice] = useState(false);
 
   // History state
   const [periodDays, setPeriodDays] = useState(90);
@@ -101,6 +126,9 @@ export default function EditClientPage() {
   useEffect(() => {
     if (activeTab === 'historique' && !historyLoaded) {
       loadHistory();
+    }
+    if (activeTab === 'prix' && !pricesLoaded) {
+      loadClientPrices();
     }
     if (activeTab === 'commerciaux' && !assignmentsLoaded && isAdmin) {
       loadAssignments();
@@ -290,6 +318,77 @@ export default function EditClientPage() {
     setShowAssignForm(true);
   }
 
+  async function loadClientPrices() {
+    const [pricesResult, articlesResult] = await Promise.all([
+      supabase
+        .from('client_prices')
+        .select('id, product_article_id, prix_special, product_article:product_articles(display_name, custom_price, quantity, product_reference:product_references(base_unit_price))')
+        .eq('client_id', id),
+      priceArticles.length === 0
+        ? supabase.from('product_articles').select('id, display_name, custom_price, quantity, product_reference:product_references(base_unit_price)').eq('is_active', true).order('display_name')
+        : Promise.resolve({ data: null }),
+    ]);
+    if (articlesResult.data) {
+      setPriceArticles((articlesResult.data as any[]).map(a => ({
+        id: a.id,
+        display_name: a.display_name,
+        prix_standard: a.custom_price !== null ? a.custom_price : (a.product_reference?.base_unit_price ?? 0) * (a.quantity ?? 1),
+      })));
+    }
+    setClientPrices((pricesResult.data || []).map((p: any) => ({
+      id: p.id,
+      product_article_id: p.product_article_id,
+      prix_special: p.prix_special,
+      article_name: p.product_article?.display_name ?? '—',
+      prix_standard: p.product_article?.custom_price !== null
+        ? (p.product_article?.custom_price ?? 0)
+        : (p.product_article?.product_reference?.base_unit_price ?? 0) * (p.product_article?.quantity ?? 1),
+    })));
+    setPricesLoaded(true);
+  }
+
+  async function saveNewPrice() {
+    if (!newPriceArticleId || !newPriceValue || isNaN(Number(newPriceValue))) return;
+    setSavingPrice(true);
+    try {
+      const { error } = await supabase.from('client_prices').upsert({
+        client_id: id,
+        product_article_id: newPriceArticleId,
+        prix_special: Number(newPriceValue),
+      }, { onConflict: 'client_id,product_article_id' });
+      if (error) throw error;
+      setNewPriceArticleId('');
+      setNewPriceValue('');
+      setPricesLoaded(false);
+      await loadClientPrices();
+    } catch (err: any) {
+      alert(`Erreur : ${err?.message}`);
+    } finally {
+      setSavingPrice(false);
+    }
+  }
+
+  async function saveEditPrice(priceId: string) {
+    if (!editingPriceValue || isNaN(Number(editingPriceValue))) return;
+    setSavingPrice(true);
+    try {
+      const { error } = await supabase.from('client_prices').update({ prix_special: Number(editingPriceValue) }).eq('id', priceId);
+      if (error) throw error;
+      setEditingPriceId(null);
+      setClientPrices(prev => prev.map(p => p.id === priceId ? { ...p, prix_special: Number(editingPriceValue) } : p));
+    } catch (err: any) {
+      alert(`Erreur : ${err?.message}`);
+    } finally {
+      setSavingPrice(false);
+    }
+  }
+
+  async function deletePrice(priceId: string) {
+    const { error } = await supabase.from('client_prices').delete().eq('id', priceId);
+    if (error) { alert(`Erreur : ${error.message}`); return; }
+    setClientPrices(prev => prev.filter(p => p.id !== priceId));
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.nom) return;
@@ -364,20 +463,21 @@ export default function EditClientPage() {
       )}
 
       {/* Onglets */}
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-2xl">
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-2xl flex-wrap">
         <button onClick={() => setActiveTab('infos')} className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${activeTab === 'infos' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>
-          Informations
+          Infos
         </button>
         <button
-          onClick={() => {
-            if (activeTab !== 'historique') {
-              if (!historyLoaded) setLoadingHistory(true);
-              setActiveTab('historique');
-            }
-          }}
+          onClick={() => { if (!historyLoaded) setLoadingHistory(true); setActiveTab('historique'); }}
           className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${activeTab === 'historique' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
         >
           Historique
+        </button>
+        <button
+          onClick={() => setActiveTab('prix')}
+          className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${activeTab === 'prix' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
+        >
+          Prix spéciaux {clientPrices.length > 0 && <span className="ml-1 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">{clientPrices.length}</span>}
         </button>
         {isAdmin && (
           <button
@@ -776,6 +876,156 @@ export default function EditClientPage() {
                 </div>
               )}
             </>
+          )}
+        </div>
+      )}
+
+      {/* ─── PRIX SPÉCIAUX ─── */}
+      {activeTab === 'prix' && (
+        <div className="space-y-4">
+          {/* Formulaire ajout */}
+          <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-3">
+            <p className="font-semibold text-gray-900 text-sm">Ajouter un prix spécial</p>
+
+            {/* Recherche article */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+              <input
+                type="text"
+                placeholder="Rechercher un article…"
+                value={priceSearch}
+                onChange={e => { setPriceSearch(e.target.value); setNewPriceArticleId(''); }}
+                className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            {/* Liste articles filtrés */}
+            {priceSearch && !newPriceArticleId && (
+              <div className="border border-gray-100 rounded-xl divide-y divide-gray-50 max-h-48 overflow-y-auto">
+                {priceArticles
+                  .filter(a => a.display_name.toLowerCase().includes(priceSearch.toLowerCase()))
+                  .filter(a => !clientPrices.some(cp => cp.product_article_id === a.id))
+                  .slice(0, 15)
+                  .map(a => (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => { setNewPriceArticleId(a.id); setPriceSearch(a.display_name); setNewPriceValue(String(a.prix_standard)); }}
+                      className="w-full flex items-center justify-between px-3 py-2.5 text-left active:bg-blue-50"
+                    >
+                      <span className="text-sm text-gray-900 truncate flex-1">{a.display_name}</span>
+                      <span className="text-xs text-gray-400 ml-2 flex-shrink-0">{formatPrice(a.prix_standard)}</span>
+                    </button>
+                  ))}
+                {priceArticles.filter(a => a.display_name.toLowerCase().includes(priceSearch.toLowerCase()) && !clientPrices.some(cp => cp.product_article_id === a.id)).length === 0 && (
+                  <p className="text-center text-gray-400 text-sm py-3">Aucun résultat</p>
+                )}
+              </div>
+            )}
+
+            {/* Prix spécial + bouton */}
+            {newPriceArticleId && (
+              <div className="flex gap-2 items-center">
+                <div className="flex-1">
+                  <label className="text-xs text-gray-500 mb-1 block">Prix spécial (MAD)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={newPriceValue}
+                    onChange={e => setNewPriceValue(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="0.00"
+                  />
+                </div>
+                <button
+                  onClick={saveNewPrice}
+                  disabled={savingPrice}
+                  className="mt-5 px-4 py-2.5 bg-blue-600 text-white rounded-xl font-semibold text-sm disabled:opacity-50"
+                >
+                  {savingPrice ? '…' : 'Ajouter'}
+                </button>
+                <button
+                  onClick={() => { setNewPriceArticleId(''); setPriceSearch(''); setNewPriceValue(''); }}
+                  className="mt-5 p-2.5 text-gray-400 border border-gray-200 rounded-xl"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Liste des prix existants */}
+          {clientPrices.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-gray-100 p-8 text-center">
+              <Tag className="text-gray-300 mx-auto mb-2" size={32} />
+              <p className="text-gray-500 text-sm font-medium">Aucun prix spécial</p>
+              <p className="text-gray-400 text-xs mt-1">Les prix standards du catalogue s'appliquent</p>
+            </div>
+          ) : (
+            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-50">
+                <p className="font-semibold text-gray-900 text-sm">{clientPrices.length} prix spécial{clientPrices.length > 1 ? 'x' : ''}</p>
+              </div>
+              <div className="divide-y divide-gray-50">
+                {clientPrices.map(cp => (
+                  <div key={cp.id} className="px-4 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-900 truncate">{cp.article_name}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs text-gray-400 line-through">{formatPrice(cp.prix_standard)}</span>
+                          <span className="text-xs font-bold text-blue-600">{formatPrice(cp.prix_special)}</span>
+                          <span className="text-xs text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">
+                            -{Math.round((1 - cp.prix_special / cp.prix_standard) * 100)}%
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <button
+                          onClick={() => { setEditingPriceId(cp.id); setEditingPriceValue(String(cp.prix_special)); }}
+                          className="p-1.5 text-gray-400 hover:text-blue-600 rounded-lg"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          onClick={() => deletePrice(cp.id)}
+                          className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </div>
+                    {editingPriceId === cp.id && (
+                      <div className="flex gap-2 mt-2">
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={editingPriceValue}
+                          onChange={e => setEditingPriceValue(e.target.value)}
+                          className="flex-1 px-3 py-2 border border-blue-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => saveEditPrice(cp.id)}
+                          disabled={savingPrice}
+                          className="px-3 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50"
+                        >
+                          {savingPrice ? '…' : 'OK'}
+                        </button>
+                        <button
+                          onClick={() => setEditingPriceId(null)}
+                          className="px-3 py-2 border border-gray-200 text-gray-500 rounded-xl text-sm"
+                        >
+                          Annuler
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       )}

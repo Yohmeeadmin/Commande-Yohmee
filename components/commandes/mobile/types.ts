@@ -51,4 +51,5 @@ export interface MobileFlowProps {
   onSubmit: (status: 'brouillon' | 'confirmee') => Promise<void>;
   submitting: boolean;
   clientTypeSettings: ClientTypeSettings;
+  clientPrices?: Record<string, number>; // articleId → prix spécial client
 }

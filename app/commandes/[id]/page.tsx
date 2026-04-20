@@ -64,6 +64,7 @@ export default function CommandeDetailPage() {
   const [searchProduct, setSearchProduct] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [clientPrices, setClientPrices] = useState<Record<string, number>>({});
 
   useEffect(() => { loadOrder(); }, [params.id]);
 
@@ -83,11 +84,15 @@ export default function CommandeDetailPage() {
 
   async function openEdit() {
     if (!order) return;
-    const [{ data: clientsData }, { data: slotsData }, { data: articlesData }] = await Promise.all([
+    const [{ data: clientsData }, { data: slotsData }, { data: articlesData }, { data: pricesData }] = await Promise.all([
       clients.length ? Promise.resolve({ data: clients }) : supabase.from('clients').select('id, nom, type_client, horaire_livraison').eq('is_active', true).order('nom'),
       deliverySlots.length ? Promise.resolve({ data: deliverySlots }) : supabase.from('delivery_slots').select('*').eq('is_active', true).order('sort_order'),
       articles.length ? Promise.resolve({ data: articles }) : supabase.from('product_articles').select('*, product_reference:product_references(*)').eq('is_active', true).order('display_name'),
+      supabase.from('client_prices').select('product_article_id, prix_special').eq('client_id', order.client_id),
     ]);
+    const pricesMap: Record<string, number> = {};
+    (pricesData || []).forEach((r: any) => { pricesMap[r.product_article_id] = r.prix_special; });
+    setClientPrices(pricesMap);
     if (clientsData) setClients(clientsData as Client[]);
     if (slotsData) setDeliverySlots(slotsData as DeliverySlot[]);
     if (articlesData) setArticles(articlesData as ArticleWithRef[]);
@@ -101,7 +106,7 @@ export default function CommandeDetailPage() {
     setEditLines(prev => {
       const existing = prev.find(l => l.article_id === article.id);
       if (existing) return prev.map(l => l.article_id === article.id ? { ...l, quantite: l.quantite + 1 } : l);
-      const price = calculateArticlePrice(article, article.product_reference);
+      const price = clientPrices[article.id] ?? calculateArticlePrice(article, article.product_reference);
       return [...prev, { id: crypto.randomUUID(), article_id: article.id, article_display_name: article.display_name, quantite: 1, prix_unitaire: price, unit_quantity: article.quantity }];
     });
     setSearchProduct('');
