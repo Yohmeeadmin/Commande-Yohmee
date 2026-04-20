@@ -39,6 +39,7 @@ interface OrderWithClient {
   delivery_slot_id: string | null;
   status: OrderStatus;
   total: number;
+  order_type: string;
   reminder_days: number | null;
   client: { nom: string };
   delivery_slot: { name: string; start_time: string; end_time: string } | null;
@@ -501,7 +502,14 @@ export default function CommandesPage() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between gap-2">
                               <span className="font-bold text-gray-900 truncate">{order.client?.nom}</span>
-                              <span className="font-bold text-gray-900 flex-shrink-0">{formatPrice(order.total)}</span>
+                              <div className="flex items-center gap-1.5 flex-shrink-0">
+                                {order.order_type === 'echantillon' && (
+                                  <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded-full font-semibold">🎁</span>
+                                )}
+                                <span className={`font-bold ${order.order_type === 'echantillon' ? 'text-purple-700' : 'text-gray-900'}`}>
+                                  {order.order_type === 'echantillon' ? `~${formatPrice(order.total)}` : formatPrice(order.total)}
+                                </span>
+                              </div>
                             </div>
                             <div className="flex items-center justify-between gap-2 mt-0.5">
                               <div className="flex items-center gap-1.5 text-xs text-gray-400 min-w-0">

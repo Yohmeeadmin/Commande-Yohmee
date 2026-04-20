@@ -12,6 +12,7 @@ export interface OrderLine {
   quantite: number;
   prix_unitaire: number;
   unit_quantity: number;
+  is_echantillon?: boolean;
 }
 
 export interface OrderForm {
@@ -52,4 +53,8 @@ export interface MobileFlowProps {
   submitting: boolean;
   clientTypeSettings: ClientTypeSettings;
   clientPrices?: Record<string, number>; // articleId → prix spécial client
+  isEchantillon?: boolean;
+  onToggleEchantillon?: () => void;
+  onSetLineEchantillon?: (id: string, val: boolean) => void;
+  onClearEchantillon?: () => void;
 }

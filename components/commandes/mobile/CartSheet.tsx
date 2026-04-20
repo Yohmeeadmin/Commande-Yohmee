@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { X, Trash2, CheckCircle, Save, ChevronDown, Bell, Clock, Calendar, AlertTriangle, GitMerge } from 'lucide-react';
+import { X, Trash2, CheckCircle, Save, ChevronDown, Bell, Clock, Calendar, AlertTriangle, GitMerge, Gift } from 'lucide-react';
 import { OrderLine, OrderForm } from './types';
 import { DeliverySlot } from '@/types';
 import { formatPrice } from '@/lib/utils';
@@ -26,15 +26,37 @@ interface Props {
   onFormChange: (updates: Partial<OrderForm>) => void;
   onSubmit: (status: 'brouillon' | 'confirmee') => Promise<void>;
   onClose: () => void;
+  isEchantillon?: boolean;
+  onToggleEchantillon?: () => void;
+  onSetLineEchantillon?: (id: string, val: boolean) => void;
+  onClearEchantillon?: () => void;
 }
 
 export default function CartSheet({
   lines, form, deliverySlots, submitting, deliveryHint,
   onUpdateQty, onRemove, onFormChange, onSubmit, onClose,
+  isEchantillon, onToggleEchantillon, onSetLineEchantillon, onClearEchantillon,
 }: Props) {
   const router = useRouter();
-  const total = lines.reduce((s, l) => s + l.quantite * l.prix_unitaire, 0);
+  const [showScopeModal, setShowScopeModal] = useState(false);
+  const [perLineMode, setPerLineMode] = useState(false);
+
+  const hasEchantillonLines = lines.some(l => l.is_echantillon);
+  const echantillonLineValue = lines.filter(l => l.is_echantillon).reduce((s, l) => s + l.quantite * l.prix_unitaire, 0);
+  const valeurCommerciale = lines.reduce((s, l) => s + l.quantite * l.prix_unitaire, 0);
+  const billedValue = lines.filter(l => !l.is_echantillon).reduce((s, l) => s + l.quantite * l.prix_unitaire, 0);
+  const total = isEchantillon ? 0 : billedValue;
   const totalQty = lines.reduce((s, l) => s + l.quantite, 0);
+  const echantillonActive = isEchantillon || hasEchantillonLines || perLineMode;
+
+  function handleToggleClick() {
+    if (echantillonActive) {
+      onClearEchantillon?.();
+      setPerLineMode(false);
+    } else {
+      setShowScopeModal(true);
+    }
+  }
 
   const [duplicate, setDuplicate] = useState<DuplicateOrder | null>(null);
   const [merging, setMerging] = useState(false);
@@ -97,8 +119,22 @@ export default function CartSheet({
           </div>
           <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
             <div>
-              <h3 className="font-bold text-gray-900 text-lg">Panier</h3>
-              <p className="text-sm text-gray-400">{totalQty} article{totalQty > 1 ? 's' : ''} · {formatPrice(total)}</p>
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-gray-900 text-lg">Panier</h3>
+                {isEchantillon && (
+                  <span className="flex items-center gap-1 text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full font-semibold">
+                    <Gift size={11} /> Échantillon
+                  </span>
+                )}
+                {!isEchantillon && hasEchantillonLines && (
+                  <span className="flex items-center gap-1 text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full font-semibold">
+                    <Gift size={11} /> Partiel
+                  </span>
+                )}
+              </div>
+              <p className="text-sm text-gray-400">
+                {totalQty} article{totalQty > 1 ? 's' : ''} · {isEchantillon ? `Valeur ${formatPrice(valeurCommerciale)} — Offert` : formatPrice(total)}
+              </p>
             </div>
             <button onClick={onClose} className="w-9 h-9 flex items-center justify-center rounded-full bg-gray-100">
               <X size={18} className="text-gray-500" />
@@ -143,18 +179,37 @@ export default function CartSheet({
           {/* Lignes panier */}
           <div className="px-4 pt-4 space-y-3">
             {lines.map(line => (
-              <div key={line.id} className="bg-gray-50 rounded-2xl p-3">
+              <div key={line.id} className={`rounded-2xl p-3 ${line.is_echantillon ? 'bg-purple-50 border border-purple-200' : 'bg-gray-50'}`}>
                 <div className="flex items-start justify-between mb-2.5">
                   <div className="flex-1 min-w-0 pr-2">
-                    <p className="font-medium text-gray-900 text-sm leading-snug">{line.article_display_name}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">{formatPrice(line.prix_unitaire)} / unité</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="font-medium text-gray-900 text-sm leading-snug">{line.article_display_name}</p>
+                      {line.is_echantillon && <Gift size={13} className="text-purple-500 flex-shrink-0" />}
+                    </div>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {formatPrice(line.prix_unitaire)} / unité
+                      {line.is_echantillon && <span className="ml-1.5 text-purple-600 font-medium">· Offert</span>}
+                    </p>
                   </div>
-                  <button
-                    onClick={() => onRemove(line.id)}
-                    className="w-7 h-7 flex items-center justify-center text-gray-300 hover:text-red-400 active:scale-90 transition-all flex-shrink-0 -mt-0.5"
-                  >
-                    <Trash2 size={15} />
-                  </button>
+                  <div className="flex items-center gap-1 flex-shrink-0 -mt-0.5">
+                    {(perLineMode || hasEchantillonLines) && onSetLineEchantillon && !isEchantillon && (
+                      <button
+                        onClick={() => onSetLineEchantillon(line.id, !line.is_echantillon)}
+                        className={`w-7 h-7 flex items-center justify-center rounded-full transition-colors ${
+                          line.is_echantillon ? 'bg-purple-200 text-purple-700' : 'text-gray-300 hover:text-purple-400'
+                        }`}
+                        title={line.is_echantillon ? 'Retirer échantillon' : 'Marquer comme échantillon'}
+                      >
+                        <Gift size={14} />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => onRemove(line.id)}
+                      className="w-7 h-7 flex items-center justify-center text-gray-300 hover:text-red-400 active:scale-90 transition-all"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -182,7 +237,7 @@ export default function CartSheet({
                       +
                     </button>
                   </div>
-                  <p className="font-bold text-gray-900 text-sm">
+                  <p className={`font-bold text-sm ${line.is_echantillon ? 'line-through text-gray-400' : 'text-gray-900'}`}>
                     {formatPrice(line.quantite * line.prix_unitaire)}
                   </p>
                 </div>
@@ -298,10 +353,63 @@ export default function CartSheet({
             </div>
           </div>
 
+          {/* Toggle échantillon */}
+          {(onToggleEchantillon || onSetLineEchantillon) && (
+            <div className="mx-4 mt-2">
+              <button
+                onClick={handleToggleClick}
+                className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl border-2 transition-colors ${
+                  echantillonActive ? 'border-purple-400 bg-purple-50' : 'border-gray-200 bg-white'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Gift size={18} className={echantillonActive ? 'text-purple-600' : 'text-gray-400'} />
+                  <div className="text-left">
+                    <p className={`text-sm font-semibold ${echantillonActive ? 'text-purple-800' : 'text-gray-700'}`}>
+                      {isEchantillon ? 'Toute la commande — Offert' : perLineMode || hasEchantillonLines ? 'Articles en échantillon sélectionnés' : 'Commande échantillon'}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      {echantillonActive ? 'Appuyer pour annuler' : 'Gratuit · prix conservés pour valorisation'}
+                    </p>
+                  </div>
+                </div>
+                <div className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${echantillonActive ? 'bg-purple-600' : 'bg-gray-200'}`}>
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${echantillonActive ? 'translate-x-6' : 'translate-x-1'}`} />
+                </div>
+              </button>
+            </div>
+          )}
+
           {/* Total */}
-          <div className="mx-4 mt-2 mb-3 flex items-center justify-between px-4 py-3 bg-blue-50 rounded-2xl">
-            <span className="font-semibold text-blue-900">Total</span>
-            <span className="text-2xl font-black text-blue-700">{formatPrice(total)}</span>
+          <div className={`mx-4 mt-2 mb-3 px-4 py-3 rounded-2xl ${echantillonActive ? 'bg-purple-50' : 'bg-blue-50'}`}>
+            {isEchantillon ? (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-purple-700">Valeur commerciale</span>
+                  <span className="font-bold text-purple-800">{formatPrice(valeurCommerciale)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-purple-900">Facturé</span>
+                  <span className="text-2xl font-black text-purple-700">0,00 MAD</span>
+                </div>
+              </div>
+            ) : hasEchantillonLines ? (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-purple-700 flex items-center gap-1"><Gift size={12} /> Valeur échantillons</span>
+                  <span className="font-medium text-purple-700">{formatPrice(echantillonLineValue)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-gray-900">Total facturé</span>
+                  <span className="text-2xl font-black text-blue-700">{formatPrice(billedValue)}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-blue-900">Total</span>
+                <span className="text-2xl font-black text-blue-700">{formatPrice(total)}</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -325,6 +433,55 @@ export default function CartSheet({
           </button>
         </div>
       </div>
+
+      {/* Modal choix portée échantillon */}
+      {showScopeModal && (
+        <div className="fixed inset-0 bg-black/60 z-[60] flex items-end justify-center">
+          <div className="bg-white rounded-t-2xl w-full max-w-lg p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+                <Gift size={20} className="text-purple-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900">Commande échantillon</h3>
+                <p className="text-xs text-gray-400">Choisissez la portée</p>
+              </div>
+            </div>
+            <div className="space-y-3">
+              <button
+                onClick={() => { onToggleEchantillon?.(); setShowScopeModal(false); }}
+                className="w-full flex items-center gap-4 px-4 py-4 bg-purple-50 border-2 border-purple-200 rounded-2xl text-left active:scale-98 transition-transform"
+              >
+                <div className="w-10 h-10 bg-purple-600 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <Gift size={20} className="text-white" />
+                </div>
+                <div>
+                  <p className="font-bold text-purple-900">Toute la commande</p>
+                  <p className="text-xs text-purple-600">Tous les articles sont offerts</p>
+                </div>
+              </button>
+              <button
+                onClick={() => { setPerLineMode(true); setShowScopeModal(false); }}
+                className="w-full flex items-center gap-4 px-4 py-4 bg-gray-50 border-2 border-gray-200 rounded-2xl text-left active:scale-98 transition-transform"
+              >
+                <div className="w-10 h-10 bg-gray-200 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <Gift size={20} className="text-gray-600" />
+                </div>
+                <div>
+                  <p className="font-bold text-gray-900">Choisir les articles</p>
+                  <p className="text-xs text-gray-500">Cocher article par article dans le panier</p>
+                </div>
+              </button>
+            </div>
+            <button
+              onClick={() => setShowScopeModal(false)}
+              className="w-full py-3 text-gray-500 text-sm font-medium"
+            >
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

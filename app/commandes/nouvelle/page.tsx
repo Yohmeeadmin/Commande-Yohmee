@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Save, Plus, Trash2, Search, CheckCircle, Bell, X, UserPlus, Clock, Calendar, AlertTriangle, GitMerge } from 'lucide-react';
+import { ArrowLeft, Save, Plus, Trash2, Search, CheckCircle, Bell, X, UserPlus, Clock, Calendar, AlertTriangle, GitMerge, Gift } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import {
   Client, Category, ProductArticle, ProductReference,
@@ -38,6 +38,7 @@ export default function NouvelleCommandePage() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [clientPrices, setClientPrices] = useState<Record<string, number>>({});
+  const [isEchantillon, setIsEchantillon] = useState(false);
 
   // ─── Détection doublon ───────────────────────────────────
   const [duplicate, setDuplicate] = useState<{ id: string; numero: string; status: string; items: { product_article_id: string; quantity_ordered: number; unit_price: number; article_unit_quantity: number }[] } | null>(null);
@@ -173,6 +174,7 @@ export default function NouvelleCommandePage() {
           rappel: form.reminder_days !== null,
           reminder_days: form.reminder_days,
           status,
+          order_type: isEchantillon ? 'echantillon' : 'normal',
         })
         .select()
         .single();
@@ -186,6 +188,7 @@ export default function NouvelleCommandePage() {
           quantity_ordered: l.quantite,
           unit_price: l.prix_unitaire,
           article_unit_quantity: l.unit_quantity,
+          is_echantillon: l.is_echantillon ?? false,
         })));
       if (linesError) throw linesError;
 
@@ -247,7 +250,9 @@ export default function NouvelleCommandePage() {
     setSearchProduct('');
   }
 
-  const total = lines.reduce((s, l) => s + l.quantite * l.prix_unitaire, 0);
+  const totalValeur = lines.reduce((s, l) => s + l.quantite * l.prix_unitaire, 0);
+  const echantillonLineValue = lines.filter(l => l.is_echantillon).reduce((s, l) => s + l.quantite * l.prix_unitaire, 0);
+  const total = isEchantillon ? 0 : lines.filter(l => !l.is_echantillon).reduce((s, l) => s + l.quantite * l.prix_unitaire, 0);
   const filteredArticles = articles.filter(a => {
     const ref = a.product_reference;
     const matchSearch =
@@ -275,6 +280,13 @@ export default function NouvelleCommandePage() {
           submitting={submitting}
           clientTypeSettings={settings.client_type_settings ?? {}}
           clientPrices={clientPrices}
+          isEchantillon={isEchantillon}
+          onToggleEchantillon={() => setIsEchantillon(v => !v)}
+          onSetLineEchantillon={(id, val) => setLines(prev => prev.map(l => l.id === id ? { ...l, is_echantillon: val } : l))}
+          onClearEchantillon={() => {
+            setIsEchantillon(false);
+            setLines(prev => prev.map(l => ({ ...l, is_echantillon: false })));
+          }}
         />
       </div>
 
@@ -497,17 +509,33 @@ export default function NouvelleCommandePage() {
                 <h2 className="font-semibold text-gray-900">Articles ({lines.length})</h2>
                 <div className="space-y-3">
                   {lines.map(line => (
-                    <div key={line.id} className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl">
+                    <div key={line.id} className={`flex items-center gap-4 p-4 rounded-xl ${line.is_echantillon ? 'bg-purple-50 border border-purple-200' : 'bg-gray-50'}`}>
                       <div className="flex-1">
-                        <p className="font-medium text-gray-900">{line.article_display_name}</p>
-                        <p className="text-sm text-gray-500">{formatPrice(line.prix_unitaire)} / unité</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-medium text-gray-900">{line.article_display_name}</p>
+                          {line.is_echantillon && <Gift size={14} className="text-purple-500" />}
+                        </div>
+                        <p className="text-sm text-gray-500">
+                          {formatPrice(line.prix_unitaire)} / unité
+                          {line.is_echantillon && <span className="ml-2 text-purple-600 font-medium">· Offert</span>}
+                        </p>
                       </div>
                       <div className="flex items-center gap-2">
                         <button type="button" onClick={() => setLines(prev => prev.map(l => l.id === line.id ? { ...l, quantite: Math.max(1, l.quantite - 1) } : l))} className="w-8 h-8 flex items-center justify-center bg-white border border-gray-200 rounded-lg">−</button>
                         <input type="number" min="1" value={line.quantite} onChange={e => setLines(prev => prev.map(l => l.id === line.id ? { ...l, quantite: parseInt(e.target.value) || 1 } : l))} className="w-16 text-center px-2 py-1 border border-gray-200 rounded-lg" />
                         <button type="button" onClick={() => setLines(prev => prev.map(l => l.id === line.id ? { ...l, quantite: l.quantite + 1 } : l))} className="w-8 h-8 flex items-center justify-center bg-white border border-gray-200 rounded-lg">+</button>
                       </div>
-                      <div className="w-24 text-right font-medium">{formatPrice(line.quantite * line.prix_unitaire)}</div>
+                      <div className={`w-24 text-right font-medium ${line.is_echantillon ? 'line-through text-gray-400' : ''}`}>{formatPrice(line.quantite * line.prix_unitaire)}</div>
+                      {!isEchantillon && (
+                        <button
+                          type="button"
+                          onClick={() => setLines(prev => prev.map(l => l.id === line.id ? { ...l, is_echantillon: !l.is_echantillon } : l))}
+                          className={`p-2 rounded-lg transition-colors ${line.is_echantillon ? 'text-purple-600 bg-purple-100 hover:bg-purple-200' : 'text-gray-300 hover:text-purple-400 hover:bg-purple-50'}`}
+                          title={line.is_echantillon ? 'Retirer échantillon' : 'Marquer comme échantillon'}
+                        >
+                          <Gift size={16} />
+                        </button>
+                      )}
                       <button type="button" onClick={() => setLines(prev => prev.filter(l => l.id !== line.id))} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={18} /></button>
                     </div>
                   ))}
@@ -520,13 +548,53 @@ export default function NouvelleCommandePage() {
           <div>
             <div className="bg-white rounded-2xl border border-gray-100 p-6 sticky top-8">
               <h2 className="font-semibold text-gray-900 mb-4">Récapitulatif</h2>
+              {/* Toggle échantillon */}
+              <button
+                type="button"
+                onClick={() => setIsEchantillon(v => !v)}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border-2 mb-4 transition-colors ${
+                  isEchantillon ? 'border-purple-400 bg-purple-50' : 'border-gray-200 bg-white'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Gift size={16} className={isEchantillon ? 'text-purple-600' : 'text-gray-400'} />
+                  <span className={`text-sm font-medium ${isEchantillon ? 'text-purple-800' : 'text-gray-600'}`}>Échantillon</span>
+                </div>
+                <div className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${isEchantillon ? 'bg-purple-600' : 'bg-gray-200'}`}>
+                  <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${isEchantillon ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                </div>
+              </button>
               <div className="space-y-3 mb-6">
                 <div className="flex justify-between text-gray-600"><span>Articles</span><span>{lines.length}</span></div>
                 <div className="flex justify-between text-gray-600"><span>Quantité totale</span><span>{lines.reduce((s, l) => s + l.quantite, 0)}</span></div>
-                <div className="pt-3 border-t border-gray-100 flex justify-between">
-                  <span className="font-semibold">Total</span>
-                  <span className="text-xl font-bold">{formatPrice(total)}</span>
-                </div>
+                {isEchantillon ? (
+                  <>
+                    <div className="flex justify-between text-gray-500 text-sm">
+                      <span>Valeur commerciale</span>
+                      <span>{formatPrice(totalValeur)}</span>
+                    </div>
+                    <div className="pt-3 border-t border-gray-100 flex justify-between">
+                      <span className="font-semibold">Facturé</span>
+                      <span className="text-xl font-bold text-purple-700">0,00 MAD</span>
+                    </div>
+                  </>
+                ) : echantillonLineValue > 0 ? (
+                  <>
+                    <div className="flex justify-between text-purple-600 text-sm">
+                      <span className="flex items-center gap-1"><Gift size={12} /> Échantillons</span>
+                      <span>{formatPrice(echantillonLineValue)}</span>
+                    </div>
+                    <div className="pt-3 border-t border-gray-100 flex justify-between">
+                      <span className="font-semibold">Total facturé</span>
+                      <span className="text-xl font-bold">{formatPrice(total)}</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="pt-3 border-t border-gray-100 flex justify-between">
+                    <span className="font-semibold">Total</span>
+                    <span className="text-xl font-bold">{formatPrice(total)}</span>
+                  </div>
+                )}
               </div>
               <div className="space-y-3">
                 <button type="button" onClick={() => handleSubmit('confirmee')} disabled={submitting || !form.client_id || lines.length === 0} className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white rounded-xl font-medium hover:bg-green-700 disabled:opacity-50">

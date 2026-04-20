@@ -16,6 +16,7 @@ export default function MobileFlow({
   clients, articles, categories, deliverySlots,
   lines, setLines, form, setForm, onSubmit, submitting,
   clientTypeSettings, clientPrices,
+  isEchantillon, onToggleEchantillon, onSetLineEchantillon, onClearEchantillon,
 }: MobileFlowProps) {
   const [step, setStep] = useState<Step>('client');
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -148,6 +149,10 @@ export default function MobileFlow({
           onFormChange={updates => setForm(f => ({ ...f, ...updates }))}
           onSubmit={onSubmit}
           onClose={() => setCartOpen(false)}
+          isEchantillon={isEchantillon}
+          onToggleEchantillon={onToggleEchantillon}
+          onSetLineEchantillon={onSetLineEchantillon}
+          onClearEchantillon={onClearEchantillon}
         />
       )}
     </div>

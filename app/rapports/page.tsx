@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { BarChart3, TrendingUp, Package, Layers, Calendar, ChevronDown, FileText, Printer, AlertTriangle, BadgeDollarSign, CheckCircle, Banknote, ChevronRight, Pencil, Trash2, X } from 'lucide-react';
+import { BarChart3, TrendingUp, Package, Layers, Calendar, ChevronDown, FileText, Printer, AlertTriangle, BadgeDollarSign, CheckCircle, Banknote, ChevronRight, Pencil, Trash2, X, Gift } from 'lucide-react';
 import BLModal from '@/components/livraisons/BLModal';
 import type { BLOrder } from '@/components/livraisons/BonLivraison';
 import { useAppSettings } from '@/lib/useAppSettings';
@@ -19,7 +19,7 @@ import { formatPrice, formatDate, formatNumber } from '@/lib/utils';
 import { useUser } from '@/contexts/UserContext';
 import { usePermissions } from '@/lib/permissions';
 
-type ReportView = 'articles' | 'references' | 'ateliers' | 'bons_livraison' | 'commandes_incompletes' | 'commissions';
+type ReportView = 'articles' | 'references' | 'ateliers' | 'bons_livraison' | 'commandes_incompletes' | 'commissions' | 'echantillons';
 
 interface Commission {
   id: string;
@@ -53,6 +53,21 @@ interface MissingProductStat {
   total_missing: number;
   occurrence_count: number;
   clients: string[];
+}
+
+interface EchantillonItem {
+  display_name: string;
+  quantity_ordered: number;
+  unit_price: number;
+}
+
+interface EchantillonOrder {
+  id: string;
+  numero: string;
+  delivery_date: string;
+  total: number;
+  client: { nom: string } | null;
+  items: EchantillonItem[];
 }
 
 interface BLRecord {
@@ -91,6 +106,7 @@ export default function RapportsPage() {
   const [deletingBLId, setDeletingBLId] = useState<string | null>(null);
   const [incompleteOrders, setIncompleteOrders] = useState<IncompleteOrder[]>([]);
   const [missingProductStats, setMissingProductStats] = useState<MissingProductStat[]>([]);
+  const [echantillons, setEchantillons] = useState<EchantillonOrder[]>([]);
   const [commissions, setCommissions] = useState<Commission[]>([]);
   const [selectedCommissions, setSelectedCommissions] = useState<Set<string>>(new Set());
   const [updatingCommissions, setUpdatingCommissions] = useState(false);
@@ -233,6 +249,33 @@ export default function RapportsPage() {
             .map(([name, s]) => ({ display_name: name, total_missing: s.total_missing, occurrence_count: s.occurrences, clients: Array.from(s.clients) }))
             .sort((a, b) => b.occurrence_count - a.occurrence_count)
         );
+      } else if (view === 'echantillons') {
+        const { data, error } = await supabase
+          .from('orders')
+          .select(`
+            id, numero, delivery_date, total,
+            client:clients(nom),
+            items:order_items(quantity_ordered, unit_price, product_article:product_articles(display_name))
+          `)
+          .eq('order_type', 'echantillon')
+          .neq('status', 'annulee')
+          .gte('delivery_date', dateRange.start)
+          .lte('delivery_date', dateRange.end)
+          .order('delivery_date', { ascending: false });
+        if (error) throw error;
+        const mapped: EchantillonOrder[] = (data || []).map((o: any) => ({
+          id: o.id,
+          numero: o.numero,
+          delivery_date: o.delivery_date,
+          total: o.total,
+          client: o.client,
+          items: (o.items || []).map((i: any) => ({
+            display_name: i.product_article?.display_name ?? '—',
+            quantity_ordered: i.quantity_ordered,
+            unit_price: i.unit_price,
+          })),
+        }));
+        setEchantillons(mapped);
       } else if (view === 'commissions') {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) return;
@@ -366,6 +409,7 @@ export default function RapportsPage() {
             { key: 'bons_livraison',        label: 'BL édités',      icon: FileText },
             { key: 'commandes_incompletes', label: 'Incomplètes',    icon: AlertTriangle },
             { key: 'commissions',           label: 'Commissions',    icon: BadgeDollarSign },
+            { key: 'echantillons',          label: 'Échantillons',   icon: Gift },
           ] as { key: ReportView; label: string; icon: React.ComponentType<{ size?: number }> }[]).map(tab => {
             const Icon = tab.icon;
             return (
@@ -892,6 +936,91 @@ export default function RapportsPage() {
                   </div>
                 </div>
 
+              </div>
+            )
+          )}
+
+          {/* Vue Échantillons */}
+          {view === 'echantillons' && (
+            echantillons.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
+                <Gift className="mx-auto mb-3 text-gray-300" size={32} />
+                <p className="text-gray-500 text-sm">Aucun échantillon sur cette période</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Résumé */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <div className="bg-purple-50 rounded-2xl border border-purple-100 p-4">
+                    <p className="text-2xl font-black text-purple-700">{echantillons.length}</p>
+                    <p className="text-xs text-gray-500 mt-1">Envois</p>
+                  </div>
+                  <div className="bg-purple-50 rounded-2xl border border-purple-100 p-4">
+                    <p className="text-2xl font-black text-purple-700">
+                      {formatPrice(echantillons.reduce((s, o) => s + o.total, 0))}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">Valeur commerciale</p>
+                  </div>
+                  <div className="bg-white rounded-2xl border border-gray-100 p-4">
+                    <p className="text-2xl font-black text-gray-900">
+                      {new Set(echantillons.map(o => o.client?.nom)).size}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">Clients touchés</p>
+                  </div>
+                </div>
+
+                {/* Détail par commande */}
+                <div className="space-y-3">
+                  {echantillons.map(order => {
+                    const totalItems = order.items.reduce((s, i) => s + i.quantity_ordered, 0);
+                    return (
+                      <div key={order.id} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                        {/* En-tête */}
+                        <div className="flex items-center justify-between px-4 py-3 bg-purple-50 border-b border-purple-100">
+                          <div className="flex items-center gap-2">
+                            <Gift size={15} className="text-purple-500" />
+                            <p className="font-semibold text-gray-900 text-sm">{order.client?.nom ?? '—'}</p>
+                            <span className="text-xs text-gray-400 font-mono">{order.numero}</span>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <p className="text-xs text-gray-400">{new Date(order.delivery_date).toLocaleDateString('fr-FR')}</p>
+                            <p className="text-sm font-bold text-purple-700">{formatPrice(order.total)}</p>
+                          </div>
+                        </div>
+                        {/* Articles */}
+                        <div className="divide-y divide-gray-50">
+                          {order.items.map((item, idx) => (
+                            <div key={idx} className="flex items-center justify-between px-4 py-2.5">
+                              <div className="flex items-center gap-3 flex-1 min-w-0">
+                                <span className="flex-shrink-0 w-7 h-7 flex items-center justify-center bg-gray-100 rounded-lg text-xs font-bold text-gray-600">
+                                  ×{item.quantity_ordered}
+                                </span>
+                                <p className="text-sm text-gray-800 truncate">{item.display_name}</p>
+                              </div>
+                              <div className="flex-shrink-0 text-right ml-3">
+                                <p className="text-sm font-semibold text-gray-900">
+                                  {formatPrice(item.unit_price * item.quantity_ordered)}
+                                </p>
+                                <p className="text-xs text-gray-400">{formatPrice(item.unit_price)}/u</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {/* Footer */}
+                        <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+                          <span className="text-xs text-gray-400">{totalItems} article{totalItems > 1 ? 's' : ''}</span>
+                          <span className="text-xs font-semibold text-purple-700">Valeur : {formatPrice(order.total)} · Offert</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Total général */}
+                <div className="bg-purple-50 rounded-2xl border border-purple-100 px-4 py-3 flex items-center justify-between">
+                  <span className="font-semibold text-purple-900">{echantillons.length} échantillon{echantillons.length > 1 ? 's' : ''} · {echantillons.reduce((s, o) => s + o.items.reduce((ss, i) => ss + i.quantity_ordered, 0), 0)} articles</span>
+                  <span className="text-lg font-black text-purple-700">{formatPrice(echantillons.reduce((s, o) => s + o.total, 0))}</span>
+                </div>
               </div>
             )
           )}

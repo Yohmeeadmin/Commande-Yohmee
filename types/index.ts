@@ -46,7 +46,7 @@ export const ORDER_STATUSES: { value: OrderStatus; label: string; color: string;
   { value: 'annulee', label: 'Annulée', color: '#DC2626', bgColor: '#FEE2E2' },
 ];
 
-export type OrderType = 'normal' | 'recurring' | 'reliquat';
+export type OrderType = 'normal' | 'recurring' | 'reliquat' | 'echantillon';
 
 export type ClientType = 'hotel' | 'restaurant' | 'cafe' | 'riad' | 'particulier' | 'autre';
 
