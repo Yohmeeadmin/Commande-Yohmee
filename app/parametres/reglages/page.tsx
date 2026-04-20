@@ -1,11 +1,17 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Upload, X, Check, Loader2, Clock, Calendar, AlertCircle, Building2 } from 'lucide-react';
+import { Upload, X, Check, Loader2, Clock, Calendar, AlertCircle, Building2, Tag, Plus, Pencil, Trash2 } from 'lucide-react';
 import { useAppSettings, ClientTypeDelivery, ClientTypeSettings } from '@/lib/useAppSettings';
 import { supabase } from '@/lib/supabase/client';
 import { CLIENT_TYPES } from '@/types';
 import Image from 'next/image';
+
+interface Category {
+  id: string;
+  nom: string;
+  ordre: number;
+}
 
 interface DeliverySlot {
   id: string;
@@ -28,6 +34,11 @@ export default function ReglagesPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [slots, setSlots] = useState<DeliverySlot[]>([]);
   const [typeSettings, setTypeSettings] = useState<ClientTypeSettings>({});
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [savingCategory, setSavingCategory] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<{ id: string; nom: string } | null>(null);
+  const [savingEditCategory, setSavingEditCategory] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const initialized = useRef(false);
 
@@ -52,6 +63,8 @@ export default function ReglagesPage() {
   useEffect(() => {
     supabase.from('delivery_slots').select('*').eq('is_active', true).order('sort_order')
       .then(({ data }: { data: DeliverySlot[] | null }) => setSlots(data || []));
+    supabase.from('categories').select('*').order('ordre')
+      .then(({ data }: { data: Category[] | null }) => setCategories(data || []));
   }, []);
 
   if (!loading && !initialized.current) {
@@ -84,6 +97,49 @@ export default function ReglagesPage() {
       ...prev,
       [type]: { ...getTypeSetting(type), ...updates },
     }));
+  }
+
+  async function addCategory() {
+    if (!newCategoryName.trim()) return;
+    setSavingCategory(true);
+    try {
+      const { data, error } = await supabase.from('categories').insert({
+        nom: newCategoryName.trim(),
+        ordre: categories.length + 1,
+      }).select().single();
+      if (error) { alert(`Erreur : ${error.message}`); return; }
+      setCategories(prev => [...prev, data as Category]);
+      setNewCategoryName('');
+    } finally {
+      setSavingCategory(false);
+    }
+  }
+
+  async function saveEditCategory() {
+    if (!editingCategory || !editingCategory.nom.trim()) return;
+    setSavingEditCategory(true);
+    try {
+      const { error } = await supabase.from('categories')
+        .update({ nom: editingCategory.nom.trim() })
+        .eq('id', editingCategory.id);
+      if (error) { alert(`Erreur : ${error.message}`); return; }
+      setCategories(prev => prev.map(c => c.id === editingCategory.id ? { ...c, nom: editingCategory.nom.trim() } : c));
+      setEditingCategory(null);
+    } finally {
+      setSavingEditCategory(false);
+    }
+  }
+
+  async function deleteCategory(cat: Category) {
+    const { count } = await supabase.from('product_references').select('*', { count: 'exact', head: true }).eq('category_id', cat.id);
+    if (count && count > 0) {
+      alert(`Impossible de supprimer "${cat.nom}" : ${count} référence${count > 1 ? 's' : ''} l'utilisent encore.`);
+      return;
+    }
+    if (!confirm(`Supprimer la catégorie "${cat.nom}" ?`)) return;
+    const { error } = await supabase.from('categories').delete().eq('id', cat.id);
+    if (error) { alert(`Erreur : ${error.message}`); return; }
+    setCategories(prev => prev.filter(c => c.id !== cat.id));
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -371,6 +427,87 @@ export default function ReglagesPage() {
         >
           {savingDelivery ? <><Loader2 size={16} className="animate-spin" /> Enregistrement…</> : savedDelivery ? <><Check size={16} /> Enregistré</> : 'Enregistrer'}
         </button>
+      </div>
+
+      {/* ── Catégories ───────────────────────────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-5">
+        <div className="flex items-center gap-2">
+          <Tag size={18} className="text-blue-600" />
+          <div>
+            <h2 className="font-semibold text-gray-900">Catégories produits</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Organiser les références du catalogue</p>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          {categories.length === 0 && (
+            <p className="text-sm text-gray-400 text-center py-4">Aucune catégorie</p>
+          )}
+          {categories.map(cat => (
+            <div key={cat.id} className="flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-xl">
+              {editingCategory?.id === cat.id ? (
+                <>
+                  <input
+                    autoFocus
+                    type="text"
+                    value={editingCategory.nom}
+                    onChange={e => setEditingCategory(prev => prev ? { ...prev, nom: e.target.value } : null)}
+                    onKeyDown={e => { if (e.key === 'Enter') saveEditCategory(); if (e.key === 'Escape') setEditingCategory(null); }}
+                    className="flex-1 px-3 py-1.5 border border-blue-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    onClick={saveEditCategory}
+                    disabled={savingEditCategory}
+                    className="p-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    {savingEditCategory ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                  </button>
+                  <button
+                    onClick={() => setEditingCategory(null)}
+                    className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg transition-colors"
+                  >
+                    <X size={14} />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="flex-1 text-sm font-medium text-gray-800">{cat.nom}</span>
+                  <button
+                    onClick={() => setEditingCategory({ id: cat.id, nom: cat.nom })}
+                    className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  <button
+                    onClick={() => deleteCategory(cat)}
+                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-2 pt-1">
+          <input
+            type="text"
+            placeholder="Nouvelle catégorie…"
+            value={newCategoryName}
+            onChange={e => setNewCategoryName(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && addCategory()}
+            className="flex-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <button
+            onClick={addCategory}
+            disabled={!newCategoryName.trim() || savingCategory}
+            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          >
+            {savingCategory ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+            Ajouter
+          </button>
+        </div>
       </div>
     </div>
   );
