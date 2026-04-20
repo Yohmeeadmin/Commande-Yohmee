@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plus, Search, Package, ChevronDown, ChevronRight, Edit2, Archive, Layers, Table2, Settings, X, Trash2, ChevronUp, ChevronsUpDown, LayoutGrid, Tag } from 'lucide-react';
+import { Plus, Search, Package, ChevronDown, ChevronRight, Edit2, Archive, Layers, Table2, Settings, X, Trash2, ChevronUp, ChevronsUpDown, LayoutGrid, Tag, Download } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import {
   ProductReference,
@@ -12,7 +12,7 @@ import {
   calculateArticlePrice,
   getProductStateStyle
 } from '@/types';
-import { formatPrice } from '@/lib/utils';
+import { formatPrice, exportCSV } from '@/lib/utils';
 import { useAteliers, refreshAteliers, AtelierDB } from '@/lib/useAteliers';
 import { usePermissions } from '@/lib/permissions';
 
@@ -187,6 +187,45 @@ export default function CataloguePage() {
     }
   }
 
+  function handleExport() {
+    const rows: Record<string, string | number | null>[] = [];
+    filteredReferences.forEach(ref => {
+      const activeArticles = ref.articles?.filter(a => showInactive || a.is_active) || [];
+      if (activeArticles.length === 0) {
+        rows.push({
+          'Référence': ref.name,
+          'Code': ref.code,
+          'Catégorie': (ref.category as any)?.nom ?? '',
+          'Atelier': getAtelierStyle(ref.atelier).label,
+          'Prix base': ref.base_unit_price,
+          'Unité base': ref.base_unit,
+          'Article': '',
+          'Conditionnement': '',
+          'Quantité': '',
+          'Prix article': '',
+          'Actif': ref.is_active ? 'Oui' : 'Non',
+        });
+      } else {
+        activeArticles.forEach(article => {
+          rows.push({
+            'Référence': ref.name,
+            'Code': ref.code,
+            'Catégorie': (ref.category as any)?.nom ?? '',
+            'Atelier': getAtelierStyle(ref.atelier).label,
+            'Prix base': ref.base_unit_price,
+            'Unité base': ref.base_unit,
+            'Article': article.display_name,
+            'Conditionnement': article.pack_type,
+            'Quantité': article.quantity,
+            'Prix article': article.custom_price ?? ref.base_unit_price * article.quantity,
+            'Actif': article.is_active ? 'Oui' : 'Non',
+          });
+        });
+      }
+    });
+    exportCSV(`catalogue_${new Date().toISOString().split('T')[0]}.csv`, rows);
+  }
+
   function SortIcon({ col }: { col: string }) {
     if (sortKey !== col) return <ChevronsUpDown size={13} className="text-gray-300" />;
     return sortDir === 'asc'
@@ -259,6 +298,14 @@ export default function CataloguePage() {
               <Table2 size={20} />
             </button>
           </div>
+          <button
+            onClick={handleExport}
+            className="hidden lg:flex items-center gap-2 px-3 py-2.5 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors text-sm font-medium"
+            title="Exporter en Excel/CSV"
+          >
+            <Download size={16} />
+            Export
+          </button>
           <button
             onClick={() => setShowCategoriesModal(true)}
             className="p-2 lg:px-4 lg:py-2.5 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors flex items-center gap-2"

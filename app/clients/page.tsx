@@ -3,10 +3,10 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Plus, Search, Users, Phone, Mail, MapPin, LayoutGrid, Table2, Edit2, AlertTriangle, TrendingUp, TrendingDown, Minus, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
+import { Plus, Search, Users, Phone, Mail, MapPin, LayoutGrid, Table2, Edit2, AlertTriangle, TrendingUp, TrendingDown, Minus, ChevronUp, ChevronDown, ChevronsUpDown, Download } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { Client, CLIENT_TYPES } from '@/types';
-import { formatPrice } from '@/lib/utils';
+import { formatPrice, exportCSV } from '@/lib/utils';
 import { usePermissions } from '@/lib/permissions';
 
 export default function ClientsPage() {
@@ -157,6 +157,23 @@ export default function ClientsPage() {
     return colors[type] || colors.autre;
   };
 
+  function handleExport() {
+    const rows = filteredClients.map(c => ({
+      'Nom': c.nom,
+      'Type': getTypeLabel(c.type_client),
+      'Contact': c.contact_nom ?? '',
+      'Téléphone': c.telephone ?? '',
+      'Email': c.email ?? '',
+      'Ville': c.ville ?? '',
+      'Adresse': c.adresse ?? '',
+      'Jours livraison': (c.jours_livraison || []).join(' / '),
+      'CA mois en cours': clientCA[c.id]?.current ?? 0,
+      'CA mois précédent': clientCA[c.id]?.previous ?? 0,
+      'Actif': c.is_active ? 'Oui' : 'Non',
+    }));
+    exportCSV(`clients_${new Date().toISOString().split('T')[0]}.csv`, rows);
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -187,6 +204,14 @@ export default function ClientsPage() {
             title="Vue tableau"
           >
             <Table2 size={20} />
+          </button>
+          <button
+            onClick={handleExport}
+            className="hidden lg:flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors text-sm font-medium"
+            title="Exporter en Excel/CSV"
+          >
+            <Download size={16} />
+            Export
           </button>
           {can('clients.create') && (
             <Link
