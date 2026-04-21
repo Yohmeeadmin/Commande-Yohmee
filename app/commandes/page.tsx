@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Plus, Search, ShoppingCart, Calendar, CheckCircle, Play, Truck, RefreshCw, Pencil, X, Bell, Trash2, Square, CheckSquare, ChevronDown, ChevronUp, Filter } from 'lucide-react';
+import { Plus, Search, ShoppingCart, Calendar, CheckCircle, Play, Truck, RefreshCw, Pencil, X, Bell, Trash2, Square, CheckSquare, ChevronDown, ChevronUp, Filter, Globe, CalendarDays } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { ORDER_STATUSES, OrderStatus } from '@/types';
 import { formatDate, formatPrice, localDateStr } from '@/lib/utils';
@@ -40,6 +40,7 @@ interface OrderWithClient {
   status: OrderStatus;
   total: number;
   order_type: string;
+  source: string;
   reminder_days: number | null;
   client: { nom: string };
   delivery_slot: { name: string; start_time: string; end_time: string } | null;
@@ -88,6 +89,10 @@ export default function CommandesPage() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  // Demandes portail
+  const [activeTab, setActiveTab] = useState<'commandes' | 'demandes'>('commandes');
+  const [decalerOrderId, setDecalerOrderId] = useState<string | null>(null);
+  const [decalerDate, setDecalerDate] = useState('');
 
   useEffect(() => { loadOrders(); }, []);
 
@@ -95,7 +100,7 @@ export default function CommandesPage() {
     try {
       const { data } = await supabase
         .from('orders')
-        .select('*, client:clients(nom), delivery_slot:delivery_slots(name, start_time, end_time)')
+        .select('*, source, client:clients(nom), delivery_slot:delivery_slots(name, start_time, end_time)')
         .order('delivery_date', { ascending: false })
         .order('created_at', { ascending: false })
         .limit(200);
@@ -204,6 +209,25 @@ export default function CommandesPage() {
     setDeleteConfirm(false);
   }
 
+  async function validerDemande(orderId: string) {
+    await supabase.from('orders').update({ status: 'confirmee' }).eq('id', orderId);
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'confirmee' } : o));
+  }
+
+  async function refuserDemande(orderId: string) {
+    if (!confirm('Refuser cette commande ?')) return;
+    await supabase.from('orders').update({ status: 'annulee' }).eq('id', orderId);
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'annulee' } : o));
+  }
+
+  async function decalerDemande(orderId: string) {
+    if (!decalerDate) return;
+    await supabase.from('orders').update({ delivery_date: decalerDate, status: 'confirmee' }).eq('id', orderId);
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, delivery_date: decalerDate, status: 'confirmee' } : o));
+    setDecalerOrderId(null);
+    setDecalerDate('');
+  }
+
   const getStatusStyle = (status: string) => {
     const s = ORDER_STATUSES.find(st => st.value === status);
     return s ? { color: s.color, bg: s.bgColor, label: s.label } : { color: '#6B7280', bg: '#F3F4F6', label: status };
@@ -230,6 +254,11 @@ export default function CommandesPage() {
     });
     return Array.from(groups.values()).sort((a, b) => b.date.localeCompare(a.date));
   }, [filteredOrders]);
+
+  // Demandes portail (source=portail + brouillon)
+  const demandesPortail = useMemo(() =>
+    orders.filter(o => o.source === 'portail' && o.status === 'brouillon'),
+    [orders]);
 
   // Stats rapides
   const statsToday = useMemo(() => {
@@ -277,6 +306,87 @@ export default function CommandesPage() {
           )}
         </div>
       </div>
+
+      {/* Onglets Commandes / Demandes */}
+      <div className="flex bg-gray-100 rounded-2xl p-1 gap-1">
+        <button
+          onClick={() => setActiveTab('commandes')}
+          className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${activeTab === 'commandes' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
+        >
+          Commandes
+        </button>
+        <button
+          onClick={() => setActiveTab('demandes')}
+          className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${activeTab === 'demandes' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
+        >
+          <Globe size={14} />
+          Demandes
+          {demandesPortail.length > 0 && (
+            <span className="bg-orange-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full leading-none">
+              {demandesPortail.length}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* ── Onglet Demandes portail ── */}
+      {activeTab === 'demandes' && (
+        <div className="space-y-3">
+          {demandesPortail.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center">
+              <Globe className="text-gray-200 mx-auto mb-3" size={36} />
+              <p className="text-gray-400 font-medium text-sm">Aucune demande en attente</p>
+            </div>
+          ) : demandesPortail.map(order => (
+            <div key={order.id} className="bg-white rounded-2xl border border-orange-200 overflow-hidden">
+              <div className="flex items-start justify-between gap-3 px-4 py-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-gray-900">{order.client?.nom}</span>
+                    <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-semibold flex items-center gap-1"><Globe size={9} /> Portail</span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {getDateLabel(order.delivery_date)} · {order.numero}
+                    {order.delivery_slot ? ` · ${order.delivery_slot.name}` : ''}
+                  </p>
+                </div>
+                <p className="font-bold text-gray-900 text-sm shrink-0">{formatPrice(order.total)}</p>
+              </div>
+
+              {/* Actions */}
+              {decalerOrderId === order.id ? (
+                <div className="border-t border-gray-50 px-4 py-3 flex items-center gap-2">
+                  <CalendarDays size={14} className="text-gray-400 shrink-0" />
+                  <input type="date" value={decalerDate} onChange={e => setDecalerDate(e.target.value)}
+                    className="flex-1 px-3 py-1.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <button onClick={() => decalerDemande(order.id)} disabled={!decalerDate}
+                    className="px-3 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-semibold disabled:opacity-40">OK</button>
+                  <button onClick={() => { setDecalerOrderId(null); setDecalerDate(''); }}
+                    className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-xl text-xs font-semibold">Annuler</button>
+                </div>
+              ) : (
+                <div className="flex border-t border-gray-50 divide-x divide-gray-50">
+                  <button onClick={() => validerDemande(order.id)}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold text-emerald-600 hover:bg-emerald-50 transition-colors">
+                    <CheckCircle size={14} /> Valider
+                  </button>
+                  <button onClick={() => { setDecalerOrderId(order.id); setDecalerDate(order.delivery_date); }}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 transition-colors">
+                    <CalendarDays size={14} /> Décaler
+                  </button>
+                  <button onClick={() => refuserDemande(order.id)}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold text-red-500 hover:bg-red-50 transition-colors">
+                    <X size={14} /> Refuser
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Onglet Commandes ── */}
+      {activeTab === 'commandes' && <>
 
       {/* Tuiles stats rapides */}
       <div className="grid grid-cols-2 gap-3">
@@ -503,6 +613,9 @@ export default function CommandesPage() {
                             <div className="flex items-center justify-between gap-2">
                               <span className="font-bold text-gray-900 truncate">{order.client?.nom}</span>
                               <div className="flex items-center gap-1.5 flex-shrink-0">
+                                {order.source === 'portail' && (
+                                  <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-full font-semibold flex items-center gap-0.5"><Globe size={9} /> Portail</span>
+                                )}
                                 {order.order_type === 'echantillon' && (
                                   <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded-full font-semibold">🎁</span>
                                 )}
@@ -595,6 +708,8 @@ export default function CommandesPage() {
       >
         <Plus size={26} />
       </Link>
+
+      </> /* fin onglet commandes */}
 
       {/* Modal modifier commande */}
       {editOrder && (

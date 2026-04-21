@@ -32,6 +32,7 @@ export interface AppSettings {
   code_postal: string | null;
   ville_siege: string | null;
   pays: string | null;
+  portal_order_deadline: string;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -54,6 +55,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   code_postal: null,
   ville_siege: null,
   pays: 'Maroc',
+  portal_order_deadline: '18:00:00',
 };
 
 // Cache module-level : évite les re-fetch sur chaque composant qui consomme le hook

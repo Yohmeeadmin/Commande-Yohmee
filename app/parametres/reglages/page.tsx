@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Upload, X, Check, Loader2, Clock, Calendar, AlertCircle, Building2, Tag, Plus, Pencil, Trash2 } from 'lucide-react';
+import { Upload, X, Check, Loader2, Clock, Calendar, AlertCircle, Building2, Tag, Plus, Pencil, Trash2, Globe } from 'lucide-react';
 import { useAppSettings, ClientTypeDelivery, ClientTypeSettings } from '@/lib/useAppSettings';
 import { supabase } from '@/lib/supabase/client';
 import { CLIENT_TYPES } from '@/types';
@@ -427,6 +427,33 @@ export default function ReglagesPage() {
         >
           {savingDelivery ? <><Loader2 size={16} className="animate-spin" /> Enregistrement…</> : savedDelivery ? <><Check size={16} /> Enregistré</> : 'Enregistrer'}
         </button>
+      </div>
+
+      {/* ── Portail client ───────────────────────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-4">
+        <div className="flex items-center gap-2">
+          <Globe size={18} className="text-blue-600" />
+          <div>
+            <h2 className="font-semibold text-gray-900">Portail client</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Paramètres de commande en ligne</p>
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Heure limite de commande
+          </label>
+          <div className="flex items-center gap-3">
+            <input
+              type="time"
+              value={(settings.portal_order_deadline as string | undefined)?.slice(0, 5) ?? '18:00'}
+              onChange={async e => {
+                await updateSettings({ portal_order_deadline: e.target.value + ':00' } as any);
+              }}
+              className="px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
+            />
+            <p className="text-sm text-gray-500">Les commandes passées après cette heure seront mises en attente de validation.</p>
+          </div>
+        </div>
       </div>
 
       {/* ── Catégories ───────────────────────────────────────────────────────── */}
