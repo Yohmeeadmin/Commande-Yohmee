@@ -708,15 +708,17 @@ export default function LivraisonsPage() {
       }
       const bl = orderToBL(blDeliveryOrder, blDeliveryQtys);
       bl.discount_percent = blDiscount;
-      // Sauvegarde en base (upsert pour éviter les doublons si BL regénéré)
-      await supabase.from('bons_livraison').upsert({
+      // Sauvegarde en base : on supprime l'éventuel BL existant puis on insère
+      await supabase.from('bons_livraison').delete().eq('order_id', blDeliveryOrder.id);
+      const { error: blError } = await supabase.from('bons_livraison').insert({
         numero: bl.numero,
         order_id: blDeliveryOrder.id,
         client_nom: bl.client.nom,
         delivery_date: bl.delivery_date,
         items: bl.items,
         discount_percent: blDiscount || null,
-      }, { onConflict: 'order_id', ignoreDuplicates: false });
+      });
+      if (blError) throw new Error(`Erreur sauvegarde BL : ${blError.message}`);
       // Déclenche le calcul des commissions si le client est suivi
       if (blDeliveryOrder.client_id) {
         const { data: { session } } = await supabase.auth.getSession();
@@ -733,6 +735,8 @@ export default function LivraisonsPage() {
       setBlOrders([bl]);
       setBlTitle(`BL — ${blDeliveryOrder.client?.nom ?? blDeliveryOrder.numero}`);
       closeBLDelivery();
+    } catch (err: any) {
+      alert(err?.message || 'Erreur lors de la génération du BL');
     } finally {
       setBlConfirming(false);
     }
