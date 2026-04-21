@@ -423,7 +423,8 @@ export default function EditClientPage() {
 
   function copyPortalLink() {
     if (!portalToken) return;
-    const url = `${window.location.origin}/portail/${portalToken}`;
+    const base = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+    const url = `${base}/portail/${portalToken}`;
     navigator.clipboard.writeText(url);
     setLinkCopied(true);
     setTimeout(() => setLinkCopied(false), 2000);
@@ -749,7 +750,7 @@ export default function EditClientPage() {
                 {portalActive && (
                   <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5">
                     <p className="flex-1 text-xs text-gray-500 truncate font-mono">
-                      {typeof window !== 'undefined' ? `${window.location.origin}/portail/${portalToken}` : `/portail/${portalToken}`}
+                      {`${process.env.NEXT_PUBLIC_APP_URL || (typeof window !== 'undefined' ? window.location.origin : '')}/portail/${portalToken}`}
                     </p>
                     <button
                       type="button"
