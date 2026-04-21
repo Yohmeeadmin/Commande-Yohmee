@@ -1118,7 +1118,7 @@ export default function LivraisonsPage() {
                                 onDragLeave={() => setDragOverId(null)}
                                 onDrop={() => driver && handleDrop(dOrders, order.id)}
                                 onDragEnd={() => { setDraggedId(null); setDragOverId(null); }}
-                                className={`flex gap-3 px-4 py-4 transition-all ${isDragging ? 'opacity-40' : ''} ${isDragOver ? 'bg-blue-50 border-l-4 border-blue-400' : ''} ${isDelivered ? 'bg-green-50/40' : ''}`}
+                                className={`flex gap-3 px-4 py-4 transition-all ${isDragging ? 'opacity-40' : ''} ${isDragOver ? 'bg-blue-50 border-l-4 border-blue-400' : blOrderIds.has(order.id) && !isDelivered ? 'border-l-4 border-green-400' : ''} ${isDelivered ? 'bg-green-50/40' : ''}`}
                               >
                                 {/* Drag handle + numéro */}
                                 <div className="flex flex-col items-center gap-1 pt-0.5 shrink-0 w-7">
@@ -1224,17 +1224,32 @@ export default function LivraisonsPage() {
                                   {/* Produits */}
                                   {order.items.length > 0 && (
                                     <ul className="mt-2 space-y-0.5">
-                                      {order.items.map(item => (
-                                        <li key={item.id} className="text-xs text-gray-600 flex items-baseline gap-1.5">
-                                          <span className="text-gray-300">•</span>
-                                          <span>{item.product_article?.display_name ?? '—'}</span>
-                                          <span className="font-semibold text-gray-800">×{item.quantity_ordered}</span>
-                                        </li>
-                                      ))}
+                                      {order.items.map(item => {
+                                        const hasBL = blOrderIds.has(order.id);
+                                        const delivered = item.quantity_delivered;
+                                        const isMissing = hasBL && delivered !== null && delivered < item.quantity_ordered;
+                                        const isFullyMissing = isMissing && delivered === 0;
+                                        const missing = isMissing ? item.quantity_ordered - (delivered ?? 0) : 0;
+                                        return (
+                                          <li key={item.id} className={`text-xs flex items-baseline gap-1.5 ${isMissing ? 'text-orange-600' : 'text-gray-600'}`}>
+                                            <span className={isMissing ? 'text-orange-300' : 'text-gray-300'}>•</span>
+                                            <span className={isFullyMissing ? 'line-through' : ''}>{item.product_article?.display_name ?? '—'}</span>
+                                            <span className={`font-semibold ${isMissing ? 'text-orange-700' : 'text-gray-800'}`}>×{item.quantity_ordered}</span>
+                                            {isMissing && (
+                                              <span className="text-orange-500 font-medium">({missing} manquant{missing > 1 ? 's' : ''})</span>
+                                            )}
+                                          </li>
+                                        );
+                                      })}
                                     </ul>
                                   )}
                                   <div className="flex items-center justify-between mt-1.5">
-                                    <p className="text-xs text-gray-400">{order.numero} · {formatPrice(order.total)}</p>
+                                    <div className="flex items-center gap-1.5">
+                                      <p className="text-xs text-gray-400">{order.numero} · {formatPrice(order.total)}</p>
+                                      {blOrderIds.has(order.id) && !isDelivered && (
+                                        <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">✓ BL</span>
+                                      )}
+                                    </div>
                                     {can('livraisons.generate_bl') && (
                                       <button
                                         onClick={() => openBLDelivery(order)}
