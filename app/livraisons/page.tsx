@@ -44,6 +44,7 @@ interface DeliveryOrder {
   driver_id: string | null;
   driver_sequence: number | null;
   client_id: string | null;
+  discount_percent: number | null;
   client: { nom: string; raison_sociale: string | null; telephone: string | null; adresse_livraison: string | null; code: string | null; ice: string | null } | null;
   delivery_slot: Slot | null;
   items: OrderItem[];
@@ -292,6 +293,7 @@ export default function LivraisonsPage() {
   const [blBackorderDate, setBlBackorderDate] = useState('');
   const [blBackorderSlotId, setBlBackorderSlotId] = useState<string | null>(null);
   const [blConfirming, setBlConfirming] = useState(false);
+  const [blDiscount, setBlDiscount] = useState<number>(0);
 
   // ── BL bulk (tournée entière) ─────────────────────────────────────────────
   const [bulkBLOrders, setBulkBLOrders] = useState<{ order: DeliveryOrder; qtys: Record<string, number> }[] | null>(null);
@@ -313,7 +315,7 @@ export default function LivraisonsPage() {
         supabase.from('drivers').select('*').eq('is_active', true).order('first_name'),
         supabase.from('delivery_slots').select('*').eq('is_active', true).order('sort_order'),
         supabase.from('orders').select(`
-          id, numero, status, is_fully_delivered, total, note, driver_id, driver_sequence, client_id,
+          id, numero, status, is_fully_delivered, total, note, driver_id, driver_sequence, client_id, discount_percent,
           client:clients(nom, raison_sociale, telephone, adresse_livraison, code, ice),
           delivery_slot:delivery_slots(id, name, start_time, end_time, sort_order),
           items:order_items(id, product_article_id, quantity_ordered, quantity_delivered, unit_price, article_unit_quantity, product_article:product_articles(display_name, product_reference:product_references(vat_rate)))
@@ -667,6 +669,7 @@ export default function LivraisonsPage() {
     setBlDeliveryStep(1);
     setBlBackorderDate(offsetDate(date, 1));
     setBlBackorderSlotId(order.delivery_slot?.id ?? null);
+    setBlDiscount(order.discount_percent ?? 0);
     setBlDeliveryOrder(order);
   }
 
@@ -699,7 +702,12 @@ export default function LivraisonsPage() {
           }
         }
       }
+      // Sauvegarder la réduction sur la commande
+      if (blDiscount !== (blDeliveryOrder.discount_percent ?? 0)) {
+        await supabase.from('orders').update({ discount_percent: blDiscount }).eq('id', blDeliveryOrder.id);
+      }
       const bl = orderToBL(blDeliveryOrder, blDeliveryQtys);
+      bl.discount_percent = blDiscount;
       // Sauvegarde en base
       await supabase.from('bons_livraison').insert({
         numero: bl.numero,
@@ -707,6 +715,7 @@ export default function LivraisonsPage() {
         client_nom: bl.client.nom,
         delivery_date: bl.delivery_date,
         items: bl.items,
+        discount_percent: blDiscount || null,
       });
       // Déclenche le calcul des commissions si le client est suivi
       if (blDeliveryOrder.client_id) {
@@ -1571,7 +1580,42 @@ export default function LivraisonsPage() {
                     );
                   })}
                 </div>
-                <div className="px-5 py-4 border-t border-gray-100">
+                <div className="px-5 py-4 border-t border-gray-100 space-y-3">
+                  {/* Réduction */}
+                  {blDiscount > 0 ? (
+                    <div className="flex items-center gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-xl">
+                      <span className="text-sm font-medium text-red-800 flex-1">Réduction</span>
+                      <input
+                        type="number" min={0} max={100} value={blDiscount}
+                        onChange={e => setBlDiscount(Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))}
+                        onFocus={e => e.target.select()}
+                        className="w-16 text-center border border-red-300 rounded-lg py-1 font-bold text-red-800 bg-white focus:outline-none text-sm"
+                      />
+                      <span className="text-sm font-bold text-red-700">%</span>
+                      <button onClick={() => setBlDiscount(0)} className="text-red-400 hover:text-red-600 p-1">
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setBlDiscount(10)}
+                      className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-dashed border-gray-200 text-gray-500 text-sm hover:border-red-300 hover:text-red-600 transition-colors"
+                    >
+                      <span>%</span> Ajouter une réduction
+                    </button>
+                  )}
+                  {/* Total après réduction */}
+                  {blDiscount > 0 && (() => {
+                    const subtotalBL = blDeliveryOrder.items.reduce((s, item) => s + (blDeliveryQtys[item.id] ?? item.quantity_ordered) * item.unit_price, 0);
+                    const discountAmtBL = subtotalBL * (blDiscount / 100);
+                    return (
+                      <div className="text-xs text-right text-gray-500 space-y-0.5">
+                        <div>Sous-total : {formatPrice(subtotalBL)}</div>
+                        <div className="text-red-600">Réduction -{blDiscount}% : -{formatPrice(discountAmtBL)}</div>
+                        <div className="font-bold text-gray-800">Total net : {formatPrice(subtotalBL - discountAmtBL)}</div>
+                      </div>
+                    );
+                  })()}
                   <button
                     onClick={() => {
                       const isPartial = blDeliveryOrder.items.some(

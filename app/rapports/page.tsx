@@ -19,7 +19,7 @@ import { formatPrice, formatDate, formatNumber } from '@/lib/utils';
 import { useUser } from '@/contexts/UserContext';
 import { usePermissions } from '@/lib/permissions';
 
-type ReportView = 'articles' | 'references' | 'ateliers' | 'bons_livraison' | 'commandes_incompletes' | 'commissions' | 'echantillons';
+type ReportView = 'articles' | 'references' | 'ateliers' | 'bons_livraison' | 'commandes_incompletes' | 'commissions' | 'echantillons' | 'reductions';
 
 interface Commission {
   id: string;
@@ -70,6 +70,15 @@ interface EchantillonOrder {
   items: EchantillonItem[];
 }
 
+interface ReductionOrder {
+  id: string;
+  numero: string;
+  delivery_date: string;
+  discount_percent: number;
+  client: { nom: string } | null;
+  items: { display_name: string; quantity_ordered: number; unit_price: number }[];
+}
+
 interface BLRecord {
   id: string;
   numero: string;
@@ -107,6 +116,7 @@ export default function RapportsPage() {
   const [incompleteOrders, setIncompleteOrders] = useState<IncompleteOrder[]>([]);
   const [missingProductStats, setMissingProductStats] = useState<MissingProductStat[]>([]);
   const [echantillons, setEchantillons] = useState<EchantillonOrder[]>([]);
+  const [reductions, setReductions] = useState<ReductionOrder[]>([]);
   const [commissions, setCommissions] = useState<Commission[]>([]);
   const [selectedCommissions, setSelectedCommissions] = useState<Set<string>>(new Set());
   const [updatingCommissions, setUpdatingCommissions] = useState(false);
@@ -276,6 +286,33 @@ export default function RapportsPage() {
           })),
         }));
         setEchantillons(mapped);
+      } else if (view === 'reductions') {
+        const { data, error } = await supabase
+          .from('orders')
+          .select(`
+            id, numero, delivery_date, discount_percent,
+            client:clients(nom),
+            items:order_items(quantity_ordered, unit_price, product_article:product_articles(display_name))
+          `)
+          .gt('discount_percent', 0)
+          .neq('status', 'annulee')
+          .gte('delivery_date', dateRange.start)
+          .lte('delivery_date', dateRange.end)
+          .order('delivery_date', { ascending: false });
+        if (error) throw error;
+        const mapped: ReductionOrder[] = (data || []).map((o: any) => ({
+          id: o.id,
+          numero: o.numero,
+          delivery_date: o.delivery_date,
+          discount_percent: o.discount_percent,
+          client: o.client,
+          items: (o.items || []).map((i: any) => ({
+            display_name: i.product_article?.display_name ?? '—',
+            quantity_ordered: i.quantity_ordered,
+            unit_price: i.unit_price,
+          })),
+        }));
+        setReductions(mapped);
       } else if (view === 'commissions') {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) return;
@@ -410,6 +447,7 @@ export default function RapportsPage() {
             { key: 'commandes_incompletes', label: 'Incomplètes',    icon: AlertTriangle },
             { key: 'commissions',           label: 'Commissions',    icon: BadgeDollarSign },
             { key: 'echantillons',          label: 'Échantillons',   icon: Gift },
+            { key: 'reductions',            label: 'Réductions',     icon: BadgeDollarSign },
           ] as { key: ReportView; label: string; icon: React.ComponentType<{ size?: number }> }[]).map(tab => {
             const Icon = tab.icon;
             return (
@@ -1020,6 +1058,95 @@ export default function RapportsPage() {
                 <div className="bg-purple-50 rounded-2xl border border-purple-100 px-4 py-3 flex items-center justify-between">
                   <span className="font-semibold text-purple-900">{echantillons.length} échantillon{echantillons.length > 1 ? 's' : ''} · {echantillons.reduce((s, o) => s + o.items.reduce((ss, i) => ss + i.quantity_ordered, 0), 0)} articles</span>
                   <span className="text-lg font-black text-purple-700">{formatPrice(echantillons.reduce((s, o) => s + o.total, 0))}</span>
+                </div>
+              </div>
+            )
+          )}
+
+          {/* Vue Réductions */}
+          {view === 'reductions' && (
+            reductions.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center text-gray-400">
+                Aucune commande avec réduction sur cette période
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Cartes résumé */}
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="bg-white rounded-2xl border border-gray-100 p-4">
+                    <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Commandes</p>
+                    <p className="text-2xl font-black text-red-600">{reductions.length}</p>
+                  </div>
+                  <div className="bg-white rounded-2xl border border-gray-100 p-4">
+                    <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Valeur remises</p>
+                    <p className="text-2xl font-black text-red-600">
+                      {formatPrice(reductions.reduce((s, o) => {
+                        const subtotal = o.items.reduce((ss, i) => ss + i.quantity_ordered * i.unit_price, 0);
+                        return s + subtotal * (o.discount_percent / 100);
+                      }, 0))}
+                    </p>
+                  </div>
+                  <div className="bg-white rounded-2xl border border-gray-100 p-4">
+                    <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">Clients touchés</p>
+                    <p className="text-2xl font-black text-red-600">{new Set(reductions.map(o => o.client?.nom)).size}</p>
+                  </div>
+                </div>
+
+                {/* Liste commandes */}
+                <div className="space-y-3">
+                  {reductions.map(order => {
+                    const subtotal = order.items.reduce((s, i) => s + i.quantity_ordered * i.unit_price, 0);
+                    const discountAmt = subtotal * (order.discount_percent / 100);
+                    const totalNet = subtotal - discountAmt;
+                    return (
+                      <div key={order.id} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                        <div className="px-4 py-3 flex items-center justify-between border-b border-gray-50">
+                          <div>
+                            <p className="font-semibold text-gray-900">{order.client?.nom ?? '—'}</p>
+                            <p className="text-xs text-gray-400">{order.numero} · {formatDate(order.delivery_date)}</p>
+                          </div>
+                          <div className="text-right">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-red-100 text-red-700 text-sm font-bold">
+                              -{order.discount_percent}%
+                            </span>
+                          </div>
+                        </div>
+                        <div className="divide-y divide-gray-50">
+                          {order.items.map((item, idx) => (
+                            <div key={idx} className="flex items-center justify-between px-4 py-2.5">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm text-gray-800 truncate">{item.display_name}</p>
+                                <p className="text-xs text-gray-400">×{item.quantity_ordered} · {formatPrice(item.unit_price)}/u</p>
+                              </div>
+                              <div className="text-right ml-4 flex-shrink-0">
+                                <p className="text-sm text-gray-400 line-through">{formatPrice(item.quantity_ordered * item.unit_price)}</p>
+                                <p className="text-sm font-semibold text-gray-900">{formatPrice(item.quantity_ordered * item.unit_price * (1 - order.discount_percent / 100))}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="px-4 py-2.5 bg-red-50 border-t border-red-100 flex items-center justify-between">
+                          <div className="text-xs text-red-600">
+                            Sous-total {formatPrice(subtotal)} → Remise {formatPrice(discountAmt)}
+                          </div>
+                          <span className="font-bold text-red-700">Net : {formatPrice(totalNet)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Total général */}
+                <div className="bg-red-50 rounded-2xl border border-red-100 px-4 py-3 flex items-center justify-between">
+                  <span className="font-semibold text-red-900">
+                    {reductions.length} commande{reductions.length > 1 ? 's' : ''} · total remises accordées
+                  </span>
+                  <span className="text-lg font-black text-red-700">
+                    -{formatPrice(reductions.reduce((s, o) => {
+                      const sub = o.items.reduce((ss, i) => ss + i.quantity_ordered * i.unit_price, 0);
+                      return s + sub * (o.discount_percent / 100);
+                    }, 0))}
+                  </span>
                 </div>
               </div>
             )

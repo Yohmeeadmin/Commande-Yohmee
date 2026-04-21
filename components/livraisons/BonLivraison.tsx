@@ -35,6 +35,7 @@ export interface BLOrder {
   items: BLItem[];
   logoUrl?: string | null;
   company?: BLCompany | null;
+  discount_percent?: number | null;
 }
 
 // ─── Utilitaires ──────────────────────────────────────────────────────────────
@@ -114,11 +115,15 @@ export default function BonLivraison({ order }: { order: BLOrder }) {
     return acc;
   }, { totalHT: 0, byVat: {} as Record<number, number> });
 
+  const discountRate = order.discount_percent ?? 0;
+  const discountAmount = totalsHT.totalHT * (discountRate / 100);
+  const totalHTAfterDiscount = totalsHT.totalHT - discountAmount;
+
   const totalTVA = Object.entries(totalsHT.byVat).reduce((sum, [rate, ht]) => {
-    return sum + ht * (Number(rate) / 100);
+    return sum + ht * (1 - discountRate / 100) * (Number(rate) / 100);
   }, 0);
 
-  const totalTTC = totalsHT.totalHT + totalTVA;
+  const totalTTC = totalHTAfterDiscount + totalTVA;
 
   const vatEntries = Object.entries(totalsHT.byVat)
     .filter(([, ht]) => ht > 0)
@@ -229,8 +234,20 @@ export default function BonLivraison({ order }: { order: BLOrder }) {
               <td style={totalLabelStyle}>Total HT</td>
               <td style={totalValueStyle}>{totalsHT.totalHT.toFixed(2)}</td>
             </tr>
+            {discountRate > 0 && (
+              <tr style={{ color: '#dc2626' }}>
+                <td style={totalLabelStyle}>Remise {discountRate}%</td>
+                <td style={totalValueStyle}>-{discountAmount.toFixed(2)}</td>
+              </tr>
+            )}
+            {discountRate > 0 && (
+              <tr>
+                <td style={totalLabelStyle}>Total HT après remise</td>
+                <td style={totalValueStyle}>{totalHTAfterDiscount.toFixed(2)}</td>
+              </tr>
+            )}
             {vatEntries.map(([rate, ht]) => {
-              const tva = ht * (Number(rate) / 100);
+              const tva = ht * (1 - discountRate / 100) * (Number(rate) / 100);
               return (
                 <tr key={rate}>
                   <td style={totalLabelStyle}>Total TVA {rate}%</td>
@@ -252,7 +269,7 @@ export default function BonLivraison({ order }: { order: BLOrder }) {
           Arrêté le présent bon de livraison à la somme de :
         </div>
         <div style={{ fontWeight: 'bold', marginTop: '2px' }}>
-          {numberToWordsFr(totalTTC)}
+          {numberToWordsFr(totalTTC)} {discountRate > 0 ? `(remise ${discountRate}% appliquée)` : ''}
         </div>
       </div>
 

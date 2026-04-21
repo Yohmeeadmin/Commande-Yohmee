@@ -22,6 +22,7 @@ export interface OrderForm {
   delivery_time: string;
   note: string;
   reminder_days: number | null;
+  discount_percent: number;
 }
 
 export interface HistoryItem {

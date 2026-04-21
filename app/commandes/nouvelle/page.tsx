@@ -35,6 +35,7 @@ export default function NouvelleCommandePage() {
     delivery_time: '',
     note: '',
     reminder_days: null,
+    discount_percent: 0,
   });
   const [submitting, setSubmitting] = useState(false);
   const [clientPrices, setClientPrices] = useState<Record<string, number>>({});
@@ -175,6 +176,7 @@ export default function NouvelleCommandePage() {
           reminder_days: form.reminder_days,
           status,
           order_type: isEchantillon ? 'echantillon' : 'normal',
+          discount_percent: form.discount_percent || 0,
         })
         .select()
         .single();
@@ -252,7 +254,9 @@ export default function NouvelleCommandePage() {
 
   const totalValeur = lines.reduce((s, l) => s + l.quantite * l.prix_unitaire, 0);
   const echantillonLineValue = lines.filter(l => l.is_echantillon).reduce((s, l) => s + l.quantite * l.prix_unitaire, 0);
-  const total = isEchantillon ? 0 : lines.filter(l => !l.is_echantillon).reduce((s, l) => s + l.quantite * l.prix_unitaire, 0);
+  const subtotal = lines.filter(l => !l.is_echantillon).reduce((s, l) => s + l.quantite * l.prix_unitaire, 0);
+  const discountAmount = subtotal * ((form.discount_percent || 0) / 100);
+  const total = isEchantillon ? 0 : subtotal - discountAmount;
   const filteredArticles = articles.filter(a => {
     const ref = a.product_reference;
     const matchSearch =
@@ -548,6 +552,34 @@ export default function NouvelleCommandePage() {
           <div>
             <div className="bg-white rounded-2xl border border-gray-100 p-6 sticky top-8">
               <h2 className="font-semibold text-gray-900 mb-4">Récapitulatif</h2>
+              {/* Réduction */}
+              <div className="mb-4">
+                {form.discount_percent > 0 ? (
+                  <div className="flex items-center gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-xl">
+                    <span className="text-sm font-medium text-red-800 flex-1">Réduction</span>
+                    <input
+                      type="number" min={0} max={100}
+                      value={form.discount_percent}
+                      onChange={e => setForm(f => ({ ...f, discount_percent: Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)) }))}
+                      onFocus={e => e.target.select()}
+                      className="w-16 text-center border border-red-300 rounded-lg py-1 font-bold text-red-800 bg-white focus:outline-none text-sm"
+                    />
+                    <span className="text-sm font-bold text-red-700">%</span>
+                    <button onClick={() => setForm(f => ({ ...f, discount_percent: 0 }))} className="text-red-400 hover:text-red-600 p-1">
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setForm(f => ({ ...f, discount_percent: 10 }))}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-dashed border-gray-200 text-gray-500 text-sm hover:border-red-300 hover:text-red-600 transition-colors"
+                  >
+                    <span>%</span> Ajouter une réduction
+                  </button>
+                )}
+              </div>
+
               {/* Toggle échantillon */}
               <button
                 type="button"
@@ -584,8 +616,28 @@ export default function NouvelleCommandePage() {
                       <span className="flex items-center gap-1"><Gift size={12} /> Échantillons</span>
                       <span>{formatPrice(echantillonLineValue)}</span>
                     </div>
+                    {form.discount_percent > 0 && (
+                      <div className="flex justify-between text-red-600 text-sm">
+                        <span>Réduction -{form.discount_percent}%</span>
+                        <span>-{formatPrice(discountAmount)}</span>
+                      </div>
+                    )}
                     <div className="pt-3 border-t border-gray-100 flex justify-between">
                       <span className="font-semibold">Total facturé</span>
+                      <span className="text-xl font-bold">{formatPrice(total)}</span>
+                    </div>
+                  </>
+                ) : form.discount_percent > 0 ? (
+                  <>
+                    <div className="flex justify-between text-gray-500 text-sm">
+                      <span>Sous-total</span><span>{formatPrice(subtotal)}</span>
+                    </div>
+                    <div className="flex justify-between text-red-600 text-sm">
+                      <span>Réduction -{form.discount_percent}%</span>
+                      <span>-{formatPrice(discountAmount)}</span>
+                    </div>
+                    <div className="pt-3 border-t border-gray-100 flex justify-between">
+                      <span className="font-semibold">Total</span>
                       <span className="text-xl font-bold">{formatPrice(total)}</span>
                     </div>
                   </>

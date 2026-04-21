@@ -45,7 +45,9 @@ export default function CartSheet({
   const echantillonLineValue = lines.filter(l => l.is_echantillon).reduce((s, l) => s + l.quantite * l.prix_unitaire, 0);
   const valeurCommerciale = lines.reduce((s, l) => s + l.quantite * l.prix_unitaire, 0);
   const billedValue = lines.filter(l => !l.is_echantillon).reduce((s, l) => s + l.quantite * l.prix_unitaire, 0);
-  const total = isEchantillon ? 0 : billedValue;
+  const discountRate = form.discount_percent ?? 0;
+  const discountAmount = billedValue * (discountRate / 100);
+  const total = isEchantillon ? 0 : billedValue - discountAmount;
   const totalQty = lines.reduce((s, l) => s + l.quantite, 0);
   const echantillonActive = isEchantillon || hasEchantillonLines || perLineMode;
 
@@ -353,6 +355,47 @@ export default function CartSheet({
             </div>
           </div>
 
+          {/* Réduction */}
+          <div className="mx-4 mt-2">
+            {discountRate > 0 ? (
+              <div className="flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-200 rounded-2xl">
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-red-800">Réduction appliquée</p>
+                  <p className="text-xs text-red-500">-{discountAmount.toFixed(2)} MAD ({discountRate}%)</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={discountRate}
+                    onChange={e => {
+                      const v = Math.min(100, Math.max(0, parseFloat(e.target.value) || 0));
+                      onFormChange({ discount_percent: v });
+                    }}
+                    onFocus={e => e.target.select()}
+                    className="w-16 text-center border border-red-300 rounded-lg py-1.5 font-bold text-red-800 bg-white focus:outline-none focus:border-red-500 text-sm"
+                  />
+                  <span className="text-sm font-bold text-red-700">%</span>
+                  <button
+                    onClick={() => onFormChange({ discount_percent: 0 })}
+                    className="w-7 h-7 flex items-center justify-center text-red-400 hover:text-red-600"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => onFormChange({ discount_percent: 10 })}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl border border-dashed border-gray-300 text-gray-500 text-sm hover:border-red-300 hover:text-red-600 transition-colors"
+              >
+                <span className="text-base">%</span>
+                Ajouter une réduction
+              </button>
+            )}
+          </div>
+
           {/* Toggle échantillon */}
           {(onToggleEchantillon || onSetLineEchantillon) && (
             <div className="mx-4 mt-2">
@@ -399,9 +442,30 @@ export default function CartSheet({
                   <span className="text-sm text-purple-700 flex items-center gap-1"><Gift size={12} /> Valeur échantillons</span>
                   <span className="font-medium text-purple-700">{formatPrice(echantillonLineValue)}</span>
                 </div>
+                {discountRate > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-red-600">Réduction -{discountRate}%</span>
+                    <span className="text-sm font-medium text-red-600">-{formatPrice(discountAmount)}</span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between">
                   <span className="font-semibold text-gray-900">Total facturé</span>
-                  <span className="text-2xl font-black text-blue-700">{formatPrice(billedValue)}</span>
+                  <span className="text-2xl font-black text-blue-700">{formatPrice(total)}</span>
+                </div>
+              </div>
+            ) : discountRate > 0 ? (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-500">Sous-total</span>
+                  <span className="text-sm font-medium text-gray-700">{formatPrice(billedValue)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-red-600">Réduction -{discountRate}%</span>
+                  <span className="text-sm font-medium text-red-600">-{formatPrice(discountAmount)}</span>
+                </div>
+                <div className="flex items-center justify-between border-t border-blue-200 pt-1">
+                  <span className="font-semibold text-blue-900">Total</span>
+                  <span className="text-2xl font-black text-blue-700">{formatPrice(total)}</span>
                 </div>
               </div>
             ) : (
