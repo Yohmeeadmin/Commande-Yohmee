@@ -15,7 +15,7 @@ import Sidebar from './Sidebar';
 import BottomNav from './BottomNav';
 import { SidebarProvider, useSidebar } from '@/contexts/SidebarContext';
 
-const PUBLIC_PATHS = ['/login', '/changer-mot-de-passe'];
+const PUBLIC_PATHS = ['/login', '/changer-mot-de-passe', '/portail'];
 
 // Items du menu "Plus" (tout ce qui n'est pas dans la barre du bas)
 const OVERFLOW_NAV: {

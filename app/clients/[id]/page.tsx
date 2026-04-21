@@ -7,6 +7,7 @@ import {
   ArrowLeft, Save, AlertCircle, ShoppingCart, Package,
   TrendingUp, TrendingDown, AlertTriangle,
   Trash2, ChevronRight, RefreshCw, UserCheck, Plus, X, Pencil, Tag, Search,
+  Link2, Copy, Check, Globe,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { CLIENT_TYPES, JOURS_SEMAINE } from '@/types';
@@ -112,6 +113,12 @@ export default function EditClientPage() {
   const [previousMonth, setPreviousMonth] = useState<MonthStats>({ orders: 0, amount: 0 });
   const [daysSinceLastOrder, setDaysSinceLastOrder] = useState<number | null>(null);
 
+  // Portal state
+  const [portalToken, setPortalToken] = useState<string | null>(null);
+  const [portalActive, setPortalActive] = useState(false);
+  const [portalSaving, setPortalSaving] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+
   const [nomSynced, setNomSynced] = useState(false);
   const [form, setForm] = useState({
     nom: '', raison_sociale: '', prenom: '',
@@ -142,6 +149,8 @@ export default function EditClientPage() {
     if (error || !data) { router.push('/clients'); return; }
     const hasDifferentRS = data.raison_sociale && data.raison_sociale !== data.nom;
     setNomSynced(!hasDifferentRS && !!data.raison_sociale);
+    setPortalToken(data.portal_token ?? null);
+    setPortalActive(data.portal_active ?? false);
     setForm({
       nom: data.nom, raison_sociale: data.raison_sociale || '', prenom: data.prenom || '',
       contact_nom: data.contact_nom || '', telephone: data.telephone || '',
@@ -389,6 +398,35 @@ export default function EditClientPage() {
     const { error } = await supabase.from('client_prices').delete().eq('id', priceId);
     if (error) { alert(`Erreur : ${error.message}`); return; }
     setClientPrices(prev => prev.filter(p => p.id !== priceId));
+  }
+
+  async function generatePortalToken() {
+    setPortalSaving(true);
+    try {
+      const { data } = await supabase.rpc('gen_random_uuid');
+      const newToken = data ?? crypto.randomUUID();
+      await supabase.from('clients').update({ portal_token: newToken, portal_active: true }).eq('id', id);
+      setPortalToken(newToken);
+      setPortalActive(true);
+    } finally {
+      setPortalSaving(false);
+    }
+  }
+
+  async function togglePortalActive() {
+    const next = !portalActive;
+    setPortalSaving(true);
+    await supabase.from('clients').update({ portal_active: next }).eq('id', id);
+    setPortalActive(next);
+    setPortalSaving(false);
+  }
+
+  function copyPortalLink() {
+    if (!portalToken) return;
+    const url = `${window.location.origin}/portail/${portalToken}`;
+    navigator.clipboard.writeText(url);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -670,6 +708,71 @@ export default function EditClientPage() {
               </div>
               <span className="text-sm font-medium text-gray-700">{form.is_active ? 'Client actif' : 'Client inactif'}</span>
             </label>
+          </div>
+
+          {/* Portail client */}
+          <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Globe size={15} className="text-blue-500" />
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wide">Portail commande</p>
+            </div>
+
+            {!portalToken ? (
+              <div className="space-y-2">
+                <p className="text-sm text-gray-500">Ce client n'a pas encore accès au portail.</p>
+                <button
+                  type="button"
+                  onClick={generatePortalToken}
+                  disabled={portalSaving}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50"
+                >
+                  <Link2 size={14} />
+                  {portalSaving ? 'Génération…' : 'Activer le portail'}
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {/* Toggle actif/inactif */}
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <div
+                    className={`w-12 h-6 rounded-full transition-colors relative ${portalActive ? 'bg-blue-500' : 'bg-gray-300'}`}
+                    onClick={portalSaving ? undefined : togglePortalActive}
+                  >
+                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${portalActive ? 'translate-x-7' : 'translate-x-1'}`} />
+                  </div>
+                  <span className="text-sm font-medium text-gray-700">
+                    {portalActive ? 'Portail actif' : 'Portail désactivé'}
+                  </span>
+                </label>
+
+                {/* Lien */}
+                {portalActive && (
+                  <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5">
+                    <p className="flex-1 text-xs text-gray-500 truncate font-mono">
+                      {typeof window !== 'undefined' ? `${window.location.origin}/portail/${portalToken}` : `/portail/${portalToken}`}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={copyPortalLink}
+                      className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-colors"
+                    >
+                      {linkCopied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+                      {linkCopied ? 'Copié !' : 'Copier'}
+                    </button>
+                  </div>
+                )}
+
+                {/* Regénérer */}
+                <button
+                  type="button"
+                  onClick={() => { if (confirm('Regénérer le lien ? L\'ancien lien sera invalide.')) generatePortalToken(); }}
+                  disabled={portalSaving}
+                  className="text-xs text-gray-400 hover:text-red-500 transition-colors font-medium"
+                >
+                  Regénérer le lien
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Bouton save */}
