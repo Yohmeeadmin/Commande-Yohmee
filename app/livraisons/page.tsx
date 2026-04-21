@@ -719,6 +719,14 @@ export default function LivraisonsPage() {
         discount_percent: blDiscount || null,
       });
       if (blError) throw new Error(`Erreur sauvegarde BL : ${blError.message}`);
+      // Met à jour quantity_delivered sur les order_items pour refléter le BL
+      await Promise.all(
+        blDeliveryOrder.items.map(item =>
+          supabase.from('order_items')
+            .update({ quantity_delivered: blDeliveryQtys[item.id] ?? item.quantity_ordered })
+            .eq('id', item.id)
+        )
+      );
       // Déclenche le calcul des commissions si le client est suivi
       if (blDeliveryOrder.client_id) {
         const { data: { session } } = await supabase.auth.getSession();
@@ -732,6 +740,12 @@ export default function LivraisonsPage() {
       }
       // Marque ce BL comme existant pour débloquer la confirmation
       setBlOrderIds(prev => new Set([...prev, blDeliveryOrder.id]));
+      // Met à jour l'état local pour afficher les produits manquants immédiatement
+      setOrders(prev => prev.map(o =>
+        o.id === blDeliveryOrder!.id
+          ? { ...o, items: o.items.map(item => ({ ...item, quantity_delivered: blDeliveryQtys[item.id] ?? item.quantity_ordered })) }
+          : o
+      ));
       setBlOrders([bl]);
       setBlTitle(`BL — ${blDeliveryOrder.client?.nom ?? blDeliveryOrder.numero}`);
       closeBLDelivery();
