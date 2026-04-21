@@ -503,6 +503,15 @@ export default function EditClientPage() {
           <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-3">
             <p className="text-xs font-bold text-gray-400 uppercase tracking-wide">Coordonnées</p>
 
+            {/* Sélecteur de type — toujours visible */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1.5">Type de client</label>
+              <select value={form.type_client} onChange={e => setForm(f => ({ ...f, type_client: e.target.value }))}
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-base">
+                {CLIENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+            </div>
+
             {form.type_client === 'particulier' ? (
               /* ── Particulier ── */
               <div className="grid grid-cols-2 gap-3">
@@ -518,7 +527,7 @@ export default function EditClientPage() {
                 </div>
               </div>
             ) : (
-              /* ── Entreprise ── */
+              /* ── Entreprise / Autre ── */
               <>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -541,19 +550,10 @@ export default function EditClientPage() {
                       className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 mb-1.5">Contact</label>
-                    <input type="text" value={form.contact_nom} onChange={e => setForm(f => ({ ...f, contact_nom: e.target.value }))} placeholder="Prénom Nom"
-                      className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 mb-1.5">Type</label>
-                    <select value={form.type_client} onChange={e => setForm(f => ({ ...f, type_client: e.target.value }))}
-                      className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-base">
-                      {CLIENT_TYPES.filter(t => t.value !== 'particulier').map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                    </select>
-                  </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1.5">Contact</label>
+                  <input type="text" value={form.contact_nom} onChange={e => setForm(f => ({ ...f, contact_nom: e.target.value }))} placeholder="Prénom Nom"
+                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" />
                 </div>
               </>
             )}
@@ -570,16 +570,6 @@ export default function EditClientPage() {
                   className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" />
               </div>
             </div>
-
-            {form.type_client === 'particulier' && (
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1.5">Type</label>
-                <select value={form.type_client} onChange={e => setForm(f => ({ ...f, type_client: e.target.value }))}
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-base">
-                  {CLIENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                </select>
-              </div>
-            )}
           </div>
 
           {/* Adresse */}
