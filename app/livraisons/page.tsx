@@ -708,15 +708,15 @@ export default function LivraisonsPage() {
       }
       const bl = orderToBL(blDeliveryOrder, blDeliveryQtys);
       bl.discount_percent = blDiscount;
-      // Sauvegarde en base
-      await supabase.from('bons_livraison').insert({
+      // Sauvegarde en base (upsert pour éviter les doublons si BL regénéré)
+      await supabase.from('bons_livraison').upsert({
         numero: bl.numero,
         order_id: blDeliveryOrder.id,
         client_nom: bl.client.nom,
         delivery_date: bl.delivery_date,
         items: bl.items,
         discount_percent: blDiscount || null,
-      });
+      }, { onConflict: 'order_id', ignoreDuplicates: false });
       // Déclenche le calcul des commissions si le client est suivi
       if (blDeliveryOrder.client_id) {
         const { data: { session } } = await supabase.auth.getSession();
