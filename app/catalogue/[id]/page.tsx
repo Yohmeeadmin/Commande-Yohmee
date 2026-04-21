@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Save, Plus, Trash2, RotateCcw, AlertCircle, Archive } from 'lucide-react';
+import { ArrowLeft, Save, Plus, Trash2, RotateCcw, AlertCircle, Archive, Globe, X, Search } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import {
   Category,
@@ -42,6 +42,11 @@ export default function EditReferencePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  // Portail – clients exclusifs
+  const [allClients, setAllClients] = useState<{ id: string; nom: string }[]>([]);
+  const [portalClientIds, setPortalClientIds] = useState<string[]>([]);
+  const [clientSearch, setClientSearch] = useState('');
+
   // Formulaire référence
   const [reference, setReference] = useState({
     code: '',
@@ -65,14 +70,16 @@ export default function EditReferencePage() {
 
   async function loadData() {
     try {
-      const [{ data: refData }, { data: categoriesData }] = await Promise.all([
+      const [{ data: refData }, { data: categoriesData }, { data: clientsData }] = await Promise.all([
         supabase
           .from('product_references')
           .select('*, articles:product_articles(*)')
           .eq('id', params.id)
           .single(),
         supabase.from('categories').select('*').order('ordre'),
+        supabase.from('clients').select('id, nom').eq('is_active', true).order('nom'),
       ]);
+      setAllClients(clientsData || []);
 
       if (refData) {
         setReference({
@@ -105,6 +112,10 @@ export default function EditReferencePage() {
         }));
 
         setArticles(existingArticles);
+
+        // Récupère portal_client_ids depuis le premier article existant
+        const firstWithIds = (refData.articles || []).find((a: any) => a.portal_client_ids?.length);
+        if (firstWithIds) setPortalClientIds(firstWithIds.portal_client_ids);
       }
 
       setCategories(categoriesData || []);
@@ -246,6 +257,7 @@ export default function EditReferencePage() {
             prix_pro: a.prix_pro !== '' ? parseFloat(a.prix_pro) : null,
             prix_particulier: a.prix_particulier !== '' ? parseFloat(a.prix_particulier) : null,
             is_active: a.is_active,
+            portal_client_ids: portalClientIds.length > 0 ? portalClientIds : null,
           })));
         if (error) throw error;
       }
@@ -265,6 +277,7 @@ export default function EditReferencePage() {
             prix_pro: article.prix_pro !== '' ? parseFloat(article.prix_pro) : null,
             prix_particulier: article.prix_particulier !== '' ? parseFloat(article.prix_particulier) : null,
             is_active: article.is_active,
+            portal_client_ids: portalClientIds.length > 0 ? portalClientIds : null,
           })
           .eq('id', article.db_id);
         if (error) throw error;
@@ -781,6 +794,80 @@ export default function EditReferencePage() {
                 ))}
               </div>
             </div>
+          )}
+        </div>
+
+        {/* ============================================ */}
+        {/* BLOC 3 : PORTAIL – CLIENTS EXCLUSIFS */}
+        {/* ============================================ */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-4">
+          <div className="flex items-center gap-2 pb-4 border-b border-gray-100">
+            <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center font-bold text-sm">
+              3
+            </div>
+            <h2 className="font-semibold text-gray-900">Portail – Clients exclusifs</h2>
+          </div>
+
+          <p className="text-sm text-gray-500">
+            Si vous sélectionnez des clients, cet article ne sera visible que pour eux dans leur portail. Laissez vide pour le rendre accessible à tous.
+          </p>
+
+          {/* Clients sélectionnés */}
+          {portalClientIds.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {portalClientIds.map(cid => {
+                const c = allClients.find(x => x.id === cid);
+                if (!c) return null;
+                return (
+                  <span key={cid} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">
+                    {c.nom}
+                    <button type="button" onClick={() => setPortalClientIds(prev => prev.filter(id => id !== cid))} className="hover:text-blue-900 transition-colors">
+                      <X size={13} />
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Recherche client */}
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              value={clientSearch}
+              onChange={e => setClientSearch(e.target.value)}
+              placeholder="Rechercher un client à ajouter…"
+              className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          {clientSearch && (
+            <div className="border border-gray-200 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
+              {allClients
+                .filter(c => c.nom.toLowerCase().includes(clientSearch.toLowerCase()) && !portalClientIds.includes(c.id))
+                .slice(0, 8)
+                .map(c => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => { setPortalClientIds(prev => [...prev, c.id]); setClientSearch(''); }}
+                    className="w-full flex items-center gap-2 px-4 py-2.5 hover:bg-blue-50 text-left transition-colors text-sm"
+                  >
+                    <Plus size={13} className="text-blue-500 shrink-0" />
+                    {c.nom}
+                  </button>
+                ))}
+              {allClients.filter(c => c.nom.toLowerCase().includes(clientSearch.toLowerCase()) && !portalClientIds.includes(c.id)).length === 0 && (
+                <p className="px-4 py-3 text-sm text-gray-400">Aucun client trouvé</p>
+              )}
+            </div>
+          )}
+
+          {portalClientIds.length === 0 && !clientSearch && (
+            <p className="text-xs text-gray-400 flex items-center gap-1.5">
+              <Globe size={12} /> Visible par tous les clients avec accès au portail
+            </p>
           )}
         </div>
 
