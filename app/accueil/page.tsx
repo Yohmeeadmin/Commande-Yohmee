@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import {
@@ -31,12 +31,6 @@ const EMPTY_FORM: ProspectForm = {
 export default function AccueilPage() {
   const router = useRouter();
 
-  // Redirect authenticated staff to dashboard
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }: { data: { session: unknown } }) => {
-      if (data.session) router.replace('/');
-    });
-  }, [router]);
 
   const [portalToken, setPortalToken] = useState('');
   const [portalError, setPortalError] = useState('');
