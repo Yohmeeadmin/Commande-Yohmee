@@ -2,7 +2,8 @@
 
 import { useRef, useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase/client';
-import { Eye, EyeOff, LogIn } from 'lucide-react';
+import { Eye, EyeOff, LogIn, ArrowLeft } from 'lucide-react';
+import Link from 'next/link';
 
 export default function LoginPage() {
   const emailRef = useRef<HTMLInputElement>(null);
@@ -62,6 +63,9 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-start justify-center p-4 pt-16 overflow-y-auto">
       <div className="w-full max-w-md">
+        <Link href="/accueil" className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors mb-6">
+          <ArrowLeft size={15} /> Retour à l'accueil
+        </Link>
         <div className="text-center mb-8">
           <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
             <span className="text-white font-bold text-2xl">B</span>
