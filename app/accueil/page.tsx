@@ -2,12 +2,10 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Image from 'next/image';
 import {
-  Building2, Users, ChevronRight, CheckCircle,
+  Building2, ChevronRight, CheckCircle,
   ArrowRight, Send, X, ExternalLink,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase/client';
 
 // ─── Form state ───────────────────────────────────────────────────────────────
 

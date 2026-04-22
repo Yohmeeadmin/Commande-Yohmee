@@ -20,7 +20,7 @@ const UserContext = createContext<UserContextType>({
   refreshProfile: async () => {},
 });
 
-const PUBLIC_PATHS = ['/login', '/changer-mot-de-passe'];
+const PUBLIC_PATHS = ['/login', '/changer-mot-de-passe', '/accueil', '/portail'];
 
 // Cache module-level : le profil survit aux re-renders sans requête DB
 let profileCache: UserProfile | null = null;
@@ -72,14 +72,16 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
           profileCache = null;
           setProfile(null);
           setLoading(false);
-          router.push('/login');
+          const onPublic = PUBLIC_PATHS.some(p => pathnameRef.current.startsWith(p));
+          if (!onPublic) router.push('/login');
           return;
         }
 
         if (!session) {
           setProfile(null);
           setLoading(false);
-          if (!isPublic) router.push('/login');
+          const currentIsPublic = PUBLIC_PATHS.some(p => pathnameRef.current.startsWith(p));
+          if (!currentIsPublic) router.push('/login');
           return;
         }
 
