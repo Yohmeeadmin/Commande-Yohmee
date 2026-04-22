@@ -68,19 +68,21 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event: AuthChangeEvent, session: Session | null) => {
+        // Chemin actuel — window.location est toujours fiable, même pendant l'hydratation
+        const currentPath = typeof window !== 'undefined' ? window.location.pathname : pathnameRef.current;
+        const currentIsPublic = PUBLIC_PATHS.some(p => currentPath.startsWith(p));
+
         if (event === 'SIGNED_OUT') {
           profileCache = null;
           setProfile(null);
           setLoading(false);
-          const onPublic = PUBLIC_PATHS.some(p => pathnameRef.current.startsWith(p));
-          if (!onPublic) router.push('/login');
+          if (!currentIsPublic) router.push('/login');
           return;
         }
 
         if (!session) {
           setProfile(null);
           setLoading(false);
-          const currentIsPublic = PUBLIC_PATHS.some(p => pathnameRef.current.startsWith(p));
           if (!currentIsPublic) router.push('/login');
           return;
         }
@@ -120,7 +122,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
             return;
           }
 
-          if (PUBLIC_PATHS.some(p => pathnameRef.current.startsWith(p))) {
+          // Redirige vers dashboard seulement depuis login/changer-mdp (pas depuis /accueil ou /portail)
+          const loginOnlyPaths = ['/login', '/changer-mot-de-passe'];
+          if (loginOnlyPaths.some(p => currentPath.startsWith(p))) {
             router.push('/');
           }
         }
