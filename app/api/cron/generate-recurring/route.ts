@@ -72,6 +72,83 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // 2b. Générer les commandes depuis les récurrences portail
+  const DAY_NAMES = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+  const targetDayName = DAY_NAMES[new Date(targetDate + 'T12:00:00').getDay()];
+
+  const { data: portalRecurrences } = await supabase
+    .from('portal_recurring_orders')
+    .select('*, client:clients(id, nom, type_client), delivery_slot:delivery_slots(id)')
+    .eq('is_active', true);
+
+  let portalOrdersCreated = 0;
+
+  if (portalRecurrences && portalRecurrences.length > 0) {
+    for (const rec of portalRecurrences as any[]) {
+      if (!rec.days_of_week?.includes(targetDayName)) continue;
+      if (!rec.client) continue;
+
+      // Check if order already exists for this client + date from this recurrence
+      const { data: existing } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('client_id', rec.client.id)
+        .eq('delivery_date', targetDate)
+        .eq('portal_recurring_id', rec.id)
+        .maybeSingle();
+
+      if (existing) continue;
+
+      // Build order numero
+      const { data: lastOrder } = await supabase
+        .from('orders')
+        .select('numero')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const lastNum = lastOrder?.numero ? parseInt(lastOrder.numero.replace(/\D/g, ''), 10) : 0;
+      const numero = `CMD${String((lastNum || 0) + 1).padStart(5, '0')}`;
+
+      // Create the order
+      const items: any[] = rec.items || [];
+      const total = items.reduce((s: number, i: any) => s + (i.quantity || 0) * (i.unit_price || 0), 0);
+
+      const { data: newOrder, error: orderError } = await supabase
+        .from('orders')
+        .insert({
+          client_id: rec.client.id,
+          delivery_date: targetDate,
+          delivery_slot_id: rec.delivery_slot_id || null,
+          status: 'brouillon',
+          source: 'portail',
+          portal_recurring_id: rec.id,
+          numero,
+          total,
+          note: `Commande récurrente automatique${rec.nom ? ` — ${rec.nom}` : ''}`,
+        })
+        .select('id')
+        .single();
+
+      if (orderError) { console.error('Portal recurring order error:', orderError); continue; }
+
+      // Insert items
+      if (items.length > 0) {
+        await supabase.from('order_items').insert(
+          items.map((item: any) => ({
+            order_id: newOrder.id,
+            product_article_id: item.article_id,
+            product_nom: item.display_name,
+            quantity_ordered: item.quantity,
+            unit_price: item.unit_price || 0,
+          }))
+        );
+      }
+
+      portalOrdersCreated++;
+    }
+  }
+
   // 3. Passer en inactif les clients sans commande depuis 90 jours
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - 90);
@@ -112,6 +189,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     date: targetDate,
     orders_created: ordersCreated,
+    portal_orders_created: portalOrdersCreated,
     clients_deactivated: deactivatedCount,
   });
 }

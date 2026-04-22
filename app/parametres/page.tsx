@@ -1,11 +1,20 @@
 'use client';
 
 import Link from 'next/link';
-import { Users, Truck, SlidersHorizontal } from 'lucide-react';
+import { Users, Truck, SlidersHorizontal, Building2 } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
+import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabase/client';
 
 export default function ParaemetresPage() {
   const { profile } = useUser();
+  const [nouveauxCount, setNouveauxCount] = useState(0);
+
+  useEffect(() => {
+    supabase.from('prospect_requests').select('id', { count: 'exact', head: true }).eq('status', 'nouveau').then(({ count }: { count: number | null }) => {
+      setNouveauxCount(count ?? 0);
+    });
+  }, []);
 
   if (profile?.role !== 'admin') {
     return (
@@ -54,6 +63,22 @@ export default function ParaemetresPage() {
           </div>
           <h3 className="font-semibold text-gray-900 mb-1">Chauffeurs</h3>
           <p className="text-sm text-gray-500">Gérer les chauffeurs et leurs tournées</p>
+        </Link>
+
+        <Link
+          href="/parametres/demandes"
+          className="bg-white rounded-2xl border border-gray-100 p-6 hover:shadow-md hover:border-amber-200 transition-all relative"
+        >
+          {nouveauxCount > 0 && (
+            <span className="absolute top-4 right-4 w-6 h-6 bg-amber-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+              {nouveauxCount}
+            </span>
+          )}
+          <div className="w-12 h-12 bg-amber-50 rounded-xl flex items-center justify-center mb-4">
+            <Building2 className="text-amber-500" size={24} />
+          </div>
+          <h3 className="font-semibold text-gray-900 mb-1">Demandes d'accès</h3>
+          <p className="text-sm text-gray-500">Prospects souhaitant ouvrir un compte client</p>
         </Link>
       </div>
     </div>

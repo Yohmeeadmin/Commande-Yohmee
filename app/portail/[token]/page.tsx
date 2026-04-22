@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import {
   ShoppingCart, Search, X, Plus, Minus, ChevronLeft,
   CheckCircle, AlertCircle, Package, Clock, User, FileText,
-  Save, Globe,
+  Save, Globe, RefreshCw, Trash2, Pause, Play,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -75,7 +75,27 @@ const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-type View = 'catalogue' | 'cart' | 'historique' | 'profil' | 'success';
+type View = 'catalogue' | 'cart' | 'historique' | 'profil' | 'success' | 'recurrences' | 'recurrence-new';
+
+const JOURS = [
+  { value: 'lundi', label: 'Lun' },
+  { value: 'mardi', label: 'Mar' },
+  { value: 'mercredi', label: 'Mer' },
+  { value: 'jeudi', label: 'Jeu' },
+  { value: 'vendredi', label: 'Ven' },
+  { value: 'samedi', label: 'Sam' },
+  { value: 'dimanche', label: 'Dim' },
+];
+
+interface PortalRecurrence {
+  id: string;
+  nom: string | null;
+  days_of_week: string[];
+  delivery_slot_id: string | null;
+  delivery_slot: { id: string; name: string; start_time: string; end_time: string } | null;
+  items: { article_id: string; display_name: string; quantity: number; unit_price: number }[];
+  is_active: boolean;
+}
 
 export default function PortailPage() {
   const { token } = useParams<{ token: string }>();
@@ -112,6 +132,18 @@ export default function PortailPage() {
   const [profilSaving, setProfilSaving] = useState(false);
   const [profilSaved, setProfilSaved] = useState(false);
 
+  // Récurrences
+  const [recurrences, setRecurrences] = useState<PortalRecurrence[]>([]);
+  const [recurrencesLoaded, setRecurrencesLoaded] = useState(false);
+  const [recurrencesLoading, setRecurrencesLoading] = useState(false);
+  // New recurrence form
+  const [newRecDays, setNewRecDays] = useState<string[]>([]);
+  const [newRecSlotId, setNewRecSlotId] = useState('');
+  const [newRecNom, setNewRecNom] = useState('');
+  const [newRecItems, setNewRecItems] = useState<{ article_id: string; display_name: string; quantity: number; unit_price: number }[]>([]);
+  const [newRecSearch, setNewRecSearch] = useState('');
+  const [newRecSaving, setNewRecSaving] = useState(false);
+
   // ── Load ──────────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -147,6 +179,49 @@ export default function PortailPage() {
   }
 
   useEffect(() => { if (view === 'historique') loadHistory(); }, [view]);
+
+  async function loadRecurrences() {
+    if (recurrencesLoaded) return;
+    setRecurrencesLoading(true);
+    try {
+      const res = await fetch(`/api/portail/${token}/recurrences`);
+      if (res.ok) { const { recurrences: r } = await res.json(); setRecurrences(r || []); setRecurrencesLoaded(true); }
+    } finally { setRecurrencesLoading(false); }
+  }
+
+  useEffect(() => { if (view === 'recurrences') loadRecurrences(); }, [view]);
+
+  async function toggleRecurrence(rec: PortalRecurrence) {
+    const res = await fetch(`/api/portail/${token}/recurrences/${rec.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_active: !rec.is_active }),
+    });
+    if (res.ok) setRecurrences(prev => prev.map(r => r.id === rec.id ? { ...r, is_active: !r.is_active } : r));
+  }
+
+  async function deleteRecurrence(rec: PortalRecurrence) {
+    if (!confirm(`Supprimer la récurrence "${rec.nom || 'sans nom'}" ?`)) return;
+    const res = await fetch(`/api/portail/${token}/recurrences/${rec.id}`, { method: 'DELETE' });
+    if (res.ok) setRecurrences(prev => prev.filter(r => r.id !== rec.id));
+  }
+
+  async function handleCreateRecurrence() {
+    if (!newRecDays.length || !newRecItems.length) return;
+    setNewRecSaving(true);
+    try {
+      const res = await fetch(`/api/portail/${token}/recurrences`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nom: newRecNom || null, days_of_week: newRecDays, delivery_slot_id: newRecSlotId || null, items: newRecItems }),
+      });
+      if (!res.ok) { const { error: e } = await res.json(); alert(e || 'Erreur'); return; }
+      const { recurrence } = await res.json();
+      // Re-fetch slot info
+      const slotInfo = slots.find(s => s.id === newRecSlotId) ?? null;
+      setRecurrences(prev => [{ ...recurrence, delivery_slot: slotInfo ? { id: slotInfo.id, name: slotInfo.name, start_time: slotInfo.start_time, end_time: slotInfo.end_time } : null }, ...prev]);
+      setNewRecDays([]); setNewRecSlotId(''); setNewRecNom(''); setNewRecItems([]); setNewRecSearch('');
+      setView('recurrences');
+    } finally { setNewRecSaving(false); }
+  }
 
   // ── Cart ──────────────────────────────────────────────────────────────────
 
@@ -225,14 +300,15 @@ export default function PortailPage() {
 
   // ── Bottom nav ────────────────────────────────────────────────────────────
 
-  const navView = view === 'cart' || view === 'success' ? 'catalogue' : view;
+  const navView = (view === 'cart' || view === 'success') ? 'catalogue' : (view === 'recurrence-new' ? 'recurrences' : view);
 
   const BottomNav = () => (
     <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 flex items-center max-w-lg mx-auto" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
       {([
         { key: 'catalogue', icon: Package, label: 'Catalogue' },
-        { key: 'historique', icon: Clock, label: 'Mes commandes' },
-        { key: 'profil', icon: User, label: 'Mon profil' },
+        { key: 'historique', icon: Clock, label: 'Commandes' },
+        { key: 'recurrences', icon: RefreshCw, label: 'Récurrences' },
+        { key: 'profil', icon: User, label: 'Profil' },
       ] as const).map(({ key, icon: Icon, label }) => (
         <button
           key={key}
@@ -240,7 +316,7 @@ export default function PortailPage() {
           className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors ${navView === key ? 'text-blue-600' : 'text-gray-400'}`}
         >
           <div className="relative">
-            <Icon size={20} />
+            <Icon size={19} />
             {key === 'catalogue' && cartCount > 0 && (
               <span className="absolute -top-1.5 -right-2 bg-red-500 text-white text-xs font-bold w-4 h-4 rounded-full flex items-center justify-center" style={{ fontSize: 9 }}>
                 {cartCount > 9 ? '9+' : cartCount}
@@ -484,6 +560,214 @@ export default function PortailPage() {
           <p className="text-xs text-gray-400">Les modifications seront visibles par votre fournisseur.</p>
         </div>
       </div>
+      <BottomNav />
+    </div>
+  );
+
+  // ── Vue récurrences ───────────────────────────────────────────────────────
+
+  if (view === 'recurrences') return (
+    <div className="min-h-screen bg-gray-50 flex flex-col max-w-lg mx-auto pb-28">
+      <div className="bg-white border-b border-gray-100 px-4 py-4 flex items-center justify-between sticky top-0 z-10">
+        <div>
+          <p className="font-bold text-gray-900">Commandes récurrentes</p>
+          <p className="text-xs text-gray-400 mt-0.5">{client?.nom}</p>
+        </div>
+        <button onClick={() => setView('recurrence-new')}
+          className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
+          <Plus size={15} /> Nouvelle
+        </button>
+      </div>
+
+      <div className="flex-1 p-4 space-y-3">
+        {recurrencesLoading ? (
+          <div className="flex items-center justify-center py-16">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+          </div>
+        ) : recurrences.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-4">
+            <div className="w-14 h-14 bg-gray-100 rounded-full flex items-center justify-center">
+              <RefreshCw size={24} className="text-gray-300" />
+            </div>
+            <p className="text-gray-400 text-sm text-center">Aucune commande récurrente<br />Configurez vos commandes automatiques</p>
+            <button onClick={() => setView('recurrence-new')}
+              className="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
+              <Plus size={15} /> Créer une récurrence
+            </button>
+          </div>
+        ) : (
+          recurrences.map(rec => {
+            const daysLabel = rec.days_of_week.map(d => JOURS.find(j => j.value === d)?.label ?? d).join(', ');
+            return (
+              <div key={rec.id} className={`bg-white rounded-2xl border p-4 space-y-3 ${rec.is_active ? 'border-gray-100' : 'border-gray-200 opacity-60'}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${rec.is_active ? 'bg-green-50' : 'bg-gray-100'}`}>
+                      <RefreshCw size={15} className={rec.is_active ? 'text-green-600' : 'text-gray-400'} />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-gray-900 text-sm">{rec.nom || 'Récurrence'}</p>
+                      <p className="text-xs text-gray-400">{daysLabel}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => toggleRecurrence(rec)}
+                      className={`p-1.5 rounded-lg transition-colors ${rec.is_active ? 'text-orange-500 hover:bg-orange-50' : 'text-green-600 hover:bg-green-50'}`}
+                      title={rec.is_active ? 'Suspendre' : 'Activer'}>
+                      {rec.is_active ? <Pause size={15} /> : <Play size={15} />}
+                    </button>
+                    <button onClick={() => deleteRecurrence(rec)}
+                      className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors">
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </div>
+                {rec.delivery_slot && (
+                  <p className="text-xs text-gray-500">Créneau : {rec.delivery_slot.name} · {rec.delivery_slot.start_time.slice(0, 5)}–{rec.delivery_slot.end_time.slice(0, 5)}</p>
+                )}
+                <div className="flex flex-wrap gap-1.5">
+                  {rec.items.map((item, i) => (
+                    <span key={i} className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full">
+                      {item.quantity}× {item.display_name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      <div className="bg-gray-50 rounded-2xl mx-4 mb-4 border border-gray-100 p-3 flex items-center gap-2">
+        <Globe size={13} className="text-gray-400 shrink-0" />
+        <p className="text-xs text-gray-400">Les commandes récurrentes sont générées automatiquement chaque jour et envoyées en validation.</p>
+      </div>
+
+      <BottomNav />
+    </div>
+  );
+
+  // ── Vue nouvelle récurrence ───────────────────────────────────────────────
+
+  if (view === 'recurrence-new') return (
+    <div className="min-h-screen bg-gray-50 flex flex-col max-w-lg mx-auto pb-28">
+      <div className="bg-white border-b border-gray-100 px-4 py-4 flex items-center gap-3 sticky top-0 z-10">
+        <button onClick={() => setView('recurrences')} className="p-2 rounded-xl hover:bg-gray-100 text-gray-500">
+          <ChevronLeft size={20} />
+        </button>
+        <p className="font-bold text-gray-900">Nouvelle récurrence</p>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {/* Nom optionnel */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-2">
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-wide">Libellé (optionnel)</p>
+          <input type="text" value={newRecNom} onChange={e => setNewRecNom(e.target.value)}
+            placeholder="Ex: Pains quotidiens…"
+            className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+
+        {/* Jours */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-3">
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-wide">Jours de livraison *</p>
+          <div className="grid grid-cols-7 gap-1.5">
+            {JOURS.map(j => (
+              <button key={j.value} type="button"
+                onClick={() => setNewRecDays(prev => prev.includes(j.value) ? prev.filter(d => d !== j.value) : [...prev, j.value])}
+                className={`py-2 rounded-xl text-xs font-semibold transition-colors ${newRecDays.includes(j.value) ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                {j.label}
+              </button>
+            ))}
+          </div>
+          {newRecDays.length === 0 && <p className="text-xs text-amber-600">Sélectionnez au moins un jour</p>}
+        </div>
+
+        {/* Créneau */}
+        {slots.length > 0 && (
+          <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-3">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wide">Créneau horaire</p>
+            <div className="space-y-2">
+              {slots.map(s => (
+                <button key={s.id} type="button"
+                  onClick={() => setNewRecSlotId(prev => prev === s.id ? '' : s.id)}
+                  className={`w-full px-4 py-3 rounded-xl text-sm font-medium border transition-colors text-left ${newRecSlotId === s.id ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300'}`}>
+                  {s.name} · {s.start_time.slice(0, 5)} – {s.end_time.slice(0, 5)}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Articles */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-3">
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-wide">Articles *</p>
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input type="text" value={newRecSearch} onChange={e => setNewRecSearch(e.target.value)}
+              placeholder="Rechercher un article…"
+              className="w-full pl-8 pr-4 py-2.5 bg-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-colors" />
+            {newRecSearch && <button onClick={() => setNewRecSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"><X size={13} /></button>}
+          </div>
+
+          {newRecSearch && (
+            <div className="border border-gray-100 rounded-xl divide-y divide-gray-50 max-h-40 overflow-y-auto">
+              {articles.filter(a => a.display_name.toLowerCase().includes(newRecSearch.toLowerCase())).slice(0, 12).map(a => {
+                const alreadyIn = newRecItems.find(i => i.article_id === a.id);
+                if (alreadyIn) return null;
+                const price = calcPrice(a, clientType, clientPrices);
+                return (
+                  <button key={a.id} type="button"
+                    onClick={() => { setNewRecItems(prev => [...prev, { article_id: a.id, display_name: a.display_name, quantity: 1, unit_price: price }]); setNewRecSearch(''); }}
+                    className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-blue-50 transition-colors text-left">
+                    <span className="text-sm text-gray-800">{a.display_name}</span>
+                    <Plus size={15} className="text-blue-600 shrink-0" />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {newRecItems.length > 0 && (
+            <div className="space-y-2">
+              {newRecItems.map(item => (
+                <div key={item.article_id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+                  <p className="flex-1 text-sm font-medium text-gray-800 truncate">{item.display_name}</p>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button type="button"
+                      onClick={() => setNewRecItems(prev => item.quantity <= 1 ? prev.filter(i => i.article_id !== item.article_id) : prev.map(i => i.article_id === item.article_id ? { ...i, quantity: i.quantity - 1 } : i))}
+                      className="w-7 h-7 rounded-lg bg-white border border-gray-200 flex items-center justify-center hover:bg-gray-100 font-medium text-sm">
+                      {item.quantity <= 1 ? <Trash2 size={12} className="text-red-400" /> : '−'}
+                    </button>
+                    <span className="w-6 text-center font-bold text-sm text-gray-900">{item.quantity}</span>
+                    <button type="button"
+                      onClick={() => setNewRecItems(prev => prev.map(i => i.article_id === item.article_id ? { ...i, quantity: i.quantity + 1 } : i))}
+                      className="w-7 h-7 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center hover:bg-blue-200 font-medium text-sm">+</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {newRecItems.length === 0 && !newRecSearch && (
+            <p className="text-xs text-gray-400 text-center py-2">Recherchez des articles à ajouter</p>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-white border-t border-gray-100 p-4" style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px) + 16px, 16px)' }}>
+        <button onClick={handleCreateRecurrence}
+          disabled={newRecSaving || newRecDays.length === 0 || newRecItems.length === 0}
+          className="w-full py-4 bg-blue-600 text-white rounded-2xl font-bold text-base hover:bg-blue-700 disabled:opacity-40 transition-colors flex items-center justify-center gap-2">
+          <RefreshCw size={18} />
+          {newRecSaving ? 'Enregistrement…' : 'Enregistrer la récurrence'}
+        </button>
+        {(newRecDays.length === 0 || newRecItems.length === 0) && (
+          <p className="text-xs text-center text-amber-600 mt-2">
+            {newRecDays.length === 0 ? 'Sélectionnez au moins un jour' : 'Ajoutez au moins un article'}
+          </p>
+        )}
+      </div>
+
       <BottomNav />
     </div>
   );

@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { usePathname } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
@@ -15,7 +15,7 @@ import Sidebar from './Sidebar';
 import BottomNav from './BottomNav';
 import { SidebarProvider, useSidebar } from '@/contexts/SidebarContext';
 
-const PUBLIC_PATHS = ['/login', '/changer-mot-de-passe', '/portail'];
+const PUBLIC_PATHS = ['/login', '/changer-mot-de-passe', '/portail', '/accueil'];
 
 // Items du menu "Plus" (tout ce qui n'est pas dans la barre du bas)
 const OVERFLOW_NAV: {
@@ -33,21 +33,26 @@ const OVERFLOW_NAV: {
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { loading, profile } = useUser();
 
   const isPublicPage = PUBLIC_PATHS.some(p => pathname.startsWith(p));
 
+  useEffect(() => {
+    if (!loading && !profile && !isPublicPage) {
+      router.replace('/accueil');
+    }
+  }, [loading, profile, isPublicPage, router]);
+
   if (isPublicPage) return <div className="min-h-full">{children}</div>;
 
-  if (loading) {
+  if (loading || !profile) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
       </div>
     );
   }
-
-  if (!profile) return null;
 
   return (
     <SidebarProvider>

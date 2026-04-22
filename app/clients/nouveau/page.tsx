@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Save, Building2, User } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
@@ -15,6 +15,7 @@ const INPUT_SM = 'w-full px-3 py-2.5 border border-gray-200 rounded-xl focus:out
 
 export default function NouveauClientPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<ClientMode>('entreprise');
   const [nomSynced, setNomSynced] = useState(true); // true = nom suit raison_sociale
@@ -43,7 +44,7 @@ export default function NouveauClientPage() {
 
   const quartiersDisponibles = form.ville ? (QUARTIERS_PAR_VILLE[form.ville] || []) : [];
 
-  // Auto-génère le code client (CLT-XXXX)
+  // Auto-génère le code client (CLT-XXXX) + pré-remplissage depuis demande prospect
   useEffect(() => {
     supabase
       .from('clients')
@@ -52,6 +53,25 @@ export default function NouveauClientPage() {
         const next = String((count ?? 0) + 1).padStart(4, '0');
         setForm(f => ({ ...f, code: `CLT-${next}` }));
       });
+
+    // Pré-remplissage depuis query params (demande prospect)
+    const nom = searchParams.get('nom');
+    if (nom) {
+      setNomSynced(false);
+      setForm(f => ({
+        ...f,
+        raison_sociale: nom,
+        nom,
+        contact_nom: searchParams.get('contact') || '',
+        telephone: searchParams.get('telephone') || '',
+        email: searchParams.get('email') || '',
+        adresse_livraison: searchParams.get('adresse_livraison') || '',
+        ville: searchParams.get('ville') || '',
+        type_client: searchParams.get('type_client') || 'hotel',
+      }));
+      if (searchParams.get('type_client') === 'entreprise') setMode('entreprise');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Sync nom <-> raison_sociale
