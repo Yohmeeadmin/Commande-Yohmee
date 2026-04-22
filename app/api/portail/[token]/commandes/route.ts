@@ -2,28 +2,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 
 // POST /api/portail/[token]/commandes
-// Crée une commande depuis le portail client
-export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params;
   const supabase = getSupabaseAdmin();
 
-  // Valide le token
   const { data: client } = await supabase
     .from('clients')
     .select('id, portal_active')
-    .eq('portal_token', params.token)
+    .eq('portal_token', token)
     .single();
 
-  if (!client?.portal_active) {
-    return NextResponse.json({ error: 'Non autorisé' }, { status: 403 });
-  }
+  if (!client?.portal_active) return NextResponse.json({ error: 'Non autorisé' }, { status: 403 });
 
   const { items, delivery_date, delivery_slot_id, note } = await req.json();
 
-  if (!items?.length || !delivery_date) {
-    return NextResponse.json({ error: 'Données manquantes' }, { status: 400 });
-  }
+  if (!items?.length || !delivery_date) return NextResponse.json({ error: 'Données manquantes' }, { status: 400 });
 
-  // Heure limite
   const { data: settingsRow } = await supabase
     .from('app_settings')
     .select('portal_order_deadline')
@@ -34,10 +28,8 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   const [dh, dm] = deadline.split(':').map(Number);
   const now = new Date();
   const afterDeadline = now.getHours() > dh || (now.getHours() === dh && now.getMinutes() >= dm);
-
   const status = afterDeadline ? 'brouillon' : 'confirmee';
 
-  // Crée la commande via RPC generate_order_numero ou directement
   const { data: orderData, error: orderError } = await supabase
     .from('orders')
     .insert({
@@ -52,11 +44,8 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     .select('id, numero')
     .single();
 
-  if (orderError || !orderData) {
-    return NextResponse.json({ error: orderError?.message || 'Erreur création commande' }, { status: 500 });
-  }
+  if (orderError || !orderData) return NextResponse.json({ error: orderError?.message || 'Erreur création commande' }, { status: 500 });
 
-  // Insère les lignes
   const lines = items.map((item: any) => ({
     order_id: orderData.id,
     product_article_id: item.article_id,
@@ -72,7 +61,6 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     return NextResponse.json({ error: itemsError.message }, { status: 500 });
   }
 
-  // Calcule et met à jour le total
   const total = items.reduce((s: number, i: any) => s + i.quantity * i.unit_price, 0);
   await supabase.from('orders').update({ total }).eq('id', orderData.id);
 

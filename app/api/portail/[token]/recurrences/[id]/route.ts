@@ -13,15 +13,14 @@ async function getClient(supabase: ReturnType<typeof getSupabaseAdmin>, token: s
 // PATCH /api/portail/[token]/recurrences/[id]
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { token: string; id: string } }
+  { params }: { params: Promise<{ token: string; id: string }> }
 ) {
+  const { token, id } = await params;
   const supabase = getSupabaseAdmin();
-  const client = await getClient(supabase, params.token);
+  const client = await getClient(supabase, token);
   if (!client?.portal_active) return NextResponse.json({ error: 'Non autorisé' }, { status: 403 });
 
   const body = await req.json();
-
-  // Only allow updating these fields
   const allowed = ['is_active', 'nom', 'days_of_week', 'delivery_slot_id', 'items'];
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   for (const key of allowed) {
@@ -31,8 +30,8 @@ export async function PATCH(
   const { data, error } = await supabase
     .from('portal_recurring_orders')
     .update(updates)
-    .eq('id', params.id)
-    .eq('client_id', client.id) // ensure ownership
+    .eq('id', id)
+    .eq('client_id', client.id)
     .select()
     .single();
 
@@ -43,17 +42,18 @@ export async function PATCH(
 // DELETE /api/portail/[token]/recurrences/[id]
 export async function DELETE(
   _req: NextRequest,
-  { params }: { params: { token: string; id: string } }
+  { params }: { params: Promise<{ token: string; id: string }> }
 ) {
+  const { token, id } = await params;
   const supabase = getSupabaseAdmin();
-  const client = await getClient(supabase, params.token);
+  const client = await getClient(supabase, token);
   if (!client?.portal_active) return NextResponse.json({ error: 'Non autorisé' }, { status: 403 });
 
   const { error } = await supabase
     .from('portal_recurring_orders')
     .delete()
-    .eq('id', params.id)
-    .eq('client_id', client.id); // ensure ownership
+    .eq('id', id)
+    .eq('client_id', client.id);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ success: true });

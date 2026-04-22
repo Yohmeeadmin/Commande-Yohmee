@@ -11,9 +11,10 @@ async function getClient(supabase: ReturnType<typeof getSupabaseAdmin>, token: s
 }
 
 // GET /api/portail/[token]/recurrences
-export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params;
   const supabase = getSupabaseAdmin();
-  const client = await getClient(supabase, params.token);
+  const client = await getClient(supabase, token);
   if (!client?.portal_active) return NextResponse.json({ error: 'Non autorisé' }, { status: 403 });
 
   const { data, error } = await supabase
@@ -27,9 +28,10 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
 }
 
 // POST /api/portail/[token]/recurrences
-export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ token: string }> }) {
+  const { token } = await params;
   const supabase = getSupabaseAdmin();
-  const client = await getClient(supabase, params.token);
+  const client = await getClient(supabase, token);
   if (!client?.portal_active) return NextResponse.json({ error: 'Non autorisé' }, { status: 403 });
 
   const { nom, days_of_week, delivery_slot_id, items } = await req.json();
