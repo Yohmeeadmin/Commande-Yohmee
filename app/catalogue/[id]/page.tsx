@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Save, Plus, Trash2, RotateCcw, AlertCircle, Archive, Globe, X, Search } from 'lucide-react';
+import { ArrowLeft, Save, Plus, Trash2, RotateCcw, AlertCircle, Archive, Globe, X, Search, Upload, Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import {
   Category,
@@ -39,6 +39,8 @@ export default function EditReferencePage() {
   const { ateliers } = useAteliers();
   const { can } = usePermissions();
   const [categories, setCategories] = useState<Category[]>([]);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -59,6 +61,10 @@ export default function EditReferencePage() {
     description: '',
     note_production: '',
     is_active: true,
+    // Vitrine publique
+    show_on_landing: false,
+    description_publique: '',
+    photo_url: '',
   });
 
   // Articles
@@ -93,6 +99,9 @@ export default function EditReferencePage() {
           description: refData.description || '',
           note_production: refData.note_production || '',
           is_active: refData.is_active !== false,
+          show_on_landing: refData.show_on_landing ?? false,
+          description_publique: refData.description_publique || '',
+          photo_url: refData.photo_url || '',
         });
 
         // Convertir les articles existants
@@ -204,6 +213,26 @@ export default function EditReferencePage() {
     );
   }
 
+  async function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingPhoto(true);
+    const ext = file.name.split('.').pop();
+    const path = `products/${params.id}.${ext}`;
+    const { error } = await supabase.storage
+      .from('catalogue')
+      .upload(path, file, { upsert: true, contentType: file.type });
+    if (error) {
+      alert(`Erreur upload : ${error.message}`);
+      setUploadingPhoto(false);
+      return;
+    }
+    const { data: { publicUrl } } = supabase.storage.from('catalogue').getPublicUrl(path);
+    setReference(prev => ({ ...prev, photo_url: `${publicUrl}?t=${Date.now()}` }));
+    setUploadingPhoto(false);
+    if (photoInputRef.current) photoInputRef.current.value = '';
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!reference.name || !reference.code) return;
@@ -224,6 +253,9 @@ export default function EditReferencePage() {
           description: reference.description || null,
           note_production: reference.note_production || null,
           is_active: reference.is_active,
+          show_on_landing: reference.show_on_landing,
+          description_publique: reference.description_publique || null,
+          photo_url: reference.photo_url || null,
         })
         .eq('id', params.id);
 
@@ -868,6 +900,103 @@ export default function EditReferencePage() {
             <p className="text-xs text-gray-400 flex items-center gap-1.5">
               <Globe size={12} /> Visible par tous les clients avec accès au portail
             </p>
+          )}
+        </div>
+
+        {/* ============================================ */}
+        {/* BLOC 4 : VITRINE PUBLIQUE */}
+        {/* ============================================ */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-4">
+          <div className="flex items-center gap-2 pb-4 border-b border-gray-100">
+            <div className="w-8 h-8 bg-black text-white rounded-lg flex items-center justify-center font-bold text-sm">
+              4
+            </div>
+            <h2 className="font-semibold text-gray-900">Vitrine publique</h2>
+          </div>
+
+          <p className="text-sm text-gray-500">
+            Afficher ce produit sur la page d'accueil publique <strong>bdkfood.com</strong> (sans les prix).
+          </p>
+
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={reference.show_on_landing}
+              onChange={e => setReference({ ...reference, show_on_landing: e.target.checked })}
+              className="w-5 h-5 text-black rounded focus:ring-black"
+            />
+            <div>
+              <span className="font-medium text-gray-700">Afficher sur la vitrine</span>
+              <p className="text-sm text-gray-500">Le produit apparaîtra dans la bonne catégorie d'atelier</p>
+            </div>
+          </label>
+
+          {reference.show_on_landing && (
+            <div className="space-y-4 pt-2">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Description publique
+                </label>
+                <textarea
+                  value={reference.description_publique}
+                  onChange={e => setReference({ ...reference, description_publique: e.target.value })}
+                  placeholder="Description visible par les visiteurs (sans les prix, sans info interne)…"
+                  rows={3}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent resize-none text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Photo du produit
+                </label>
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/avif"
+                  className="hidden"
+                  onChange={handlePhotoUpload}
+                />
+                <div className="flex items-center gap-3">
+                  {reference.photo_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={reference.photo_url}
+                      alt="Aperçu"
+                      className="w-24 h-24 object-cover rounded-xl border border-gray-200 shrink-0"
+                      onError={e => (e.currentTarget.style.display = 'none')}
+                    />
+                  ) : (
+                    <div className="w-24 h-24 rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center shrink-0 bg-gray-50">
+                      <Upload size={20} className="text-gray-300" />
+                    </div>
+                  )}
+                  <div className="flex flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => photoInputRef.current?.click()}
+                      disabled={uploadingPhoto}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-sm font-medium hover:bg-gray-700 disabled:opacity-50 transition-colors"
+                    >
+                      {uploadingPhoto ? (
+                        <><Loader2 size={15} className="animate-spin" /> Envoi…</>
+                      ) : (
+                        <><Upload size={15} /> {reference.photo_url ? 'Changer la photo' : 'Uploader une photo'}</>
+                      )}
+                    </button>
+                    {reference.photo_url && (
+                      <button
+                        type="button"
+                        onClick={() => setReference(prev => ({ ...prev, photo_url: '' }))}
+                        className="inline-flex items-center gap-2 px-4 py-2 text-red-600 bg-red-50 rounded-xl text-sm font-medium hover:bg-red-100 transition-colors"
+                      >
+                        <X size={15} /> Supprimer
+                      </button>
+                    )}
+                    <p className="text-xs text-gray-400">PNG, JPG, WebP · Max 5 Mo</p>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
         </div>
 

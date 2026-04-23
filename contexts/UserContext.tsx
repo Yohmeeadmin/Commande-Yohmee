@@ -72,18 +72,20 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         const currentPath = typeof window !== 'undefined' ? window.location.pathname : pathnameRef.current;
         const currentIsPublic = PUBLIC_PATHS.some(p => currentPath.startsWith(p));
 
+        console.log('[Auth]', event, '| path:', currentPath, '| isPublic:', currentIsPublic, '| session:', !!session);
+
         if (event === 'SIGNED_OUT') {
           profileCache = null;
           setProfile(null);
           setLoading(false);
-          if (!currentIsPublic) router.push('/login');
+          if (!currentIsPublic) { console.log('[Auth] → redirect /login (SIGNED_OUT)'); router.push('/login'); }
           return;
         }
 
         if (!session) {
           setProfile(null);
           setLoading(false);
-          if (!currentIsPublic) router.push('/login');
+          if (!currentIsPublic) { console.log('[Auth] → redirect /login (no session)'); router.push('/login'); }
           return;
         }
 

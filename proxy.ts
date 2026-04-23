@@ -7,6 +7,8 @@ export function proxy(request: NextRequest) {
   if (
     pathname === '/login' ||
     pathname === '/changer-mot-de-passe' ||
+    pathname.startsWith('/accueil') ||
+    pathname.startsWith('/portail') ||
     pathname.startsWith('/api/') ||
     pathname.startsWith('/_next/')
   ) {

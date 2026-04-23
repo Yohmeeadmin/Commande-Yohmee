@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Upload, X, Check, Loader2, Clock, Calendar, AlertCircle, Building2, Tag, Plus, Pencil, Trash2, Globe } from 'lucide-react';
+import { Upload, X, Check, Loader2, Clock, Calendar, AlertCircle, Building2, Tag, Plus, Pencil, Trash2, Globe, Monitor } from 'lucide-react';
 import { useAppSettings, ClientTypeDelivery, ClientTypeSettings } from '@/lib/useAppSettings';
 import { supabase } from '@/lib/supabase/client';
 import { CLIENT_TYPES } from '@/types';
@@ -29,6 +29,10 @@ export default function ReglagesPage() {
   const [savedEntreprise, setSavedEntreprise] = useState(false);
   const [savingDelivery, setSavingDelivery] = useState(false);
   const [savedDelivery, setSavedDelivery] = useState(false);
+  const [savingLanding, setSavingLanding] = useState(false);
+  const [savedLanding, setSavedLanding] = useState(false);
+  const [landingTitle, setLandingTitle] = useState('');
+  const [landingSubtitle, setLandingSubtitle] = useState('');
   const [errorEntreprise, setErrorEntreprise] = useState<string | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -86,6 +90,8 @@ export default function ReglagesPage() {
       pays: settings.pays ?? 'Maroc',
     });
     setTypeSettings(settings.client_type_settings ?? {});
+    setLandingTitle(settings.landing_title ?? settings.company_name ?? '');
+    setLandingSubtitle(settings.landing_subtitle ?? settings.company_tagline ?? '');
   }
 
   function getTypeSetting(type: string): ClientTypeDelivery {
@@ -195,6 +201,17 @@ export default function ReglagesPage() {
       setSavedEntreprise(true);
       setTimeout(() => setSavedEntreprise(false), 2000);
     }
+  }
+
+  async function handleSaveLanding() {
+    setSavingLanding(true);
+    await updateSettings({
+      landing_title: landingTitle || null,
+      landing_subtitle: landingSubtitle || null,
+    } as any);
+    setSavingLanding(false);
+    setSavedLanding(true);
+    setTimeout(() => setSavedLanding(false), 2000);
   }
 
   async function handleSaveDelivery() {
@@ -452,6 +469,39 @@ export default function ReglagesPage() {
               className="px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
             />
             <p className="text-sm text-gray-500">Les commandes passées après cette heure seront mises en attente de validation.</p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Page d'accueil publique ──────────────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Monitor size={18} className="text-blue-600" />
+            <div>
+              <h2 className="font-semibold text-gray-900">Page d'accueil publique</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Textes affichés sur bdkfood.com</p>
+            </div>
+          </div>
+          <button
+            onClick={handleSaveLanding}
+            disabled={savingLanding}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          >
+            {savingLanding ? <><Loader2 size={14} className="animate-spin" /> Enregistrement…</> : savedLanding ? <><Check size={14} /> Enregistré</> : 'Sauvegarder'}
+          </button>
+        </div>
+        <div className="space-y-4">
+          <div>
+            <label className={labelClass}>Titre principal</label>
+            <input type="text" value={landingTitle} onChange={e => setLandingTitle(e.target.value)}
+              placeholder="BDK Food" className={inputClass} />
+            <p className="text-xs text-gray-400 mt-1">Affiché en grand dans le hero de la page</p>
+          </div>
+          <div>
+            <label className={labelClass}>Sous-titre</label>
+            <input type="text" value={landingSubtitle} onChange={e => setLandingSubtitle(e.target.value)}
+              placeholder="Artisan boulanger · Pâtissier · Chocolatier" className={inputClass} />
           </div>
         </div>
       </div>

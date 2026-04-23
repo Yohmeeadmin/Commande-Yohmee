@@ -33,6 +33,9 @@ export interface AppSettings {
   ville_siege: string | null;
   pays: string | null;
   portal_order_deadline: string;
+  // Vitrine publique
+  landing_title: string | null;
+  landing_subtitle: string | null;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -56,6 +59,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   ville_siege: null,
   pays: 'Maroc',
   portal_order_deadline: '18:00:00',
+  landing_title: null,
+  landing_subtitle: null,
 };
 
 // Cache module-level : évite les re-fetch sur chaque composant qui consomme le hook
