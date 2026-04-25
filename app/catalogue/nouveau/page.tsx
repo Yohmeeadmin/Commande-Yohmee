@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Save, Plus, Trash2, RotateCcw, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Save, Plus, Trash2, RotateCcw, AlertCircle, X, Tag } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import {
   Category,
@@ -31,6 +31,9 @@ export default function NouvelleReferencePage() {
   const router = useRouter();
   const { ateliers } = useAteliers();
   const [categories, setCategories] = useState<Category[]>([]);
+  const [newCatName, setNewCatName] = useState('');
+  const [addingCat, setAddingCat] = useState(false);
+  const [creatingCat, setCreatingCat] = useState(false);
   const [loading, setLoading] = useState(false);
 
   // Formulaire référence
@@ -57,6 +60,27 @@ export default function NouvelleReferencePage() {
   async function loadCategories() {
     const { data } = await supabase.from('categories').select('*').order('ordre');
     setCategories(data || []);
+  }
+
+  async function createCategory() {
+    if (!newCatName.trim()) return;
+    setCreatingCat(true);
+    try {
+      const maxOrdre = categories.filter(c => c.atelier === reference.atelier).reduce((m, c) => Math.max(m, c.ordre), 0);
+      const { data, error } = await supabase
+        .from('categories')
+        .insert({ nom: newCatName.trim(), atelier: reference.atelier, ordre: maxOrdre + 1 })
+        .select()
+        .single();
+      if (!error && data) {
+        setCategories(prev => [...prev, data]);
+        setReference(prev => ({ ...prev, category_id: data.id }));
+        setNewCatName('');
+        setAddingCat(false);
+      }
+    } finally {
+      setCreatingCat(false);
+    }
   }
 
   // Ajouter un article
@@ -267,46 +291,76 @@ export default function NouvelleReferencePage() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Catégorie
+                Atelier *
               </label>
-              <select
-                value={reference.category_id}
-                onChange={(e) => setReference({ ...reference, category_id: e.target.value })}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-              >
-                <option value="">Sélectionner une catégorie</option>
-                {categories.map((cat) => (
-                  <option key={cat.id} value={cat.id}>{cat.nom}</option>
+              <div className="flex flex-wrap gap-2">
+                {ateliers.map((atelier) => (
+                  <button
+                    key={atelier.value}
+                    type="button"
+                    onClick={() => setReference(prev => ({ ...prev, atelier: atelier.value, category_id: '' }))}
+                    className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                      reference.atelier === atelier.value ? 'ring-2 ring-offset-2' : 'hover:opacity-80'
+                    }`}
+                    style={{ backgroundColor: atelier.bg_color, color: atelier.color }}
+                  >
+                    {atelier.label}
+                  </button>
                 ))}
-              </select>
+              </div>
             </div>
           </div>
 
-          {/* Atelier */}
+          {/* Catégorie */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-3">
-              Atelier *
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {ateliers.map((atelier) => (
-                <button
-                  key={atelier.value}
-                  type="button"
-                  onClick={() => setReference({ ...reference, atelier: atelier.value })}
-                  className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                    reference.atelier === atelier.value
-                      ? 'ring-2 ring-offset-2'
-                      : 'hover:opacity-80'
-                  }`}
-                  style={{
-                    backgroundColor: atelier.bg_color,
-                    color: atelier.color,
-                  }}
-                >
-                  {atelier.label}
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-gray-700">Catégorie</label>
+              {!addingCat && (
+                <button type="button" onClick={() => setAddingCat(true)}
+                  className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium">
+                  <Plus size={13} /> Nouvelle catégorie
                 </button>
-              ))}
+              )}
             </div>
+
+            {addingCat ? (
+              <div className="flex gap-2">
+                <input
+                  autoFocus
+                  type="text"
+                  value={newCatName}
+                  onChange={e => setNewCatName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); createCategory(); } if (e.key === 'Escape') { setAddingCat(false); setNewCatName(''); } }}
+                  placeholder={`Nouvelle catégorie pour ${reference.atelier}…`}
+                  className="flex-1 px-3 py-2 border border-blue-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button type="button" onClick={createCategory} disabled={creatingCat || !newCatName.trim()}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+                  {creatingCat ? '…' : 'Créer'}
+                </button>
+                <button type="button" onClick={() => { setAddingCat(false); setNewCatName(''); }}
+                  className="px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-500 hover:bg-gray-50">
+                  <X size={14} />
+                </button>
+              </div>
+            ) : (
+              <div className="relative">
+                <Tag size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <select
+                  value={reference.category_id}
+                  onChange={(e) => setReference({ ...reference, category_id: e.target.value })}
+                  className="w-full pl-9 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                >
+                  <option value="">Sans catégorie</option>
+                  {categories.filter(c => c.atelier === reference.atelier).map((cat) => (
+                    <option key={cat.id} value={cat.id}>{cat.nom}</option>
+                  ))}
+                  {categories.filter(c => c.atelier === reference.atelier).length === 0 && (
+                    <option disabled>Aucune catégorie pour cet atelier</option>
+                  )}
+                </select>
+              </div>
+            )}
           </div>
 
           {/* Description */}

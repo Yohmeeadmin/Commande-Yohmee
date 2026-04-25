@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Save, Plus, Trash2, RotateCcw, AlertCircle, Archive, Globe, X, Search, Upload, Loader2 } from 'lucide-react';
+import { ArrowLeft, Save, Plus, Trash2, RotateCcw, AlertCircle, Archive, Globe, X, Search, Upload, Loader2, Tag } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import {
   Category,
@@ -39,8 +39,12 @@ export default function EditReferencePage() {
   const { ateliers } = useAteliers();
   const { can } = usePermissions();
   const [categories, setCategories] = useState<Category[]>([]);
+  const [newCatName, setNewCatName] = useState('');
+  const [addingCat, setAddingCat] = useState(false);
+  const [creatingCat, setCreatingCat] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const prevBasePriceRef = useRef<string>('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -94,7 +98,7 @@ export default function EditReferencePage() {
           category_id: refData.category_id || '',
           atelier: refData.atelier || 'boulangerie',
           base_unit: refData.base_unit || 'pièce',
-          base_unit_price: refData.base_unit_price?.toString() || '',
+          base_unit_price: (() => { const v = refData.base_unit_price?.toString() || ''; prevBasePriceRef.current = v; return v; })(),
           vat_rate: refData.vat_rate?.toString() || '20',
           description: refData.description || '',
           note_production: refData.note_production || '',
@@ -135,8 +139,51 @@ export default function EditReferencePage() {
     }
   }
 
-  // Ajouter un article
+  async function createCategory() {
+    if (!newCatName.trim()) return;
+    setCreatingCat(true);
+    try {
+      const maxOrdre = categories.filter(c => c.atelier === reference.atelier).reduce((m, c) => Math.max(m, c.ordre), 0);
+      const { data, error } = await supabase
+        .from('categories')
+        .insert({ nom: newCatName.trim(), atelier: reference.atelier, ordre: maxOrdre + 1 })
+        .select()
+        .single();
+      if (!error && data) {
+        setCategories(prev => [...prev, data]);
+        setReference(prev => ({ ...prev, category_id: data.id }));
+        setNewCatName('');
+        setAddingCat(false);
+      }
+    } finally {
+      setCreatingCat(false);
+    }
+  }
+
+  // Quand le prix unitaire de base change, mettre à jour les prix_pro qui suivaient encore le calcul
+  useEffect(() => {
+    const oldBase = parseFloat(prevBasePriceRef.current) || 0;
+    const newBase = parseFloat(reference.base_unit_price) || 0;
+    if (oldBase === newBase || prevBasePriceRef.current === '') {
+      prevBasePriceRef.current = reference.base_unit_price;
+      return;
+    }
+    setArticles(prev => prev.map(a => {
+      const oldCalc = oldBase * a.quantity;
+      const newCalc = newBase * a.quantity;
+      const currentPrixPro = parseFloat(a.prix_pro);
+      if (a.prix_pro === '' || Math.abs(currentPrixPro - oldCalc) < 0.001) {
+        return { ...a, prix_pro: newCalc > 0 ? newCalc.toFixed(2) : '' };
+      }
+      return a;
+    }));
+    prevBasePriceRef.current = reference.base_unit_price;
+  }, [reference.base_unit_price]);
+
+  // Ajouter un article — prix_pro pré-rempli avec le prix calculé
   function addArticle() {
+    const basePrice = parseFloat(reference.base_unit_price) || 0;
+    const calculatedPrice = basePrice * 1; // qty par défaut = 1
     const newArticle: ArticleForm = {
       id: crypto.randomUUID(),
       pack_type: 'unite',
@@ -144,7 +191,7 @@ export default function EditReferencePage() {
       product_state: 'frais',
       custom_price: '',
       is_price_modified: false,
-      prix_pro: '',
+      prix_pro: calculatedPrice > 0 ? calculatedPrice.toFixed(2) : '',
       prix_particulier: '',
       is_active: true,
       is_new: true,
@@ -163,6 +210,17 @@ export default function EditReferencePage() {
       // Si on modifie le prix manuellement
       if (field === 'custom_price' && value !== '') {
         updated.is_price_modified = true;
+      }
+
+      // Si la quantité change et que prix_pro suit encore le prix calculé → on le met à jour
+      if (field === 'quantity') {
+        const basePrice = parseFloat(reference.base_unit_price) || 0;
+        const oldCalc = basePrice * a.quantity;
+        const newCalc = basePrice * (value as number);
+        const currentPrixPro = parseFloat(a.prix_pro);
+        if (a.prix_pro === '' || Math.abs(currentPrixPro - oldCalc) < 0.001) {
+          updated.prix_pro = newCalc > 0 ? newCalc.toFixed(2) : '';
+        }
       }
 
       return updated;
@@ -217,20 +275,33 @@ export default function EditReferencePage() {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploadingPhoto(true);
-    const ext = file.name.split('.').pop();
-    const path = `products/${params.id}.${ext}`;
-    const { error } = await supabase.storage
-      .from('catalogue')
-      .upload(path, file, { upsert: true, contentType: file.type });
-    if (error) {
-      alert(`Erreur upload : ${error.message}`);
+    try {
+      const ext = file.name.split('.').pop();
+      const path = `products/${params.id}.${ext}`;
+
+      // 1. Get signed upload URL from server (admin key bypasses RLS)
+      const signRes = await fetch('/api/upload-photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, bucket: 'catalogue' }),
+      });
+      const signData = await signRes.json();
+      if (!signRes.ok) { alert(`Erreur : ${signData.error}`); return; }
+
+      // 2. Upload file directly to Supabase using the signed URL
+      const { error: upError } = await supabase.storage
+        .from('catalogue')
+        .uploadToSignedUrl(path, signData.token, file, { contentType: file.type });
+      if (upError) { alert(`Erreur upload : ${upError.message}`); return; }
+
+      // 3. Get public URL
+      const { data: { publicUrl } } = supabase.storage.from('catalogue').getPublicUrl(path);
+      const url = `${publicUrl}?t=${Date.now()}`;
+      setReference(prev => ({ ...prev, photo_url: url }));
+      if (photoInputRef.current) photoInputRef.current.value = '';
+    } finally {
       setUploadingPhoto(false);
-      return;
     }
-    const { data: { publicUrl } } = supabase.storage.from('catalogue').getPublicUrl(path);
-    setReference(prev => ({ ...prev, photo_url: `${publicUrl}?t=${Date.now()}` }));
-    setUploadingPhoto(false);
-    if (photoInputRef.current) photoInputRef.current.value = '';
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -249,7 +320,7 @@ export default function EditReferencePage() {
           atelier: reference.atelier,
           base_unit: reference.base_unit,
           base_unit_price: parseFloat(reference.base_unit_price) || 0,
-          vat_rate: parseFloat(reference.vat_rate) || 20,
+          vat_rate: reference.vat_rate !== '' ? parseFloat(reference.vat_rate) : 20,
           description: reference.description || null,
           note_production: reference.note_production || null,
           is_active: reference.is_active,
@@ -266,11 +337,29 @@ export default function EditReferencePage() {
       // Articles à supprimer
       const toDelete = articles.filter(a => a.is_deleted && a.db_id);
       if (toDelete.length > 0) {
-        const { error } = await supabase
-          .from('product_articles')
-          .delete()
-          .in('id', toDelete.map(a => a.db_id));
-        if (error) throw error;
+        const ids = toDelete.map(a => a.db_id as string);
+
+        // Vérifier si certains articles sont référencés dans des commandes
+        const { count: usedCount } = await supabase
+          .from('order_items')
+          .select('id', { count: 'exact', head: true })
+          .in('product_article_id', ids);
+
+        if ((usedCount ?? 0) > 0) {
+          // Impossible de supprimer — désactiver à la place
+          const { error } = await supabase
+            .from('product_articles')
+            .update({ is_active: false })
+            .in('id', ids);
+          if (error) throw error;
+          alert(`${usedCount} article${usedCount! > 1 ? 's' : ''} présent${usedCount! > 1 ? 's' : ''} dans des commandes existantes ne peut pas être supprimé. Il a été désactivé à la place.`);
+        } else {
+          const { error } = await supabase
+            .from('product_articles')
+            .delete()
+            .in('id', ids);
+          if (error) throw error;
+        }
       }
 
       // Articles à créer
@@ -280,12 +369,11 @@ export default function EditReferencePage() {
           .from('product_articles')
           .insert(toCreate.map(a => ({
             product_reference_id: params.id,
+            display_name: generateArticleDisplayName(reference.code, reference.name, a.pack_type, a.quantity, a.product_state),
             pack_type: a.pack_type,
             quantity: a.quantity,
             product_state: a.product_state,
-            custom_price: a.is_price_modified && a.custom_price !== ''
-              ? parseFloat(a.custom_price)
-              : null,
+            custom_price: a.is_price_modified && a.custom_price !== '' ? parseFloat(a.custom_price) : null,
             prix_pro: a.prix_pro !== '' ? parseFloat(a.prix_pro) : null,
             prix_particulier: a.prix_particulier !== '' ? parseFloat(a.prix_particulier) : null,
             is_active: a.is_active,
@@ -300,12 +388,11 @@ export default function EditReferencePage() {
         const { error } = await supabase
           .from('product_articles')
           .update({
+            display_name: generateArticleDisplayName(reference.code, reference.name, article.pack_type, article.quantity, article.product_state),
             pack_type: article.pack_type,
             quantity: article.quantity,
             product_state: article.product_state,
-            custom_price: article.is_price_modified && article.custom_price !== ''
-              ? parseFloat(article.custom_price)
-              : null,
+            custom_price: article.is_price_modified && article.custom_price !== '' ? parseFloat(article.custom_price) : null,
             prix_pro: article.prix_pro !== '' ? parseFloat(article.prix_pro) : null,
             prix_particulier: article.prix_particulier !== '' ? parseFloat(article.prix_particulier) : null,
             is_active: article.is_active,
@@ -317,9 +404,10 @@ export default function EditReferencePage() {
 
       router.push('/catalogue');
       router.refresh();
-    } catch (error) {
-      console.error('Erreur:', error);
-      alert('Erreur lors de la mise à jour');
+    } catch (error: any) {
+      console.error('Erreur détaillée:', JSON.stringify(error, null, 2));
+      const msg = error?.message || error?.details || error?.hint || JSON.stringify(error);
+      alert(`Erreur lors de la mise à jour :\n${msg}`);
     } finally {
       setSaving(false);
     }
@@ -328,16 +416,41 @@ export default function EditReferencePage() {
   async function handleDelete() {
     if (!confirm('Supprimer cette référence et tous ses articles ?')) return;
 
+    // Vérifier si des articles sont référencés dans des commandes
+    const articleIds = articles.filter(a => a.db_id).map(a => a.db_id as string);
+    if (articleIds.length > 0) {
+      const { count: usedCount } = await supabase
+        .from('order_items')
+        .select('id', { count: 'exact', head: true })
+        .in('product_article_id', articleIds);
+
+      if ((usedCount ?? 0) > 0) {
+        alert(`Impossible de supprimer : ${usedCount} ligne${usedCount! > 1 ? 's' : ''} de commande référence${usedCount! > 1 ? 'nt' : ''} ce produit.\n\nDésactivez le produit à la place.`);
+        return;
+      }
+    }
+
     try {
       // Supprimer les articles d'abord
-      await supabase.from('product_articles').delete().eq('product_reference_id', params.id);
+      const { error: artError } = await supabase
+        .from('product_articles')
+        .delete()
+        .eq('product_reference_id', params.id);
+      if (artError) throw artError;
+
       // Puis la référence
-      await supabase.from('product_references').delete().eq('id', params.id);
+      const { error: refError } = await supabase
+        .from('product_references')
+        .delete()
+        .eq('id', params.id);
+      if (refError) throw refError;
+
       router.push('/catalogue');
       router.refresh();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erreur:', error);
-      alert('Erreur lors de la suppression');
+      const msg = error?.message || error?.details || JSON.stringify(error);
+      alert(`Erreur lors de la suppression :\n${msg}`);
     }
   }
 
@@ -423,46 +536,76 @@ export default function EditReferencePage() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Catégorie
+                Atelier *
               </label>
-              <select
-                value={reference.category_id}
-                onChange={(e) => setReference({ ...reference, category_id: e.target.value })}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-              >
-                <option value="">Sélectionner une catégorie</option>
-                {categories.map((cat) => (
-                  <option key={cat.id} value={cat.id}>{cat.nom}</option>
+              <div className="flex flex-wrap gap-2">
+                {ateliers.map((atelier) => (
+                  <button
+                    key={atelier.value}
+                    type="button"
+                    onClick={() => setReference(prev => ({ ...prev, atelier: atelier.value, category_id: '' }))}
+                    className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                      reference.atelier === atelier.value ? 'ring-2 ring-offset-2' : 'hover:opacity-80'
+                    }`}
+                    style={{ backgroundColor: atelier.bg_color, color: atelier.color }}
+                  >
+                    {atelier.label}
+                  </button>
                 ))}
-              </select>
+              </div>
             </div>
           </div>
 
-          {/* Atelier */}
+          {/* Catégorie */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-3">
-              Atelier *
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {ateliers.map((atelier) => (
-                <button
-                  key={atelier.value}
-                  type="button"
-                  onClick={() => setReference({ ...reference, atelier: atelier.value })}
-                  className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                    reference.atelier === atelier.value
-                      ? 'ring-2 ring-offset-2'
-                      : 'hover:opacity-80'
-                  }`}
-                  style={{
-                    backgroundColor: atelier.bg_color,
-                    color: atelier.color,
-                  }}
-                >
-                  {atelier.label}
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-gray-700">Catégorie</label>
+              {!addingCat && (
+                <button type="button" onClick={() => setAddingCat(true)}
+                  className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium">
+                  <Plus size={13} /> Nouvelle catégorie
                 </button>
-              ))}
+              )}
             </div>
+
+            {addingCat ? (
+              <div className="flex gap-2">
+                <input
+                  autoFocus
+                  type="text"
+                  value={newCatName}
+                  onChange={e => setNewCatName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); createCategory(); } if (e.key === 'Escape') { setAddingCat(false); setNewCatName(''); } }}
+                  placeholder={`Nouvelle catégorie pour ${reference.atelier}…`}
+                  className="flex-1 px-3 py-2 border border-blue-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button type="button" onClick={createCategory} disabled={creatingCat || !newCatName.trim()}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+                  {creatingCat ? '…' : 'Créer'}
+                </button>
+                <button type="button" onClick={() => { setAddingCat(false); setNewCatName(''); }}
+                  className="px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-500 hover:bg-gray-50">
+                  <X size={14} />
+                </button>
+              </div>
+            ) : (
+              <div className="relative">
+                <Tag size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <select
+                  value={reference.category_id}
+                  onChange={(e) => setReference({ ...reference, category_id: e.target.value })}
+                  className="w-full pl-9 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                >
+                  <option value="">Sans catégorie</option>
+                  {categories.filter(c => c.atelier === reference.atelier).map((cat) => (
+                    <option key={cat.id} value={cat.id}>{cat.nom}</option>
+                  ))}
+                  {categories.filter(c => c.atelier === reference.atelier).length === 0 && (
+                    <option disabled>Aucune catégorie pour cet atelier</option>
+                  )}
+                </select>
+              </div>
+            )}
           </div>
 
           {/* Description */}

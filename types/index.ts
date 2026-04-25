@@ -87,6 +87,7 @@ export const UNITES = [
 export interface Category {
   id: string;
   nom: string;
+  atelier: string;
   ordre: number;
   created_at: string;
 }

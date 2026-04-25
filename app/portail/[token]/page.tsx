@@ -144,6 +144,16 @@ export default function PortailPage() {
   const [newRecSearch, setNewRecSearch] = useState('');
   const [newRecSaving, setNewRecSaving] = useState(false);
 
+  // ── Reset view on bfcache restore (iOS Safari) ───────────────────────────
+
+  useEffect(() => {
+    const handler = (e: PageTransitionEvent) => {
+      if (e.persisted) setView('catalogue');
+    };
+    window.addEventListener('pageshow', handler);
+    return () => window.removeEventListener('pageshow', handler);
+  }, []);
+
   // ── Load ──────────────────────────────────────────────────────────────────
 
   useEffect(() => {

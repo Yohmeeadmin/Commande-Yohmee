@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Users, Truck, SlidersHorizontal, Building2 } from 'lucide-react';
+import { Users, Truck, SlidersHorizontal, Building2, Globe, Tag } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
@@ -11,8 +11,11 @@ export default function ParaemetresPage() {
   const [nouveauxCount, setNouveauxCount] = useState(0);
 
   useEffect(() => {
-    supabase.from('prospect_requests').select('id', { count: 'exact', head: true }).eq('status', 'nouveau').then(({ count }: { count: number | null }) => {
-      setNouveauxCount(count ?? 0);
+    Promise.all([
+      supabase.from('prospect_requests').select('id', { count: 'exact', head: true }).eq('status', 'nouveau'),
+      supabase.from('devis_requests').select('id', { count: 'exact', head: true }).eq('status', 'nouveau'),
+    ]).then(([{ count: c1 }, { count: c2 }]) => {
+      setNouveauxCount((c1 ?? 0) + (c2 ?? 0));
     });
   }, []);
 
@@ -63,6 +66,28 @@ export default function ParaemetresPage() {
           </div>
           <h3 className="font-semibold text-gray-900 mb-1">Chauffeurs</h3>
           <p className="text-sm text-gray-500">Gérer les chauffeurs et leurs tournées</p>
+        </Link>
+
+        <Link
+          href="/parametres/vitrine"
+          className="bg-white rounded-2xl border border-gray-100 p-6 hover:shadow-md hover:border-green-200 transition-all"
+        >
+          <div className="w-12 h-12 bg-green-50 rounded-xl flex items-center justify-center mb-4">
+            <Globe className="text-green-600" size={24} />
+          </div>
+          <h3 className="font-semibold text-gray-900 mb-1">Catalogue en ligne</h3>
+          <p className="text-sm text-gray-500">Gérer les produits affichés sur la vitrine publique</p>
+        </Link>
+
+        <Link
+          href="/parametres/categories"
+          className="bg-white rounded-2xl border border-gray-100 p-6 hover:shadow-md hover:border-orange-200 transition-all"
+        >
+          <div className="w-12 h-12 bg-orange-50 rounded-xl flex items-center justify-center mb-4">
+            <Tag className="text-orange-600" size={24} />
+          </div>
+          <h3 className="font-semibold text-gray-900 mb-1">Catégories</h3>
+          <p className="text-sm text-gray-500">Organiser les produits par catégorie et atelier</p>
         </Link>
 
         <Link
