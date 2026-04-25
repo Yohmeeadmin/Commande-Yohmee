@@ -5,11 +5,11 @@ import { getSupabaseAdmin } from '@/lib/supabase/admin';
 export async function GET() {
   const supabase = getSupabaseAdmin();
 
-  const [{ data: refs }, { data: settingsData }] = await Promise.all([
+  const [{ data: refs }, { data: settingsData }, { data: categoriesData }] = await Promise.all([
     supabase
       .from('product_references')
       .select(`
-        id, name, description_publique, photo_url, atelier, base_unit_price, vat_rate, is_active, show_on_landing,
+        id, name, description_publique, photo_url, atelier, base_unit_price, vat_rate, is_active, show_on_landing, category_id,
         articles:product_articles(id, display_name, quantity, prix_particulier, prix_pro, custom_price)
       `)
       .order('name'),
@@ -18,6 +18,10 @@ export async function GET() {
       .select('landing_title, landing_subtitle, logo_url, company_name, company_tagline')
       .eq('id', 1)
       .single(),
+    supabase
+      .from('categories')
+      .select('id, nom, atelier, ordre')
+      .order('ordre'),
   ]);
 
   // Group by atelier — filter show_on_landing + is_active in JS to avoid PostgREST ambiguity
@@ -41,6 +45,8 @@ export async function GET() {
       price: a.prix_pro ?? a.prix_particulier ?? a.custom_price ?? (ref.base_unit_price * a.quantity),
     }));
 
+    const cat = (categoriesData ?? []).find((c: any) => c.id === ref.category_id);
+
     atelierMap.get(key)!.products.push({
       id: ref.id,
       name: ref.name,
@@ -49,6 +55,8 @@ export async function GET() {
       atelier: ref.atelier,
       base_unit_price: ref.base_unit_price,
       vat_rate: ref.vat_rate,
+      category_id: ref.category_id ?? null,
+      category_name: cat?.nom ?? null,
       articles,
     });
   }

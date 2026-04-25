@@ -26,6 +26,8 @@ interface Product {
   atelier: string;
   base_unit_price: number;
   vat_rate: number;
+  category_id: string | null;
+  category_name: string | null;
   articles: Article[];
 }
 
@@ -472,6 +474,7 @@ export default function AccueilPage() {
     logo_url: null,
   });
   const [activeAtelier, setActiveAtelier] = useState<string>('');
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [loadingCatalogue, setLoadingCatalogue] = useState(true);
 
   const [portalToken, setPortalToken] = useState('');
@@ -529,7 +532,20 @@ export default function AccueilPage() {
     router.push(`/portail/${token}`);
   }
 
-  const activeProducts = ateliers.find(a => a.name === activeAtelier)?.products ?? [];
+  const allActiveProducts = ateliers.find(a => a.name === activeAtelier)?.products ?? [];
+
+  // Catégories disponibles pour l'atelier actif (ordonnées par ordre d'apparition)
+  const activeCategories = Array.from(
+    new Map(
+      allActiveProducts
+        .filter(p => p.category_id && p.category_name)
+        .map(p => [p.category_id!, p.category_name!])
+    ).entries()
+  ).map(([id, nom]) => ({ id, nom }));
+
+  const activeProducts = activeCategory
+    ? allActiveProducts.filter(p => p.category_id === activeCategory)
+    : allActiveProducts;
 
   return (
     <div className="min-h-screen bg-white text-black font-sans">
@@ -615,7 +631,7 @@ export default function AccueilPage() {
                 {ateliers.map(a => (
                   <button
                     key={a.name}
-                    onClick={() => setActiveAtelier(a.name)}
+                    onClick={() => { setActiveAtelier(a.name); setActiveCategory(null); }}
                     className={`shrink-0 px-5 py-4 text-xs font-bold uppercase tracking-widest border-b-2 transition-colors ${
                       activeAtelier === a.name
                         ? 'border-black text-black'
@@ -623,6 +639,39 @@ export default function AccueilPage() {
                     }`}
                   >
                     {capitalize(a.name)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Filtre catégories */}
+        {activeCategories.length > 0 && (
+          <div className="border-b border-black/10 bg-white">
+            <div className="max-w-6xl mx-auto px-5">
+              <div className="flex overflow-x-auto scrollbar-none gap-2 py-3">
+                <button
+                  onClick={() => setActiveCategory(null)}
+                  className={`shrink-0 px-4 py-1.5 text-xs font-bold uppercase tracking-widest border transition-colors ${
+                    activeCategory === null
+                      ? 'border-black bg-black text-white'
+                      : 'border-black/20 text-black/50 hover:border-black/50 hover:text-black'
+                  }`}
+                >
+                  Tous
+                </button>
+                {activeCategories.map(cat => (
+                  <button
+                    key={cat.id}
+                    onClick={() => setActiveCategory(cat.id)}
+                    className={`shrink-0 px-4 py-1.5 text-xs font-bold uppercase tracking-widest border transition-colors ${
+                      activeCategory === cat.id
+                        ? 'border-black bg-black text-white'
+                        : 'border-black/20 text-black/50 hover:border-black/50 hover:text-black'
+                    }`}
+                  >
+                    {cat.nom}
                   </button>
                 ))}
               </div>
