@@ -272,7 +272,7 @@ export default function ReglagesPage() {
         <div className="flex items-center gap-6">
           <div className="w-20 h-20 rounded-2xl bg-gray-50 border-2 border-dashed border-gray-200 flex items-center justify-center overflow-hidden flex-shrink-0">
             {currentLogo ? (
-              <Image src={currentLogo} alt="Logo" width={80} height={80} className="w-full h-full object-contain" unoptimized />
+              <Image src={currentLogo} alt="Logo" width={80} height={80} className="w-full h-full object-contain" />
             ) : (
               <span className="text-3xl font-bold text-blue-600">{(entreprise.raison_sociale || 'B').charAt(0)}</span>
             )}

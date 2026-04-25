@@ -220,7 +220,7 @@ export default function VitrinePage() {
                   {/* Photo miniature */}
                   <div className="w-14 h-14 rounded-xl bg-gray-100 overflow-hidden shrink-0 relative">
                     {ref.photo_url ? (
-                      <Image src={ref.photo_url} alt={ref.name} fill className="object-cover" unoptimized />
+                      <Image src={ref.photo_url} alt={ref.name} fill className="object-cover" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
                         <ImageIcon size={18} className="text-gray-300" />
@@ -294,7 +294,7 @@ export default function VitrinePage() {
                         <div className="flex items-start gap-3">
                           <div className="w-24 h-24 rounded-xl bg-gray-100 overflow-hidden relative shrink-0">
                             {ref.photo_url ? (
-                              <Image src={ref.photo_url} alt={ref.name} fill className="object-cover" unoptimized />
+                              <Image src={ref.photo_url} alt={ref.name} fill className="object-cover" />
                             ) : (
                               <div className="w-full h-full flex items-center justify-center">
                                 <ImageIcon size={24} className="text-gray-300" />

@@ -108,7 +108,7 @@ function ProductDetailModal({
         {/* Image */}
         <div className="w-full md:w-1/2 aspect-square md:aspect-auto md:min-h-[420px] bg-gray-200 relative shrink-0 border-b md:border-b-0 md:border-r border-black">
           {product.photo_url ? (
-            <Image src={product.photo_url} alt={product.name} fill className="object-cover" unoptimized />
+            <Image src={product.photo_url} alt={product.name} fill className="object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center">
               <span className="text-8xl font-black text-gray-300">{product.name.charAt(0)}</span>
@@ -194,7 +194,7 @@ function ProductCard({
     <div className="group border border-black/10 bg-white overflow-hidden">
       <div className="aspect-square bg-gray-100 relative overflow-hidden cursor-pointer" onClick={() => onShowDetail(product)}>
         {product.photo_url ? (
-          <Image src={product.photo_url} alt={product.name} fill className="object-cover transition-transform duration-500 group-hover:scale-105" unoptimized />
+          <Image src={product.photo_url} alt={product.name} fill className="object-cover transition-transform duration-500 group-hover:scale-105" />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <span className="text-4xl font-black text-gray-200">{product.name.charAt(0)}</span>
