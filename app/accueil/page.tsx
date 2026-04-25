@@ -650,7 +650,7 @@ export default function AccueilPage() {
         {activeCategories.length > 0 && (
           <div className="border-b border-black/10 bg-white">
             <div className="max-w-6xl mx-auto px-5">
-              <div className="flex overflow-x-auto scrollbar-none gap-2 py-3">
+              <div className="flex justify-center overflow-x-auto scrollbar-none gap-2 py-3">
                 <button
                   onClick={() => setActiveCategory(null)}
                   className={`shrink-0 px-4 py-1.5 text-xs font-bold uppercase tracking-widest border transition-colors ${
