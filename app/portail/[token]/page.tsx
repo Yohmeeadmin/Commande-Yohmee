@@ -21,7 +21,7 @@ interface Category { id: string; name: string; }
 interface DeliverySlot { id: string; name: string; start_time: string; end_time: string; }
 
 interface Article {
-  id: string; display_name: string; quantity: number; unit: string | null;
+  id: string; display_name: string; quantity: number;
   prix_particulier: number | null; prix_pro: number | null; custom_price: number | null;
   portal_client_ids: string[] | null;
   product_reference: { id: string; name: string; base_unit_price: number; vat_rate: number; category: { id: string; name: string } | null; } | null;

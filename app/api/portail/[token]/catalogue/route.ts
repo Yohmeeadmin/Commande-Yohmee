@@ -18,7 +18,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
   let articlesQuery = supabase
     .from('product_articles')
     .select(`
-      id, display_name, quantity, unit, prix_particulier, prix_pro, custom_price, is_active,
+      id, display_name, quantity, prix_particulier, prix_pro, custom_price, is_active,
       portal_client_ids,
       product_reference:product_references(
         id, name, base_unit_price, vat_rate, company_id,
