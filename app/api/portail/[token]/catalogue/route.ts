@@ -37,9 +37,11 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
 
   const clientIdStr = client.id;
 
-  // Filtrer par company_id si le client en a un
+  // Filtrer par company_id : exclure seulement les articles d'une AUTRE entreprise
+  // (si l'article n'a pas de company_id, il est visible par tous)
   const companyFiltered = (articles || []).filter((a: any) => {
-    if (client.company_id && a.product_reference?.company_id !== client.company_id) return false;
+    const articleCompanyId = a.product_reference?.company_id;
+    if (articleCompanyId && client.company_id && articleCompanyId !== client.company_id) return false;
     return true;
   });
 
