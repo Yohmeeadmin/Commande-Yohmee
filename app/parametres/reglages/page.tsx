@@ -113,7 +113,7 @@ export default function ReglagesPage() {
       if (list.length > 0) setSelectedCompanyId(list[0].id);
     });
     supabase.from('delivery_slots').select('*').eq('is_active', true).order('sort_order')
-      .then(({ data }) => setSlots(data || []));
+      .then(({ data }: { data: DeliverySlot[] | null }) => setSlots(data || []));
   }, []);
 
   // Sync settings globaux vers état local (livraison + landing)
@@ -284,7 +284,7 @@ export default function ReglagesPage() {
     setTestingWoo(false);
   }
 
-  async function handleSync(sync_type: 'all' | 'products' | 'customers') {
+  async function handleSync(sync_type: 'all' | 'products' | 'customers' | 'orders') {
     setSyncing(true);
     setSyncResult(null);
     try {
