@@ -48,10 +48,10 @@ function stripHtml(html: string | null): string | null {
 // ─── Route ────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const { company_id, sync_type = 'all' } = await req.json();
+  const { company_id, sync_type = 'all', woocommerce_url: bodyUrl, woocommerce_key: bodyKey, woocommerce_secret: bodySecret } = await req.json();
   const supabase = getSupabaseAdmin();
 
-  // Récupérer les credentials de l'entreprise
+  // Récupérer l'entreprise
   const { data: company, error: companyErr } = await supabase
     .from('companies')
     .select('*')
@@ -61,9 +61,15 @@ export async function POST(req: NextRequest) {
   if (companyErr || !company) {
     return NextResponse.json({ error: 'Entreprise introuvable' }, { status: 404 });
   }
-  const { woocommerce_url: wcUrl, woocommerce_key: wcKey, woocommerce_secret: wcSecret, slug: companySlug } = company;
+
+  // Credentials : priorité au body (formulaire pas encore sauvegardé), sinon DB
+  const wcUrl = bodyUrl || company.woocommerce_url;
+  const wcKey = bodyKey || company.woocommerce_key;
+  const wcSecret = bodySecret || company.woocommerce_secret;
+  const companySlug = company.slug;
+
   if (!wcUrl || !wcKey || !wcSecret) {
-    return NextResponse.json({ error: 'Credentials WooCommerce manquants' }, { status: 400 });
+    return NextResponse.json({ error: 'Credentials WooCommerce manquants — renseignez et sauvegardez l\'URL, la Consumer Key et le Consumer Secret' }, { status: 400 });
   }
 
   const results = {

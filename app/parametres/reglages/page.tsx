@@ -291,7 +291,13 @@ export default function ReglagesPage() {
       const res = await fetch('/api/woocommerce/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ company_id: selectedCompanyId, sync_type }),
+        body: JSON.stringify({
+          company_id: selectedCompanyId,
+          sync_type,
+          woocommerce_url: woo.url || company?.woocommerce_url,
+          woocommerce_key: woo.key || company?.woocommerce_key,
+          woocommerce_secret: woo.secret || company?.woocommerce_secret,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erreur sync');
