@@ -77,5 +77,16 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
     slots: slots || [],
     clientType: client.type_client,
     clientPrices: priceMap,
+    _debug: {
+      rawCount: (articles || []).length,
+      companyFilteredCount: companyFiltered.length,
+      filteredCount: filtered.length,
+      clientCompanyId: client.company_id,
+      sample: (articles || []).slice(0, 2).map((a: any) => ({
+        id: a.id, name: a.display_name, is_active: a.is_active,
+        ref_company_id: a.product_reference?.company_id ?? 'NULL',
+        portal_client_ids: a.portal_client_ids,
+      })),
+    },
   });
 }
