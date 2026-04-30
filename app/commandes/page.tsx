@@ -42,6 +42,7 @@ interface OrderWithClient {
   order_type: string;
   source: string;
   reminder_days: number | null;
+  woocommerce_order_id: number | null;
   client: { nom: string };
   delivery_slot: { name: string; start_time: string; end_time: string } | null;
 }
@@ -100,7 +101,7 @@ export default function CommandesPage() {
     try {
       const { data } = await supabase
         .from('orders')
-        .select('*, source, client:clients(nom), delivery_slot:delivery_slots(name, start_time, end_time)')
+        .select('*, source, woocommerce_order_id, client:clients(nom), delivery_slot:delivery_slots(name, start_time, end_time)')
         .order('delivery_date', { ascending: false })
         .order('created_at', { ascending: false })
         .limit(200);
@@ -590,7 +591,9 @@ export default function CommandesPage() {
                       <div
                         key={order.id}
                         className={`bg-white rounded-2xl border overflow-hidden transition-colors ${
-                          selectionMode && selectedIds.has(order.id) ? 'border-orange-300 bg-orange-50' : 'border-gray-100'
+                          selectionMode && selectedIds.has(order.id) ? 'border-orange-300 bg-orange-50'
+                          : order.woocommerce_order_id ? 'border-orange-400'
+                          : 'border-gray-100'
                         }`}
                       >
                         {/* Ligne principale — cliquable */}
