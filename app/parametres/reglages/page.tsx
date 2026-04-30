@@ -94,7 +94,7 @@ export default function ReglagesPage() {
 
   // Charger les entreprises au montage
   useEffect(() => {
-    supabase.from('companies').select('id, name, slug').order('name').then(({ data }) => {
+    supabase.from('companies').select('id, name, slug').order('created_at').then(({ data }) => {
       const list = data || [];
       setCompanies(list);
       if (list.length > 0) setSelectedCompanyId(list[0].id);
@@ -234,6 +234,9 @@ export default function ReglagesPage() {
     setSavedLanding(true);
     setTimeout(() => setSavedLanding(false), 2000);
   }
+
+  // La première entreprise créée est la principale (BDK) → elle seule a les sections globales
+  const isMainCompany = companies.length > 0 && selectedCompanyId === companies[0]?.id;
 
   const currentLogo = preview ?? companySettings?.logo_url;
   const inputClass = "w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white";
@@ -420,6 +423,9 @@ export default function ReglagesPage() {
         </div>
       </div>
 
+      {/* ── Sections globales (entreprise principale uniquement) ─────────────── */}
+      {isMainCompany && (<>
+
       {/* ── Livraison par type de client ─────────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-5">
         <div>
@@ -517,6 +523,8 @@ export default function ReglagesPage() {
           </div>
         </div>
       </div>
+
+      </>)}
     </div>
   );
 }
