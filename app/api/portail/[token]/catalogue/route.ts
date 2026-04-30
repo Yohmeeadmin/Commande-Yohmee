@@ -25,7 +25,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
         category:categories(id, nom)
       )
     `)
-    .eq('is_active', true)
+    .neq('is_active', false)
     .order('display_name');
 
   const [{ data: articles }, { data: categories }, { data: slots }, { data: clientPrices }] = await Promise.all([

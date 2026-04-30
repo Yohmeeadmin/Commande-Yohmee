@@ -19,7 +19,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
     .select(`
       id, numero, delivery_date, status, total, source,
       delivery_slot:delivery_slots(name, start_time, end_time),
-      items:order_items(quantity_ordered, unit_price, product_article:product_articles(display_name))
+      items:order_items(product_article_id, quantity_ordered, unit_price, product_article:product_articles(display_name))
     `)
     .eq('client_id', client.id)
     .not('status', 'eq', 'annulee')

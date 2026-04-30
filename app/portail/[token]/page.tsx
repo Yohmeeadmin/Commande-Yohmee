@@ -35,7 +35,7 @@ interface HistoryOrder {
   id: string; numero: string; delivery_date: string; status: string; total: number;
   source: string; has_bl: boolean;
   delivery_slot: { name: string; start_time: string; end_time: string } | null;
-  items: { quantity_ordered: number; unit_price: number; product_article: { display_name: string } | null }[];
+  items: { product_article_id: string | null; quantity_ordered: number; unit_price: number; product_article: { display_name: string } | null }[];
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -188,7 +188,7 @@ export default function PortailPage() {
     } finally { setHistoryLoading(false); }
   }
 
-  useEffect(() => { if (view === 'historique') loadHistory(); }, [view]);
+  useEffect(() => { if (view === 'historique' || view === 'profil') loadHistory(); }, [view]);
 
   async function loadRecurrences() {
     if (recurrencesLoaded) return;
@@ -269,6 +269,26 @@ export default function PortailPage() {
       setCart([]); setHistoryLoaded(false); setView('success');
     } catch (err: any) { alert(err.message || 'Erreur lors de l\'envoi'); }
     finally { setSubmitting(false); }
+  }
+
+  function handleRecommander(order: HistoryOrder) {
+    const newLines: CartLine[] = [];
+    for (const item of order.items) {
+      if (!item.product_article_id) continue;
+      const article = articles.find(a => a.id === item.product_article_id);
+      if (!article) continue;
+      const price = calcPrice(article, clientType, clientPrices);
+      newLines.push({
+        article_id: article.id,
+        display_name: article.display_name,
+        unit_price: price,
+        unit_quantity: article.quantity,
+        quantity: item.quantity_ordered,
+      });
+    }
+    if (newLines.length === 0) return;
+    setCart(newLines);
+    setView('cart');
   }
 
   async function handleSaveProfil() {
@@ -507,12 +527,19 @@ export default function PortailPage() {
                   </p>
                 ))}
               </div>
-              {order.has_bl && (
-                <div className="border-t border-gray-50 px-4 py-2.5 flex items-center gap-2">
-                  <FileText size={13} className="text-green-600" />
-                  <span className="text-xs text-green-700 font-medium">Bon de livraison disponible</span>
-                </div>
-              )}
+              <div className={`border-t border-gray-50 px-4 py-2.5 flex items-center ${order.has_bl ? 'justify-between' : 'justify-end'}`}>
+                {order.has_bl && (
+                  <div className="flex items-center gap-1.5">
+                    <FileText size={13} className="text-green-600" />
+                    <span className="text-xs text-green-700 font-medium">BL disponible</span>
+                  </div>
+                )}
+                <button
+                  onClick={() => handleRecommander(order)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-xl text-xs font-semibold hover:bg-blue-100 transition-colors">
+                  <RefreshCw size={11} /> Recommander
+                </button>
+              </div>
             </div>
           );
         })}
@@ -568,6 +595,56 @@ export default function PortailPage() {
         <div className="bg-gray-50 rounded-2xl border border-gray-100 p-4 flex items-center gap-2">
           <Globe size={14} className="text-gray-400 shrink-0" />
           <p className="text-xs text-gray-400">Les modifications seront visibles par votre fournisseur.</p>
+        </div>
+
+        {/* Historique dans profil */}
+        <div className="space-y-3">
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-wide px-1">Historique de commandes</p>
+          {historyLoading ? (
+            <div className="flex items-center justify-center py-6">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600" />
+            </div>
+          ) : history.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-gray-100 p-6 text-center">
+              <Clock size={28} className="text-gray-200 mx-auto mb-2" />
+              <p className="text-gray-400 text-sm">Aucune commande</p>
+            </div>
+          ) : history.slice(0, 5).map(order => {
+            const st = STATUS_LABELS[order.status] ?? STATUS_LABELS.brouillon;
+            return (
+              <div key={order.id} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+                <div className="flex items-center justify-between gap-2 px-4 py-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-semibold text-gray-900">{formatDate(order.delivery_date)}</p>
+                      <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ backgroundColor: st.bg, color: st.color }}>{st.label}</span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-0.5">{order.numero}</p>
+                  </div>
+                  <p className="text-sm font-bold text-gray-900 shrink-0">{formatPrice(order.total)}</p>
+                </div>
+                <div className={`border-t border-gray-50 px-4 py-2.5 flex items-center ${order.has_bl ? 'justify-between' : 'justify-end'}`}>
+                  {order.has_bl && (
+                    <div className="flex items-center gap-1.5">
+                      <FileText size={13} className="text-green-600" />
+                      <span className="text-xs text-green-700 font-medium">BL disponible</span>
+                    </div>
+                  )}
+                  <button
+                    onClick={() => handleRecommander(order)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-xl text-xs font-semibold hover:bg-blue-100 transition-colors">
+                    <RefreshCw size={11} /> Recommander
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+          {history.length > 5 && (
+            <button onClick={() => setView('historique')}
+              className="w-full py-3 text-sm text-blue-600 font-semibold hover:text-blue-700 transition-colors">
+              Voir toutes les commandes ({history.length})
+            </button>
+          )}
         </div>
       </div>
       <BottomNav />
