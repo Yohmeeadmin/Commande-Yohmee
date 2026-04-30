@@ -60,7 +60,7 @@ export default function CataloguePage() {
 
   // Charger les entreprises au montage
   useEffect(() => {
-    supabase.from('companies').select('id, name, slug').order('name').then(({ data }) => {
+    supabase.from('companies').select('id, name, slug').order('name').then(({ data }: { data: Company[] | null }) => {
       const list = data || [];
       setCompanies(list);
       const saved = localStorage.getItem('catalogue_company_id');
