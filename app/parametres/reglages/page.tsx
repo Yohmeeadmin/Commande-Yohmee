@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Upload, X, Check, Loader2, Clock, Calendar, AlertCircle, Building2, Globe, Monitor } from 'lucide-react';
+import { Upload, X, Check, Loader2, Clock, Calendar, AlertCircle, Building2, Globe, Monitor, Link2, ShieldCheck, ShieldX } from 'lucide-react';
 import { useAppSettings, ClientTypeDelivery, ClientTypeSettings } from '@/lib/useAppSettings';
 import { supabase } from '@/lib/supabase/client';
 import { CLIENT_TYPES } from '@/types';
@@ -18,6 +18,9 @@ interface Company {
   id: string;
   name: string;
   slug: string;
+  woocommerce_url: string | null;
+  woocommerce_key: string | null;
+  woocommerce_secret: string | null;
 }
 
 interface CompanySettings {
@@ -79,6 +82,14 @@ export default function ReglagesPage() {
   const [preview, setPreview] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // ── WooCommerce ────────────────────────────────────────────────────────────
+  const [woo, setWoo] = useState({ url: '', key: '', secret: '' });
+  const [savingWoo, setSavingWoo] = useState(false);
+  const [savedWoo, setSavedWoo] = useState(false);
+  const [testingWoo, setTestingWoo] = useState(false);
+  const [wooTestResult, setWooTestResult] = useState<'ok' | 'error' | null>(null);
+  const [wooTestMsg, setWooTestMsg] = useState('');
+
   // ── Livraison ──────────────────────────────────────────────────────────────
   const [slots, setSlots] = useState<DeliverySlot[]>([]);
   const [typeSettings, setTypeSettings] = useState<ClientTypeSettings>({});
@@ -94,7 +105,7 @@ export default function ReglagesPage() {
 
   // Charger les entreprises au montage
   useEffect(() => {
-    supabase.from('companies').select('id, name, slug').order('created_at').then(({ data }) => {
+    supabase.from('companies').select('id, name, slug, woocommerce_url, woocommerce_key, woocommerce_secret').order('created_at').then(({ data }) => {
       const list = data || [];
       setCompanies(list);
       if (list.length > 0) setSelectedCompanyId(list[0].id);
@@ -110,6 +121,20 @@ export default function ReglagesPage() {
     setLandingTitle(settings.landing_title ?? settings.company_name ?? '');
     setLandingSubtitle(settings.landing_subtitle ?? settings.company_tagline ?? '');
   }
+
+  // Sync champs WooCommerce quand on change d'entreprise
+  useEffect(() => {
+    const company = companies.find(c => c.id === selectedCompanyId);
+    if (company) {
+      setWoo({
+        url: company.woocommerce_url ?? '',
+        key: company.woocommerce_key ?? '',
+        secret: company.woocommerce_secret ?? '',
+      });
+      setWooTestResult(null);
+      setWooTestMsg('');
+    }
+  }, [selectedCompanyId, companies]);
 
   // Charger les réglages de l'entreprise sélectionnée
   const loadCompanySettings = useCallback(async (companyId: string) => {
@@ -211,6 +236,50 @@ export default function ReglagesPage() {
     setCompanySettings(prev => prev ? { ...prev, logo_url: url } : null);
     setPreview(null);
     if (fileRef.current) fileRef.current.value = '';
+  }
+
+  // ── WooCommerce save + test ────────────────────────────────────────────────
+  async function handleSaveWoo() {
+    setSavingWoo(true);
+    const { error } = await supabase.from('companies').update({
+      woocommerce_url: woo.url || null,
+      woocommerce_key: woo.key || null,
+      woocommerce_secret: woo.secret || null,
+    }).eq('id', selectedCompanyId);
+    setSavingWoo(false);
+    if (error) { alert(`Erreur : ${error.message}`); return; }
+    setCompanies(prev => prev.map(c => c.id === selectedCompanyId
+      ? { ...c, woocommerce_url: woo.url || null, woocommerce_key: woo.key || null, woocommerce_secret: woo.secret || null }
+      : c
+    ));
+    setSavedWoo(true);
+    setTimeout(() => setSavedWoo(false), 2000);
+  }
+
+  async function handleTestWoo() {
+    if (!woo.url || !woo.key || !woo.secret) return;
+    setTestingWoo(true);
+    setWooTestResult(null);
+    try {
+      const base = woo.url.replace(/\/$/, '');
+      const credentials = btoa(`${woo.key}:${woo.secret}`);
+      const res = await fetch(`${base}/wp-json/wc/v3/system_status`, {
+        headers: { Authorization: `Basic ${credentials}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const version = data?.environment?.version ?? '';
+        setWooTestResult('ok');
+        setWooTestMsg(`Connexion réussie${version ? ` · WooCommerce ${version}` : ''}`);
+      } else {
+        setWooTestResult('error');
+        setWooTestMsg(`Erreur ${res.status} — vérifiez l'URL et les clés API`);
+      }
+    } catch {
+      setWooTestResult('error');
+      setWooTestMsg('Impossible de joindre le site. Vérifiez l\'URL et les CORS.');
+    }
+    setTestingWoo(false);
   }
 
   // ── Livraison & Landing ────────────────────────────────────────────────────
@@ -422,6 +491,100 @@ export default function ReglagesPage() {
           ) : null}
         </div>
       </div>
+
+      {/* ── Connexion WooCommerce (entreprises secondaires uniquement) ────────── */}
+      {!isMainCompany && (
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+          <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100">
+            <div className="w-9 h-9 bg-purple-50 rounded-xl flex items-center justify-center shrink-0">
+              <Link2 size={18} className="text-purple-600" />
+            </div>
+            <div>
+              <h2 className="font-semibold text-gray-900">Connexion WooCommerce</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Liez votre boutique WordPress pour synchroniser produits et commandes</p>
+            </div>
+          </div>
+
+          <div className="p-6 space-y-5">
+            {/* Guide rapide */}
+            <div className="bg-purple-50 border border-purple-100 rounded-xl p-4 text-sm text-purple-800 space-y-1">
+              <p className="font-semibold">Comment obtenir vos clés API ?</p>
+              <ol className="list-decimal list-inside space-y-0.5 text-xs text-purple-700">
+                <li>Allez dans <strong>WooCommerce → Réglages → Avancé → API REST</strong></li>
+                <li>Cliquez <strong>Ajouter une clé</strong></li>
+                <li>Sélectionnez <strong>Lecture/Écriture</strong> comme permissions</li>
+                <li>Copiez la Consumer Key et le Consumer Secret ci-dessous</li>
+              </ol>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className={labelClass}>URL du site WordPress</label>
+                <input
+                  type="url"
+                  value={woo.url}
+                  onChange={e => setWoo(w => ({ ...w, url: e.target.value }))}
+                  placeholder="https://mazette.com"
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Consumer Key</label>
+                <input
+                  type="text"
+                  value={woo.key}
+                  onChange={e => setWoo(w => ({ ...w, key: e.target.value }))}
+                  placeholder="ck_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  className={inputClass + ' font-mono text-xs'}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Consumer Secret</label>
+                <input
+                  type="password"
+                  value={woo.secret}
+                  onChange={e => setWoo(w => ({ ...w, secret: e.target.value }))}
+                  placeholder="cs_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  className={inputClass + ' font-mono text-xs'}
+                />
+              </div>
+            </div>
+
+            {/* Résultat test */}
+            {wooTestResult && (
+              <div className={`flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium ${
+                wooTestResult === 'ok'
+                  ? 'bg-green-50 text-green-700 border border-green-200'
+                  : 'bg-red-50 text-red-700 border border-red-200'
+              }`}>
+                {wooTestResult === 'ok'
+                  ? <ShieldCheck size={16} className="shrink-0" />
+                  : <ShieldX size={16} className="shrink-0" />
+                }
+                {wooTestMsg}
+              </div>
+            )}
+
+            <div className="flex items-center gap-3 pt-1">
+              <button
+                onClick={handleTestWoo}
+                disabled={testingWoo || !woo.url || !woo.key || !woo.secret}
+                className="flex items-center gap-2 px-4 py-2.5 border border-purple-300 text-purple-700 rounded-xl text-sm font-medium hover:bg-purple-50 disabled:opacity-40 transition-colors"
+              >
+                {testingWoo ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />}
+                Tester la connexion
+              </button>
+              <button
+                onClick={handleSaveWoo}
+                disabled={savingWoo}
+                className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              >
+                {savingWoo ? <><Loader2 size={15} className="animate-spin" /> Enregistrement…</> : savedWoo ? <><Check size={15} /> Enregistré</> : 'Sauvegarder'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Sections globales (entreprise principale uniquement) ─────────────── */}
       {isMainCompany && (<>
