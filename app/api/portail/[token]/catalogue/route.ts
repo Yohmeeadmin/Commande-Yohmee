@@ -28,7 +28,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
     .or('is_active.is.null,is_active.eq.true')
     .order('display_name');
 
-  const [{ data: articles }, { data: categories }, { data: slots }, { data: clientPrices }] = await Promise.all([
+  const [{ data: articles, error: articlesError }, { data: categories }, { data: slots }, { data: clientPrices }] = await Promise.all([
     articlesQuery,
     supabase.from('categories').select('id, nom').order('nom'),
     supabase.from('delivery_slots').select('id, name, start_time, end_time, sort_order').eq('is_active', true).order('sort_order'),
@@ -79,6 +79,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
     clientPrices: priceMap,
     _debug: {
       rawCount: (articles || []).length,
+      articlesError: articlesError?.message ?? null,
       companyFilteredCount: companyFiltered.length,
       filteredCount: filtered.length,
       clientCompanyId: client.company_id,
