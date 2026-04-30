@@ -107,7 +107,7 @@ export default function ReglagesPage() {
 
   // Charger les entreprises au montage
   useEffect(() => {
-    supabase.from('companies').select('id, name, slug, woocommerce_url, woocommerce_key, woocommerce_secret').order('created_at').then(({ data }) => {
+    supabase.from('companies').select('id, name, slug, woocommerce_url, woocommerce_key, woocommerce_secret').order('created_at').then(({ data }: { data: Company[] | null }) => {
       const list = data || [];
       setCompanies(list);
       if (list.length > 0) setSelectedCompanyId(list[0].id);
