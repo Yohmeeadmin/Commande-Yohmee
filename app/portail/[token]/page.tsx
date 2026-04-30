@@ -169,9 +169,7 @@ export default function PortailPage() {
         setSettings(s);
         setProfil({ telephone: c.telephone || '', email: c.email || '', adresse_livraison: c.adresse_livraison || '', ville: c.ville || '' });
         if (catRes.ok) {
-          const catData = await catRes.json();
-          console.log('[DEBUG catalogue]', catData._debug);
-          const { articles: a, categories: cats, slots: sl, clientType: ct, clientPrices: cp } = catData;
+          const { articles: a, categories: cats, slots: sl, clientType: ct, clientPrices: cp } = await catRes.json();
           setArticles(a || []); setCategories(cats || []); setSlots(sl || []);
           setClientType(ct || 'entreprise'); setClientPrices(cp || {});
         }
