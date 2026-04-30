@@ -1,17 +1,11 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { Upload, X, Check, Loader2, Clock, Calendar, AlertCircle, Building2, Tag, Plus, Pencil, Trash2, Globe, Monitor } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { Upload, X, Check, Loader2, Clock, Calendar, AlertCircle, Building2, Globe, Monitor } from 'lucide-react';
 import { useAppSettings, ClientTypeDelivery, ClientTypeSettings } from '@/lib/useAppSettings';
 import { supabase } from '@/lib/supabase/client';
 import { CLIENT_TYPES } from '@/types';
 import Image from 'next/image';
-
-interface Category {
-  id: string;
-  nom: string;
-  ordre: number;
-}
 
 interface DeliverySlot {
   id: string;
@@ -20,200 +14,212 @@ interface DeliverySlot {
   end_time: string;
 }
 
+interface Company {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+interface CompanySettings {
+  id?: number;
+  company_id: string;
+  company_name: string;
+  company_tagline: string | null;
+  logo_url: string | null;
+  raison_sociale: string | null;
+  rc: string | null;
+  ice_societe: string | null;
+  if_fiscal: string | null;
+  cnss: string | null;
+  tp: string | null;
+  email_societe: string | null;
+  telephone_societe: string | null;
+  site_web: string | null;
+  adresse_siege: string | null;
+  code_postal: string | null;
+  ville_siege: string | null;
+  pays: string | null;
+}
+
+const EMPTY_COMPANY_SETTINGS = (company_id: string): CompanySettings => ({
+  company_id,
+  company_name: '',
+  company_tagline: null,
+  logo_url: null,
+  raison_sociale: null,
+  rc: null,
+  ice_societe: null,
+  if_fiscal: null,
+  cnss: null,
+  tp: null,
+  email_societe: null,
+  telephone_societe: null,
+  site_web: null,
+  adresse_siege: null,
+  code_postal: null,
+  ville_siege: null,
+  pays: 'Maroc',
+});
+
 const DELIVERY_TYPES = CLIENT_TYPES.filter(t => t.value !== 'autre');
 
 export default function ReglagesPage() {
-  const { settings, loading, updateSettings, uploadLogo } = useAppSettings();
-  const [uploading, setUploading] = useState(false);
+  const { settings, updateSettings } = useAppSettings();
+
+  // ── Entreprises ────────────────────────────────────────────────────────────
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
+  const [companySettings, setCompanySettings] = useState<CompanySettings | null>(null);
+  const [loadingCompany, setLoadingCompany] = useState(false);
   const [savingEntreprise, setSavingEntreprise] = useState(false);
   const [savedEntreprise, setSavedEntreprise] = useState(false);
-  const [savingDelivery, setSavingDelivery] = useState(false);
-  const [savedDelivery, setSavedDelivery] = useState(false);
-  const [savingLanding, setSavingLanding] = useState(false);
-  const [savedLanding, setSavedLanding] = useState(false);
-  const [landingTitle, setLandingTitle] = useState('');
-  const [landingSubtitle, setLandingSubtitle] = useState('');
   const [errorEntreprise, setErrorEntreprise] = useState<string | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // ── Livraison ──────────────────────────────────────────────────────────────
   const [slots, setSlots] = useState<DeliverySlot[]>([]);
   const [typeSettings, setTypeSettings] = useState<ClientTypeSettings>({});
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [newCategoryName, setNewCategoryName] = useState('');
-  const [savingCategory, setSavingCategory] = useState(false);
-  const [editingCategory, setEditingCategory] = useState<{ id: string; nom: string } | null>(null);
-  const [savingEditCategory, setSavingEditCategory] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [savingDelivery, setSavingDelivery] = useState(false);
+  const [savedDelivery, setSavedDelivery] = useState(false);
+
+  // ── Landing ────────────────────────────────────────────────────────────────
+  const [landingTitle, setLandingTitle] = useState('');
+  const [landingSubtitle, setLandingSubtitle] = useState('');
+  const [savingLanding, setSavingLanding] = useState(false);
+  const [savedLanding, setSavedLanding] = useState(false);
   const initialized = useRef(false);
 
-  // Formulaire entreprise
-  const [entreprise, setEntreprise] = useState({
-    raison_sociale: '',
-    company_tagline: '',
-    rc: '',
-    ice_societe: '',
-    if_fiscal: '',
-    cnss: '',
-    tp: '',
-    email_societe: '',
-    telephone_societe: '',
-    site_web: '',
-    adresse_siege: '',
-    code_postal: '',
-    ville_siege: '',
-    pays: 'Maroc',
-  });
-
+  // Charger les entreprises au montage
   useEffect(() => {
+    supabase.from('companies').select('id, name, slug').order('name').then(({ data }) => {
+      const list = data || [];
+      setCompanies(list);
+      if (list.length > 0) setSelectedCompanyId(list[0].id);
+    });
     supabase.from('delivery_slots').select('*').eq('is_active', true).order('sort_order')
-      .then(({ data }: { data: DeliverySlot[] | null }) => setSlots(data || []));
-    supabase.from('categories').select('*').order('ordre')
-      .then(({ data }: { data: Category[] | null }) => setCategories(data || []));
+      .then(({ data }) => setSlots(data || []));
   }, []);
 
-  if (!loading && !initialized.current) {
+  // Sync settings globaux vers état local (livraison + landing)
+  if (!initialized.current && settings.company_name) {
     initialized.current = true;
-    setEntreprise({
-      raison_sociale: settings.raison_sociale ?? settings.company_name ?? '',
-      company_tagline: settings.company_tagline ?? '',
-      rc: settings.rc ?? '',
-      ice_societe: settings.ice_societe ?? '',
-      if_fiscal: settings.if_fiscal ?? '',
-      cnss: settings.cnss ?? '',
-      tp: settings.tp ?? '',
-      email_societe: settings.email_societe ?? '',
-      telephone_societe: settings.telephone_societe ?? '',
-      site_web: settings.site_web ?? '',
-      adresse_siege: settings.adresse_siege ?? '',
-      code_postal: settings.code_postal ?? '',
-      ville_siege: settings.ville_siege ?? '',
-      pays: settings.pays ?? 'Maroc',
-    });
     setTypeSettings(settings.client_type_settings ?? {});
     setLandingTitle(settings.landing_title ?? settings.company_name ?? '');
     setLandingSubtitle(settings.landing_subtitle ?? settings.company_tagline ?? '');
   }
 
-  function getTypeSetting(type: string): ClientTypeDelivery {
-    return typeSettings[type] ?? { mode: 'creneau', heure: null, creneau_id: null };
-  }
-
-  function updateTypeSetting(type: string, updates: Partial<ClientTypeDelivery>) {
-    setTypeSettings(prev => ({
-      ...prev,
-      [type]: { ...getTypeSetting(type), ...updates },
-    }));
-  }
-
-  async function addCategory() {
-    if (!newCategoryName.trim()) return;
-    setSavingCategory(true);
-    try {
-      const { data, error } = await supabase.from('categories').insert({
-        nom: newCategoryName.trim(),
-        ordre: categories.length + 1,
-      }).select().single();
-      if (error) { alert(`Erreur : ${error.message}`); return; }
-      setCategories(prev => [...prev, data as Category]);
-      setNewCategoryName('');
-    } finally {
-      setSavingCategory(false);
-    }
-  }
-
-  async function saveEditCategory() {
-    if (!editingCategory || !editingCategory.nom.trim()) return;
-    setSavingEditCategory(true);
-    try {
-      const { error } = await supabase.from('categories')
-        .update({ nom: editingCategory.nom.trim() })
-        .eq('id', editingCategory.id);
-      if (error) { alert(`Erreur : ${error.message}`); return; }
-      setCategories(prev => prev.map(c => c.id === editingCategory.id ? { ...c, nom: editingCategory.nom.trim() } : c));
-      setEditingCategory(null);
-    } finally {
-      setSavingEditCategory(false);
-    }
-  }
-
-  async function deleteCategory(cat: Category) {
-    const { count } = await supabase.from('product_references').select('*', { count: 'exact', head: true }).eq('category_id', cat.id);
-    if (count && count > 0) {
-      alert(`Impossible de supprimer "${cat.nom}" : ${count} référence${count > 1 ? 's' : ''} l'utilisent encore.`);
-      return;
-    }
-    if (!confirm(`Supprimer la catégorie "${cat.nom}" ?`)) return;
-    const { error } = await supabase.from('categories').delete().eq('id', cat.id);
-    if (error) { alert(`Erreur : ${error.message}`); return; }
-    setCategories(prev => prev.filter(c => c.id !== cat.id));
-  }
-
-  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // Charger les réglages de l'entreprise sélectionnée
+  const loadCompanySettings = useCallback(async (companyId: string) => {
+    setLoadingCompany(true);
+    setPreview(null);
     setUploadError(null);
-    const reader = new FileReader();
-    reader.onload = (ev) => setPreview(ev.target?.result as string);
-    reader.readAsDataURL(file);
-    setUploading(true);
-    const { url, error: uploadErr } = await uploadLogo(file);
-    setUploading(false);
-    if (uploadErr || !url) {
-      setPreview(null);
-      setUploadError(uploadErr ?? "Erreur inconnue lors de l'upload.");
-      if (fileRef.current) fileRef.current.value = '';
-      return;
-    }
-    await updateSettings({ logo_url: url });
-    setPreview(null);
+    const { data } = await supabase
+      .from('app_settings')
+      .select('*')
+      .eq('company_id', companyId)
+      .maybeSingle();
+    setCompanySettings(data ? (data as CompanySettings) : EMPTY_COMPANY_SETTINGS(companyId));
+    setLoadingCompany(false);
+  }, []);
+
+  useEffect(() => {
+    if (selectedCompanyId) loadCompanySettings(selectedCompanyId);
+  }, [selectedCompanyId, loadCompanySettings]);
+
+  function updateField(field: keyof CompanySettings, value: string | null) {
+    setCompanySettings(prev => prev ? { ...prev, [field]: value } : null);
   }
 
-  async function handleRemoveLogo() {
-    await updateSettings({ logo_url: null });
-    setPreview(null);
-    if (fileRef.current) fileRef.current.value = '';
-  }
-
+  // ── Sauvegarde entreprise ──────────────────────────────────────────────────
   async function handleSaveEntreprise() {
+    if (!companySettings) return;
     setSavingEntreprise(true);
     setErrorEntreprise(null);
-    const { error } = await updateSettings({
-      raison_sociale: entreprise.raison_sociale || null,
-      company_name: entreprise.raison_sociale || settings.company_name,
-      company_tagline: entreprise.company_tagline || null,
-      rc: entreprise.rc || null,
-      ice_societe: entreprise.ice_societe || null,
-      if_fiscal: entreprise.if_fiscal || null,
-      cnss: entreprise.cnss || null,
-      tp: entreprise.tp || null,
-      email_societe: entreprise.email_societe || null,
-      telephone_societe: entreprise.telephone_societe || null,
-      site_web: entreprise.site_web || null,
-      adresse_siege: entreprise.adresse_siege || null,
-      code_postal: entreprise.code_postal || null,
-      ville_siege: entreprise.ville_siege || null,
-      pays: entreprise.pays || null,
-    });
+    const payload = {
+      company_id: companySettings.company_id,
+      company_name: companySettings.raison_sociale || companySettings.company_name || '',
+      company_tagline: companySettings.company_tagline,
+      logo_url: companySettings.logo_url,
+      raison_sociale: companySettings.raison_sociale,
+      rc: companySettings.rc,
+      ice_societe: companySettings.ice_societe,
+      if_fiscal: companySettings.if_fiscal,
+      cnss: companySettings.cnss,
+      tp: companySettings.tp,
+      email_societe: companySettings.email_societe,
+      telephone_societe: companySettings.telephone_societe,
+      site_web: companySettings.site_web,
+      adresse_siege: companySettings.adresse_siege,
+      code_postal: companySettings.code_postal,
+      ville_siege: companySettings.ville_siege,
+      pays: companySettings.pays,
+    };
+
+    let error;
+    if (companySettings.id) {
+      ({ error } = await supabase.from('app_settings').update(payload).eq('id', companySettings.id));
+    } else {
+      const { data, error: insertError } = await supabase.from('app_settings').insert(payload).select().single();
+      error = insertError;
+      if (data) setCompanySettings(prev => prev ? { ...prev, id: (data as any).id } : null);
+    }
+
     setSavingEntreprise(false);
     if (error) {
-      setErrorEntreprise((error as { message?: string }).message ?? 'Erreur lors de la sauvegarde');
+      setErrorEntreprise((error as { message?: string }).message ?? 'Erreur');
     } else {
       setSavedEntreprise(true);
       setTimeout(() => setSavedEntreprise(false), 2000);
     }
   }
 
-  async function handleSaveLanding() {
-    setSavingLanding(true);
-    await updateSettings({
-      landing_title: landingTitle || null,
-      landing_subtitle: landingSubtitle || null,
-    } as any);
-    setSavingLanding(false);
-    setSavedLanding(true);
-    setTimeout(() => setSavedLanding(false), 2000);
+  // ── Upload logo ────────────────────────────────────────────────────────────
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !companySettings) return;
+    setUploadError(null);
+    const reader = new FileReader();
+    reader.onload = ev => setPreview(ev.target?.result as string);
+    reader.readAsDataURL(file);
+    setUploading(true);
+
+    const company = companies.find(c => c.id === selectedCompanyId);
+    const slug = company?.slug ?? 'company';
+    const ext = file.name.split('.').pop();
+    const path = `${slug}.${ext}`;
+
+    // Signed upload URL
+    const signRes = await fetch('/api/upload-photo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, bucket: 'logos' }),
+    });
+    const signData = await signRes.json();
+    if (!signRes.ok) { setUploadError(signData.error); setUploading(false); return; }
+
+    const { error: upError } = await supabase.storage
+      .from('logos')
+      .uploadToSignedUrl(path, signData.token, file, { contentType: file.type });
+    setUploading(false);
+    if (upError) { setUploadError(upError.message); setPreview(null); return; }
+
+    const { data: { publicUrl } } = supabase.storage.from('logos').getPublicUrl(path);
+    const url = `${publicUrl}?t=${Date.now()}`;
+    setCompanySettings(prev => prev ? { ...prev, logo_url: url } : null);
+    setPreview(null);
+    if (fileRef.current) fileRef.current.value = '';
   }
 
+  // ── Livraison & Landing ────────────────────────────────────────────────────
+  function getTypeSetting(type: string): ClientTypeDelivery {
+    return typeSettings[type] ?? { mode: 'creneau', heure: null, creneau_id: null };
+  }
+  function updateTypeSetting(type: string, updates: Partial<ClientTypeDelivery>) {
+    setTypeSettings(prev => ({ ...prev, [type]: { ...getTypeSetting(type), ...updates } }));
+  }
   async function handleSaveDelivery() {
     setSavingDelivery(true);
     await updateSettings({ client_type_settings: typeSettings });
@@ -221,17 +227,15 @@ export default function ReglagesPage() {
     setSavedDelivery(true);
     setTimeout(() => setSavedDelivery(false), 2000);
   }
-
-  const currentLogo = preview ?? settings.logo_url;
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="animate-spin text-gray-400" size={32} />
-      </div>
-    );
+  async function handleSaveLanding() {
+    setSavingLanding(true);
+    await updateSettings({ landing_title: landingTitle || null, landing_subtitle: landingSubtitle || null } as any);
+    setSavingLanding(false);
+    setSavedLanding(true);
+    setTimeout(() => setSavedLanding(false), 2000);
   }
 
+  const currentLogo = preview ?? companySettings?.logo_url;
   const inputClass = "w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white";
   const labelClass = "block text-xs font-semibold text-gray-500 mb-1.5";
 
@@ -243,151 +247,176 @@ export default function ReglagesPage() {
       </div>
 
       {/* ── Mon entreprise ────────────────────────────────────────────────────── */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Building2 size={18} className="text-blue-600" />
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+
+        {/* Onglets entreprises */}
+        {companies.length > 0 && (
+          <div className="flex border-b border-gray-100 overflow-x-auto">
+            {companies.map(company => (
+              <button
+                key={company.id}
+                onClick={() => setSelectedCompanyId(company.id)}
+                className={`shrink-0 flex items-center gap-2 px-5 py-3.5 text-sm font-semibold border-b-2 transition-colors ${
+                  selectedCompanyId === company.id
+                    ? 'border-blue-600 text-blue-600 bg-blue-50/50'
+                    : 'border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50'
+                }`}
+              >
+                <Building2 size={15} />
+                {company.name}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="p-6 space-y-6">
+          <div className="flex items-center justify-between">
             <div>
               <h2 className="font-semibold text-gray-900">Mon entreprise</h2>
               <p className="text-xs text-gray-400 mt-0.5">Ces informations apparaissent sur vos bons de livraison</p>
             </div>
-          </div>
-          <div className="flex items-center gap-3">
-            {errorEntreprise && (
-              <span className="flex items-center gap-1.5 text-xs text-red-600">
-                <AlertCircle size={13} /> {errorEntreprise}
-              </span>
-            )}
-            <button
-              onClick={handleSaveEntreprise}
-              disabled={savingEntreprise}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
-            >
-              {savingEntreprise ? <><Loader2 size={14} className="animate-spin" /> Enregistrement…</> : savedEntreprise ? <><Check size={14} /> Enregistré</> : 'Sauvegarder'}
-            </button>
-          </div>
-        </div>
-
-        {/* Logo */}
-        <div className="flex items-center gap-6">
-          <div className="w-20 h-20 rounded-2xl bg-gray-50 border-2 border-dashed border-gray-200 flex items-center justify-center overflow-hidden flex-shrink-0">
-            {currentLogo ? (
-              <Image src={currentLogo} alt="Logo" width={80} height={80} className="w-full h-full object-contain" />
-            ) : (
-              <span className="text-3xl font-bold text-blue-600">{(entreprise.raison_sociale || 'B').charAt(0)}</span>
-            )}
-          </div>
-          <div className="flex flex-col gap-2">
-            <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" className="hidden" onChange={handleFileChange} />
-            <button
-              onClick={() => fileRef.current?.click()}
-              disabled={uploading}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
-            >
-              {uploading ? <><Loader2 size={16} className="animate-spin" /> Envoi…</> : <><Upload size={16} /> Choisir un fichier</>}
-            </button>
-            {currentLogo && (
-              <button onClick={handleRemoveLogo} className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-xl text-sm font-medium hover:bg-red-100 transition-colors">
-                <X size={16} /> Supprimer
+            <div className="flex items-center gap-3">
+              {errorEntreprise && (
+                <span className="flex items-center gap-1.5 text-xs text-red-600">
+                  <AlertCircle size={13} /> {errorEntreprise}
+                </span>
+              )}
+              <button
+                onClick={handleSaveEntreprise}
+                disabled={savingEntreprise || loadingCompany}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              >
+                {savingEntreprise
+                  ? <><Loader2 size={14} className="animate-spin" /> Enregistrement…</>
+                  : savedEntreprise
+                  ? <><Check size={14} /> Enregistré</>
+                  : 'Sauvegarder'}
               </button>
-            )}
-            <p className="text-xs text-gray-400">PNG, JPG, SVG · Max 2 Mo</p>
-            {uploadError && (
-              <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 text-xs text-red-700 max-w-xs">
-                <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
-                <span>{uploadError}</span>
-              </div>
-            )}
+            </div>
           </div>
-        </div>
 
-        {/* Raison sociale + tagline */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="col-span-2">
-            <label className={labelClass}>Raison sociale</label>
-            <input type="text" value={entreprise.raison_sociale} onChange={e => setEntreprise(f => ({ ...f, raison_sociale: e.target.value }))}
-              placeholder="BDK FOOD SARL" className={inputClass} />
-          </div>
-          <div className="col-span-2">
-            <label className={labelClass}>Sous-titre</label>
-            <input type="text" value={entreprise.company_tagline} onChange={e => setEntreprise(f => ({ ...f, company_tagline: e.target.value }))}
-              placeholder="Boulangerie | Pâtisserie | Chocolat" className={inputClass} />
-          </div>
-        </div>
+          {loadingCompany ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 size={24} className="animate-spin text-gray-300" />
+            </div>
+          ) : companySettings ? (
+            <>
+              {/* Logo */}
+              <div className="flex items-center gap-6">
+                <div className="w-20 h-20 rounded-2xl bg-gray-50 border-2 border-dashed border-gray-200 flex items-center justify-center overflow-hidden flex-shrink-0">
+                  {currentLogo ? (
+                    <Image src={currentLogo} alt="Logo" width={80} height={80} className="w-full h-full object-contain" />
+                  ) : (
+                    <span className="text-3xl font-bold text-blue-600">
+                      {(companySettings.raison_sociale || companies.find(c => c.id === selectedCompanyId)?.name || 'B').charAt(0)}
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-col gap-2">
+                  <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" className="hidden" onChange={handleFileChange} />
+                  <button
+                    onClick={() => fileRef.current?.click()}
+                    disabled={uploading}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                  >
+                    {uploading ? <><Loader2 size={16} className="animate-spin" /> Envoi…</> : <><Upload size={16} /> Choisir un fichier</>}
+                  </button>
+                  {currentLogo && (
+                    <button
+                      onClick={() => { setCompanySettings(prev => prev ? { ...prev, logo_url: null } : null); setPreview(null); }}
+                      className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-xl text-sm font-medium hover:bg-red-100 transition-colors"
+                    >
+                      <X size={16} /> Supprimer
+                    </button>
+                  )}
+                  <p className="text-xs text-gray-400">PNG, JPG, SVG · Max 2 Mo</p>
+                  {uploadError && (
+                    <p className="text-xs text-red-600 flex items-center gap-1"><AlertCircle size={12} />{uploadError}</p>
+                  )}
+                </div>
+              </div>
 
-        <div className="border-t border-gray-100 pt-4">
-          <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-4">Identifiants légaux</p>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={labelClass}>R.C</label>
-              <input type="text" value={entreprise.rc} onChange={e => setEntreprise(f => ({ ...f, rc: e.target.value }))}
-                placeholder="151343" className={inputClass} />
-            </div>
-            <div>
-              <label className={labelClass}>E-mail</label>
-              <input type="email" value={entreprise.email_societe} onChange={e => setEntreprise(f => ({ ...f, email_societe: e.target.value }))}
-                placeholder="Commercial@bdk-food.com" className={inputClass} />
-            </div>
-            <div>
-              <label className={labelClass}>I.C.E</label>
-              <input type="text" value={entreprise.ice_societe} onChange={e => setEntreprise(f => ({ ...f, ice_societe: e.target.value }))}
-                placeholder="003524755000061" className={inputClass} />
-            </div>
-            <div>
-              <label className={labelClass}>Téléphone</label>
-              <input type="tel" value={entreprise.telephone_societe} onChange={e => setEntreprise(f => ({ ...f, telephone_societe: e.target.value }))}
-                placeholder="0600414890" className={inputClass} />
-            </div>
-            <div>
-              <label className={labelClass}>I.F</label>
-              <input type="text" value={entreprise.if_fiscal} onChange={e => setEntreprise(f => ({ ...f, if_fiscal: e.target.value }))}
-                placeholder="660040481" className={inputClass} />
-            </div>
-            <div>
-              <label className={labelClass}>Site Web</label>
-              <input type="text" value={entreprise.site_web} onChange={e => setEntreprise(f => ({ ...f, site_web: e.target.value }))}
-                placeholder="WWW.bdk-food.com" className={inputClass} />
-            </div>
-            <div>
-              <label className={labelClass}>C.N.S.S</label>
-              <input type="text" value={entreprise.cnss} onChange={e => setEntreprise(f => ({ ...f, cnss: e.target.value }))}
-                placeholder="" className={inputClass} />
-            </div>
-            <div>
-              <label className={labelClass}>T.P</label>
-              <input type="text" value={entreprise.tp} onChange={e => setEntreprise(f => ({ ...f, tp: e.target.value }))}
-                placeholder="64006880" className={inputClass} />
-            </div>
-          </div>
-        </div>
+              {/* Raison sociale + tagline */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <label className={labelClass}>Raison sociale</label>
+                  <input type="text" value={companySettings.raison_sociale ?? ''} onChange={e => updateField('raison_sociale', e.target.value || null)}
+                    placeholder="BDK FOOD SARL" className={inputClass} />
+                </div>
+                <div className="col-span-2">
+                  <label className={labelClass}>Sous-titre</label>
+                  <input type="text" value={companySettings.company_tagline ?? ''} onChange={e => updateField('company_tagline', e.target.value || null)}
+                    placeholder="Boulangerie | Pâtisserie | Chocolat" className={inputClass} />
+                </div>
+              </div>
 
-        <div className="border-t border-gray-100 pt-4">
-          <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-4">Adresse du siège</p>
-          <div className="space-y-3">
-            <div>
-              <label className={labelClass}>Adresse</label>
-              <textarea value={entreprise.adresse_siege} onChange={e => setEntreprise(f => ({ ...f, adresse_siege: e.target.value }))}
-                placeholder="Lot 911, Al Massar" rows={2}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className={labelClass}>Code postal</label>
-                <input type="text" value={entreprise.code_postal} onChange={e => setEntreprise(f => ({ ...f, code_postal: e.target.value }))}
-                  placeholder="40000" className={inputClass} />
+              {/* Identifiants légaux */}
+              <div className="border-t border-gray-100 pt-4">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-4">Identifiants légaux</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelClass}>R.C</label>
+                    <input type="text" value={companySettings.rc ?? ''} onChange={e => updateField('rc', e.target.value || null)} placeholder="151343" className={inputClass} />
+                  </div>
+                  <div>
+                    <label className={labelClass}>E-mail</label>
+                    <input type="email" value={companySettings.email_societe ?? ''} onChange={e => updateField('email_societe', e.target.value || null)} placeholder="contact@entreprise.com" className={inputClass} />
+                  </div>
+                  <div>
+                    <label className={labelClass}>I.C.E</label>
+                    <input type="text" value={companySettings.ice_societe ?? ''} onChange={e => updateField('ice_societe', e.target.value || null)} placeholder="003524755000061" className={inputClass} />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Téléphone</label>
+                    <input type="tel" value={companySettings.telephone_societe ?? ''} onChange={e => updateField('telephone_societe', e.target.value || null)} placeholder="0600414890" className={inputClass} />
+                  </div>
+                  <div>
+                    <label className={labelClass}>I.F</label>
+                    <input type="text" value={companySettings.if_fiscal ?? ''} onChange={e => updateField('if_fiscal', e.target.value || null)} placeholder="660040481" className={inputClass} />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Site Web</label>
+                    <input type="text" value={companySettings.site_web ?? ''} onChange={e => updateField('site_web', e.target.value || null)} placeholder="www.entreprise.com" className={inputClass} />
+                  </div>
+                  <div>
+                    <label className={labelClass}>C.N.S.S</label>
+                    <input type="text" value={companySettings.cnss ?? ''} onChange={e => updateField('cnss', e.target.value || null)} className={inputClass} />
+                  </div>
+                  <div>
+                    <label className={labelClass}>T.P</label>
+                    <input type="text" value={companySettings.tp ?? ''} onChange={e => updateField('tp', e.target.value || null)} placeholder="64006880" className={inputClass} />
+                  </div>
+                </div>
               </div>
-              <div>
-                <label className={labelClass}>Ville</label>
-                <input type="text" value={entreprise.ville_siege} onChange={e => setEntreprise(f => ({ ...f, ville_siege: e.target.value }))}
-                  placeholder="Marrakech" className={inputClass} />
+
+              {/* Adresse */}
+              <div className="border-t border-gray-100 pt-4">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-4">Adresse du siège</p>
+                <div className="space-y-3">
+                  <div>
+                    <label className={labelClass}>Adresse</label>
+                    <textarea value={companySettings.adresse_siege ?? ''} onChange={e => updateField('adresse_siege', e.target.value || null)}
+                      placeholder="Lot 911, Al Massar" rows={2}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className={labelClass}>Code postal</label>
+                      <input type="text" value={companySettings.code_postal ?? ''} onChange={e => updateField('code_postal', e.target.value || null)} placeholder="40000" className={inputClass} />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Ville</label>
+                      <input type="text" value={companySettings.ville_siege ?? ''} onChange={e => updateField('ville_siege', e.target.value || null)} placeholder="Marrakech" className={inputClass} />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Pays</label>
+                      <input type="text" value={companySettings.pays ?? 'Maroc'} onChange={e => updateField('pays', e.target.value || null)} placeholder="Maroc" className={inputClass} />
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div>
-                <label className={labelClass}>Pays</label>
-                <input type="text" value={entreprise.pays} onChange={e => setEntreprise(f => ({ ...f, pays: e.target.value }))}
-                  placeholder="Maroc" className={inputClass} />
-              </div>
-            </div>
-          </div>
+            </>
+          ) : null}
         </div>
       </div>
 
@@ -397,7 +426,6 @@ export default function ReglagesPage() {
           <h2 className="font-semibold text-gray-900">Livraison par type de client</h2>
           <p className="text-sm text-gray-400 mt-0.5">Définissez si chaque type reçoit une heure précise ou un créneau</p>
         </div>
-
         <div className="space-y-4">
           {DELIVERY_TYPES.map(type => {
             const cfg = getTypeSetting(type.value);
@@ -436,12 +464,8 @@ export default function ReglagesPage() {
             );
           })}
         </div>
-
-        <button
-          onClick={handleSaveDelivery}
-          disabled={savingDelivery}
-          className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
-        >
+        <button onClick={handleSaveDelivery} disabled={savingDelivery}
+          className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors">
           {savingDelivery ? <><Loader2 size={16} className="animate-spin" /> Enregistrement…</> : savedDelivery ? <><Check size={16} /> Enregistré</> : 'Enregistrer'}
         </button>
       </div>
@@ -456,18 +480,12 @@ export default function ReglagesPage() {
           </div>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Heure limite de commande
-          </label>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Heure limite de commande</label>
           <div className="flex items-center gap-3">
-            <input
-              type="time"
+            <input type="time"
               value={(settings.portal_order_deadline as string | undefined)?.slice(0, 5) ?? '18:00'}
-              onChange={async e => {
-                await updateSettings({ portal_order_deadline: e.target.value + ':00' } as any);
-              }}
-              className="px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
-            />
+              onChange={async e => { await updateSettings({ portal_order_deadline: e.target.value + ':00' } as any); }}
+              className="px-3 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-base" />
             <p className="text-sm text-gray-500">Les commandes passées après cette heure seront mises en attente de validation.</p>
           </div>
         </div>
@@ -483,107 +501,20 @@ export default function ReglagesPage() {
               <p className="text-xs text-gray-400 mt-0.5">Textes affichés sur bdkfood.com</p>
             </div>
           </div>
-          <button
-            onClick={handleSaveLanding}
-            disabled={savingLanding}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
-          >
+          <button onClick={handleSaveLanding} disabled={savingLanding}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors">
             {savingLanding ? <><Loader2 size={14} className="animate-spin" /> Enregistrement…</> : savedLanding ? <><Check size={14} /> Enregistré</> : 'Sauvegarder'}
           </button>
         </div>
         <div className="space-y-4">
           <div>
             <label className={labelClass}>Titre principal</label>
-            <input type="text" value={landingTitle} onChange={e => setLandingTitle(e.target.value)}
-              placeholder="BDK Food" className={inputClass} />
-            <p className="text-xs text-gray-400 mt-1">Affiché en grand dans le hero de la page</p>
+            <input type="text" value={landingTitle} onChange={e => setLandingTitle(e.target.value)} placeholder="BDK Food" className={inputClass} />
           </div>
           <div>
             <label className={labelClass}>Sous-titre</label>
-            <input type="text" value={landingSubtitle} onChange={e => setLandingSubtitle(e.target.value)}
-              placeholder="Artisan boulanger · Pâtissier · Chocolatier" className={inputClass} />
+            <input type="text" value={landingSubtitle} onChange={e => setLandingSubtitle(e.target.value)} placeholder="Artisan boulanger · Pâtissier · Chocolatier" className={inputClass} />
           </div>
-        </div>
-      </div>
-
-      {/* ── Catégories ───────────────────────────────────────────────────────── */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-5">
-        <div className="flex items-center gap-2">
-          <Tag size={18} className="text-blue-600" />
-          <div>
-            <h2 className="font-semibold text-gray-900">Catégories produits</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Organiser les références du catalogue</p>
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          {categories.length === 0 && (
-            <p className="text-sm text-gray-400 text-center py-4">Aucune catégorie</p>
-          )}
-          {categories.map(cat => (
-            <div key={cat.id} className="flex items-center gap-3 px-4 py-3 bg-gray-50 rounded-xl">
-              {editingCategory?.id === cat.id ? (
-                <>
-                  <input
-                    autoFocus
-                    type="text"
-                    value={editingCategory.nom}
-                    onChange={e => setEditingCategory(prev => prev ? { ...prev, nom: e.target.value } : null)}
-                    onKeyDown={e => { if (e.key === 'Enter') saveEditCategory(); if (e.key === 'Escape') setEditingCategory(null); }}
-                    className="flex-1 px-3 py-1.5 border border-blue-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <button
-                    onClick={saveEditCategory}
-                    disabled={savingEditCategory}
-                    className="p-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    {savingEditCategory ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                  </button>
-                  <button
-                    onClick={() => setEditingCategory(null)}
-                    className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg transition-colors"
-                  >
-                    <X size={14} />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <span className="flex-1 text-sm font-medium text-gray-800">{cat.nom}</span>
-                  <button
-                    onClick={() => setEditingCategory({ id: cat.id, nom: cat.nom })}
-                    className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                  >
-                    <Pencil size={14} />
-                  </button>
-                  <button
-                    onClick={() => deleteCategory(cat)}
-                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </>
-              )}
-            </div>
-          ))}
-        </div>
-
-        <div className="flex gap-2 pt-1">
-          <input
-            type="text"
-            placeholder="Nouvelle catégorie…"
-            value={newCategoryName}
-            onChange={e => setNewCategoryName(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && addCategory()}
-            className="flex-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <button
-            onClick={addCategory}
-            disabled={!newCategoryName.trim() || savingCategory}
-            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
-          >
-            {savingCategory ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-            Ajouter
-          </button>
         </div>
       </div>
     </div>
