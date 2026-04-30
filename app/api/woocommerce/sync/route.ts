@@ -77,6 +77,7 @@ export async function POST(req: NextRequest) {
     products: 0,
     articles: 0,
     customers: 0,
+    orders: 0,
     skipped: 0,
     errors: [] as string[],
   };
@@ -92,7 +93,6 @@ export async function POST(req: NextRequest) {
         const { data: existing } = await supabase
           .from('categories')
           .select('id')
-          .eq('company_id', company_id)
           .eq('nom', wcat.name)
           .maybeSingle();
 
@@ -100,14 +100,12 @@ export async function POST(req: NextRequest) {
           const { data: maxRow } = await supabase
             .from('categories')
             .select('ordre')
-            .eq('company_id', company_id)
             .order('ordre', { ascending: false })
             .limit(1)
             .maybeSingle();
 
           const { error } = await supabase.from('categories').insert({
             nom: wcat.name,
-            company_id,
             atelier: 'autre',
             ordre: ((maxRow as any)?.ordre ?? 0) + 1,
           });
@@ -125,8 +123,7 @@ export async function POST(req: NextRequest) {
     // Charger les catégories DB pour correspondance
     const { data: dbCats } = await supabase
       .from('categories')
-      .select('id, nom')
-      .eq('company_id', company_id);
+      .select('id, nom');
 
     try {
       const wcProducts = await wcGetAll(wcUrl, wcKey, wcSecret, 'products');
@@ -182,9 +179,15 @@ export async function POST(req: NextRequest) {
         if (wp.type === 'variable') {
           try {
             const variations = await wcGetAll(wcUrl, wcKey, wcSecret, `products/${wp.id}/variations`);
-            for (const v of variations) {
+            for (let idx = 0; idx < variations.length; idx++) {
+              const v = variations[idx];
               const varPrice = parseFloat(v.price || v.regular_price || '0') || 0;
               const attrStr = v.attributes?.map((a: any) => a.option).join(' · ') || '';
+
+              // Parse the largest number from attribute strings (e.g. "6/8 personnes" → 8)
+              // Fall back to variation index+1 to keep the unique (ref, pack_type, qty, state) constraint satisfied
+              const nums = attrStr.match(/\d+/g)?.map(Number) ?? [];
+              const quantity = nums.length > 0 ? Math.max(...nums) : idx + 1;
 
               const { data: existingArt } = await supabase
                 .from('product_articles')
@@ -195,8 +198,9 @@ export async function POST(req: NextRequest) {
               const artPayload = {
                 product_reference_id: refId,
                 pack_type: 'unite' as const,
-                quantity: 1,
+                quantity,
                 product_state: 'frais' as const,
+                custom_price: varPrice || null,
                 prix_particulier: varPrice || null,
                 is_active: true,
                 woocommerce_variation_id: v.id,
@@ -231,6 +235,7 @@ export async function POST(req: NextRequest) {
               pack_type: 'unite',
               quantity: 1,
               product_state: 'frais',
+              custom_price: basePrice || null,
               prix_particulier: basePrice || null,
               is_active: true,
             });
@@ -244,36 +249,47 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── 3. Clients ───────────────────────────────────────────────────────────────
+  // ── 3. Clients (depuis commandes WC, dédoublonnés par téléphone) ─────────────
   if (sync_type === 'all' || sync_type === 'customers') {
     try {
-      const wcCustomers = await wcGetAll(wcUrl, wcKey, wcSecret, 'customers');
+      const wcOrders = await wcGetAll(wcUrl, wcKey, wcSecret, 'orders');
 
-      for (const wc of wcCustomers) {
-        if (!wc.email) continue;
+      // Dédoublonner par téléphone (le plus récent gagne)
+      const byPhone = new Map<string, any>();
+      for (const order of wcOrders) {
+        const phone = order.billing?.phone?.replace(/\s+/g, '') || null;
+        if (!phone) continue;
+        if (!byPhone.has(phone)) byPhone.set(phone, order);
+      }
 
-        const nom = wc.billing?.company ||
-          `${wc.first_name} ${wc.last_name}`.trim() ||
-          wc.email;
+      for (const order of byPhone.values()) {
+        const billing = order.billing;
+        const phone = billing?.phone?.replace(/\s+/g, '') || null;
+        if (!phone) continue;
 
-        const ville = wc.shipping?.city || wc.billing?.city || null;
-        const adresse = [wc.shipping?.address_1, wc.shipping?.address_2]
+        const nom = billing?.company ||
+          `${billing?.first_name || ''} ${billing?.last_name || ''}`.trim() ||
+          billing?.email || phone;
+
+        const ville = billing?.city || null;
+        const adresse = [billing?.address_1, billing?.address_2]
           .filter(Boolean).join(', ') || null;
 
         const clientPayload = {
           nom,
-          email: wc.email,
-          telephone: wc.billing?.phone || null,
+          email: billing?.email || null,
+          telephone: phone,
           adresse_livraison: adresse,
           ville,
           is_active: true,
-          woocommerce_customer_id: wc.id,
+          company_id,
         };
 
         const { data: existingClient } = await supabase
           .from('clients')
           .select('id')
-          .eq('woocommerce_customer_id', wc.id)
+          .eq('telephone', phone)
+          .eq('company_id', company_id)
           .maybeSingle();
 
         if (existingClient) {
@@ -286,6 +302,115 @@ export async function POST(req: NextRequest) {
       }
     } catch (e: any) {
       results.errors.push(`Clients: ${e.message}`);
+    }
+  }
+
+  // ── 4. Commandes historiques ──────────────────────────────────────────────────
+  if (sync_type === 'all' || sync_type === 'orders') {
+    try {
+      const wcOrders = await wcGetAll(wcUrl, wcKey, wcSecret, 'orders');
+
+      // Map statut WooCommerce → BDK
+      const statusMap: Record<string, string> = {
+        completed: 'livree',
+        processing: 'confirmee',
+        'on-hold': 'confirmee',
+        pending: 'brouillon',
+        cancelled: 'annulee',
+        refunded: 'annulee',
+        failed: 'annulee',
+      };
+
+      for (const wo of wcOrders) {
+        // Ignorer si déjà importé
+        const { data: existingOrder } = await supabase
+          .from('orders')
+          .select('id')
+          .eq('woocommerce_order_id', wo.id)
+          .maybeSingle();
+        if (existingOrder) continue;
+
+        // Trouver le client par téléphone
+        const phone = wo.billing?.phone?.replace(/\s+/g, '') || null;
+        if (!phone) { results.skipped++; continue; }
+
+        const { data: client } = await supabase
+          .from('clients')
+          .select('id')
+          .eq('telephone', phone)
+          .eq('company_id', company_id)
+          .maybeSingle();
+
+        if (!client) { results.skipped++; continue; }
+
+        const deliveryDate = (wo.date_completed || wo.date_created || '').slice(0, 10);
+        const status = statusMap[wo.status] ?? 'confirmee';
+        const note = wo.customer_note || null;
+
+        const { data: order, error: orderErr } = await supabase
+          .from('orders')
+          .insert({
+            client_id: client.id,
+            delivery_date: deliveryDate || new Date().toISOString().slice(0, 10),
+            status,
+            note,
+            woocommerce_order_id: wo.id,
+          })
+          .select('id')
+          .single();
+
+        if (orderErr || !order) {
+          results.errors.push(`Commande WC#${wo.id}: ${orderErr?.message}`);
+          continue;
+        }
+
+        // Lignes de commande
+        for (const item of (wo.line_items || [])) {
+          // Chercher l'article par variation_id ou product_id
+          let articleId: string | null = null;
+
+          if (item.variation_id && item.variation_id !== 0) {
+            const { data: art } = await supabase
+              .from('product_articles')
+              .select('id')
+              .eq('woocommerce_variation_id', item.variation_id)
+              .maybeSingle();
+            articleId = art?.id ?? null;
+          }
+
+          if (!articleId) {
+            const { data: ref } = await supabase
+              .from('product_references')
+              .select('id')
+              .eq('woocommerce_product_id', item.product_id)
+              .maybeSingle();
+            if (ref) {
+              const { data: art } = await supabase
+                .from('product_articles')
+                .select('id')
+                .eq('product_reference_id', ref.id)
+                .limit(1)
+                .maybeSingle();
+              articleId = art?.id ?? null;
+            }
+          }
+
+          if (!articleId) continue;
+
+          const unitPrice = parseFloat(item.price || '0') || 0;
+          await supabase.from('order_items').insert({
+            order_id: order.id,
+            product_article_id: articleId,
+            quantity_ordered: item.quantity || 1,
+            unit_price: unitPrice,
+            article_unit_quantity: 1,
+          });
+        }
+
+        results.orders++;
+      }
+    } catch (e: any) {
+      results.errors.push(`Commandes: ${e.message}`);
     }
   }
 

@@ -87,7 +87,7 @@ export default function CataloguePage() {
           `)
           .eq('company_id', selectedCompanyId)
           .order('name'),
-        supabase.from('categories').select('*').eq('company_id', selectedCompanyId).order('ordre'),
+        supabase.from('categories').select('*').order('ordre'),
       ]);
 
       setReferences(refsData || []);

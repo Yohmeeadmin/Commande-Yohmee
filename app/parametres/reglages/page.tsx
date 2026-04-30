@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Upload, X, Check, Loader2, Clock, Calendar, AlertCircle, Building2, Globe, Monitor, Link2, ShieldCheck, ShieldX, RefreshCw, Package, Users } from 'lucide-react';
+import { Upload, X, Check, Loader2, Clock, Calendar, AlertCircle, Building2, Globe, Monitor, Link2, ShieldCheck, ShieldX, RefreshCw, Package, Users, ShoppingCart } from 'lucide-react';
 import { useAppSettings, ClientTypeDelivery, ClientTypeSettings } from '@/lib/useAppSettings';
 import { supabase } from '@/lib/supabase/client';
 import { CLIENT_TYPES } from '@/types';
@@ -90,7 +90,7 @@ export default function ReglagesPage() {
   const [wooTestResult, setWooTestResult] = useState<'ok' | 'error' | null>(null);
   const [wooTestMsg, setWooTestMsg] = useState('');
   const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState<{ categories: number; products: number; articles: number; customers: number; errors: string[] } | null>(null);
+  const [syncResult, setSyncResult] = useState<{ categories: number; products: number; articles: number; customers: number; orders: number; errors: string[] } | null>(null);
 
   // ── Livraison ──────────────────────────────────────────────────────────────
   const [slots, setSlots] = useState<DeliverySlot[]>([]);
@@ -303,7 +303,7 @@ export default function ReglagesPage() {
       if (!res.ok) throw new Error(data.error || 'Erreur sync');
       setSyncResult(data);
     } catch (e: any) {
-      setSyncResult({ categories: 0, products: 0, articles: 0, customers: 0, errors: [e.message] });
+      setSyncResult({ categories: 0, products: 0, articles: 0, customers: 0, orders: 0, errors: [e.message] });
     }
     setSyncing(false);
   }
@@ -610,6 +610,28 @@ export default function ReglagesPage() {
               </button>
             </div>
 
+            {/* ── Webhook temps réel ──────────────────────────────────────── */}
+            {selectedCompanyId && (
+              <div className="border-t border-gray-100 pt-5 space-y-3">
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Webhook — commandes en temps réel</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Copiez cette URL dans WooCommerce → Avancé → Webhooks</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-mono text-gray-700 break-all">
+                    {typeof window !== 'undefined' ? window.location.origin : ''}/api/woocommerce/webhook?company_id={selectedCompanyId}
+                  </code>
+                  <button
+                    onClick={() => navigator.clipboard.writeText(`${window.location.origin}/api/woocommerce/webhook?company_id=${selectedCompanyId}`)}
+                    className="shrink-0 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-xl text-xs font-medium text-gray-700 transition-colors"
+                  >
+                    Copier
+                  </button>
+                </div>
+                <p className="text-xs text-gray-400">Topic : <strong>Order created</strong> + <strong>Order updated</strong> · Delivery : JSON</p>
+              </div>
+            )}
+
             {/* ── Synchronisation ─────────────────────────────────────────── */}
             {(company?.woocommerce_url || woo.url) && (
               <div className="border-t border-gray-100 pt-5 space-y-4">
@@ -618,7 +640,7 @@ export default function ReglagesPage() {
                   <p className="text-xs text-gray-400 mt-0.5">Importe les données depuis WooCommerce dans le catalogue BDK</p>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={() => handleSync('products')}
                     disabled={syncing || !woo.key}
@@ -635,7 +657,16 @@ export default function ReglagesPage() {
                   >
                     <Users size={18} className="text-purple-600" />
                     <span className="text-xs font-medium text-gray-700">Clients</span>
-                    <span className="text-[10px] text-gray-400">comptes WC</span>
+                    <span className="text-[10px] text-gray-400">via commandes WC</span>
+                  </button>
+                  <button
+                    onClick={() => handleSync('orders')}
+                    disabled={syncing || !woo.key}
+                    className="flex flex-col items-center gap-1.5 p-3 border border-gray-200 rounded-xl hover:border-purple-300 hover:bg-purple-50 disabled:opacity-40 transition-colors text-center"
+                  >
+                    <ShoppingCart size={18} className="text-purple-600" />
+                    <span className="text-xs font-medium text-gray-700">Commandes</span>
+                    <span className="text-[10px] text-gray-400">historique WC</span>
                   </button>
                   <button
                     onClick={() => handleSync('all')}
@@ -644,7 +675,7 @@ export default function ReglagesPage() {
                   >
                     <RefreshCw size={18} className={`text-purple-600 ${syncing ? 'animate-spin' : ''}`} />
                     <span className="text-xs font-semibold text-purple-700">Tout sync</span>
-                    <span className="text-[10px] text-purple-500">produits + clients</span>
+                    <span className="text-[10px] text-purple-500">produits + clients + commandes</span>
                   </button>
                 </div>
 
@@ -663,7 +694,8 @@ export default function ReglagesPage() {
                       {syncResult.products > 0 && <span className="text-green-700">✓ {syncResult.products} produit{syncResult.products > 1 ? 's' : ''} importé{syncResult.products > 1 ? 's' : ''}</span>}
                       {syncResult.articles > 0 && <span className="text-green-700">✓ {syncResult.articles} article{syncResult.articles > 1 ? 's' : ''} importé{syncResult.articles > 1 ? 's' : ''}</span>}
                       {syncResult.customers > 0 && <span className="text-green-700">✓ {syncResult.customers} client{syncResult.customers > 1 ? 's' : ''} importé{syncResult.customers > 1 ? 's' : ''}</span>}
-                      {syncResult.categories === 0 && syncResult.products === 0 && syncResult.customers === 0 && syncResult.errors.length === 0 && (
+                      {syncResult.orders > 0 && <span className="text-green-700">✓ {syncResult.orders} commande{syncResult.orders > 1 ? 's' : ''} importée{syncResult.orders > 1 ? 's' : ''}</span>}
+                      {syncResult.categories === 0 && syncResult.products === 0 && syncResult.customers === 0 && syncResult.orders === 0 && syncResult.errors.length === 0 && (
                         <span className="text-gray-500 col-span-2">Tout est déjà à jour — aucune nouvelle donnée à importer</span>
                       )}
                     </div>

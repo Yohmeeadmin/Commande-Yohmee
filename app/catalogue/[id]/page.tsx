@@ -133,9 +133,7 @@ export default function EditReferencePage() {
         if (firstWithIds) setPortalClientIds(firstWithIds.portal_client_ids);
       }
 
-      // Filtrer les catégories par company du produit
-      const companyId = refData?.company_id;
-      setCategories((categoriesData || []).filter((c: any) => !companyId || c.company_id === companyId));
+      setCategories(categoriesData || []);
     } catch (error) {
       console.error('Erreur:', error);
     } finally {
@@ -150,7 +148,7 @@ export default function EditReferencePage() {
       const maxOrdre = categories.filter(c => c.atelier === reference.atelier).reduce((m, c) => Math.max(m, c.ordre), 0);
       const { data, error } = await supabase
         .from('categories')
-        .insert({ nom: newCatName.trim(), atelier: reference.atelier, ordre: maxOrdre + 1, company_id: reference.company_id || null })
+        .insert({ nom: newCatName.trim(), atelier: reference.atelier, ordre: maxOrdre + 1 })
         .select()
         .single();
       if (!error && data) {

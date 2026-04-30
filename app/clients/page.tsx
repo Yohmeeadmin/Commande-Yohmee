@@ -3,15 +3,19 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Plus, Search, Users, Phone, Mail, MapPin, LayoutGrid, Table2, Edit2, AlertTriangle, TrendingUp, TrendingDown, Minus, ChevronUp, ChevronDown, ChevronsUpDown, Download } from 'lucide-react';
+import { Plus, Search, Users, Phone, Mail, MapPin, LayoutGrid, Table2, Edit2, AlertTriangle, TrendingUp, TrendingDown, Minus, ChevronUp, ChevronDown, ChevronsUpDown, Download, Building2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { Client, CLIENT_TYPES } from '@/types';
 import { formatPrice, exportCSV } from '@/lib/utils';
 import { usePermissions } from '@/lib/permissions';
 
+interface Company { id: string; name: string; }
+
 export default function ClientsPage() {
   const { can } = usePermissions();
   const router = useRouter();
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('all');
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -39,7 +43,8 @@ export default function ClientsPage() {
       const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0];
       const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split('T')[0];
 
-      const [{ data: clientsData }, { data: recentOrders }, { data: currentMonthOrders }, { data: prevMonthOrders }] = await Promise.all([
+      const [{ data: companiesData }, { data: clientsData }, { data: recentOrders }, { data: currentMonthOrders }, { data: prevMonthOrders }] = await Promise.all([
+        supabase.from('companies').select('id, name').order('created_at'),
         supabase.from('clients').select('*').order('nom'),
         supabase
           .from('orders')
@@ -59,6 +64,7 @@ export default function ClientsPage() {
           .lte('delivery_date', prevMonthEnd),
       ]);
 
+      setCompanies(companiesData || []);
       setClients(clientsData || []);
 
       // CA par client (mois en cours + mois précédent)
@@ -107,7 +113,10 @@ export default function ClientsPage() {
                          c.telephone?.includes(search);
       const matchType = selectedType === 'all' || c.type_client === selectedType;
       const matchActive = showInactive || c.is_active;
-      return matchSearch && matchType && matchActive;
+      const matchCompany = selectedCompanyId === 'all'
+        || (selectedCompanyId === 'bdk' && !(c as any).company_id)
+        || (c as any).company_id === selectedCompanyId;
+      return matchSearch && matchType && matchActive && matchCompany;
     })
     .sort((a, b) => {
       let valA: string | number = '';
@@ -186,9 +195,27 @@ export default function ClientsPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Clients</h1>
-          <p className="text-gray-500 mt-1">{filteredClients.length} clients</p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Clients</h1>
+            <p className="text-gray-500 mt-1">{filteredClients.length} clients</p>
+          </div>
+          {companies.length > 1 && (
+            <div className="relative">
+              <Building2 size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              <select
+                value={selectedCompanyId}
+                onChange={e => setSelectedCompanyId(e.target.value)}
+                className="pl-8 pr-8 py-2 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none cursor-pointer hover:border-gray-300 transition-colors"
+              >
+                <option value="all">Toutes les entreprises</option>
+                {companies.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+              <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button
