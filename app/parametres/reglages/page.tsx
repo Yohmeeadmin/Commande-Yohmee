@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Upload, X, Check, Loader2, Clock, Calendar, AlertCircle, Building2, Globe, Monitor, Link2, ShieldCheck, ShieldX } from 'lucide-react';
+import { Upload, X, Check, Loader2, Clock, Calendar, AlertCircle, Building2, Globe, Monitor, Link2, ShieldCheck, ShieldX, RefreshCw, Package, Users } from 'lucide-react';
 import { useAppSettings, ClientTypeDelivery, ClientTypeSettings } from '@/lib/useAppSettings';
 import { supabase } from '@/lib/supabase/client';
 import { CLIENT_TYPES } from '@/types';
@@ -89,6 +89,8 @@ export default function ReglagesPage() {
   const [testingWoo, setTestingWoo] = useState(false);
   const [wooTestResult, setWooTestResult] = useState<'ok' | 'error' | null>(null);
   const [wooTestMsg, setWooTestMsg] = useState('');
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ categories: number; products: number; articles: number; customers: number; errors: string[] } | null>(null);
 
   // ── Livraison ──────────────────────────────────────────────────────────────
   const [slots, setSlots] = useState<DeliverySlot[]>([]);
@@ -282,6 +284,24 @@ export default function ReglagesPage() {
     setTestingWoo(false);
   }
 
+  async function handleSync(sync_type: 'all' | 'products' | 'customers') {
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch('/api/woocommerce/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ company_id: selectedCompanyId, sync_type }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur sync');
+      setSyncResult(data);
+    } catch (e: any) {
+      setSyncResult({ categories: 0, products: 0, articles: 0, customers: 0, errors: [e.message] });
+    }
+    setSyncing(false);
+  }
+
   // ── Livraison & Landing ────────────────────────────────────────────────────
   function getTypeSetting(type: string): ClientTypeDelivery {
     return typeSettings[type] ?? { mode: 'creneau', heure: null, creneau_id: null };
@@ -306,6 +326,7 @@ export default function ReglagesPage() {
 
   // La première entreprise créée est la principale (BDK) → elle seule a les sections globales
   const isMainCompany = companies.length > 0 && selectedCompanyId === companies[0]?.id;
+  const company = companies.find(c => c.id === selectedCompanyId);
 
   const currentLogo = preview ?? companySettings?.logo_url;
   const inputClass = "w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white";
@@ -582,6 +603,77 @@ export default function ReglagesPage() {
                 {savingWoo ? <><Loader2 size={15} className="animate-spin" /> Enregistrement…</> : savedWoo ? <><Check size={15} /> Enregistré</> : 'Sauvegarder'}
               </button>
             </div>
+
+            {/* ── Synchronisation ─────────────────────────────────────────── */}
+            {(company?.woocommerce_url || woo.url) && (
+              <div className="border-t border-gray-100 pt-5 space-y-4">
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Synchronisation</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Importe les données depuis WooCommerce dans le catalogue BDK</p>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    onClick={() => handleSync('products')}
+                    disabled={syncing || !woo.key}
+                    className="flex flex-col items-center gap-1.5 p-3 border border-gray-200 rounded-xl hover:border-purple-300 hover:bg-purple-50 disabled:opacity-40 transition-colors text-center"
+                  >
+                    <Package size={18} className="text-purple-600" />
+                    <span className="text-xs font-medium text-gray-700">Produits</span>
+                    <span className="text-[10px] text-gray-400">+ catégories</span>
+                  </button>
+                  <button
+                    onClick={() => handleSync('customers')}
+                    disabled={syncing || !woo.key}
+                    className="flex flex-col items-center gap-1.5 p-3 border border-gray-200 rounded-xl hover:border-purple-300 hover:bg-purple-50 disabled:opacity-40 transition-colors text-center"
+                  >
+                    <Users size={18} className="text-purple-600" />
+                    <span className="text-xs font-medium text-gray-700">Clients</span>
+                    <span className="text-[10px] text-gray-400">comptes WC</span>
+                  </button>
+                  <button
+                    onClick={() => handleSync('all')}
+                    disabled={syncing || !woo.key}
+                    className="flex flex-col items-center gap-1.5 p-3 border border-purple-200 bg-purple-50 rounded-xl hover:bg-purple-100 disabled:opacity-40 transition-colors text-center"
+                  >
+                    <RefreshCw size={18} className={`text-purple-600 ${syncing ? 'animate-spin' : ''}`} />
+                    <span className="text-xs font-semibold text-purple-700">Tout sync</span>
+                    <span className="text-[10px] text-purple-500">produits + clients</span>
+                  </button>
+                </div>
+
+                {syncing && (
+                  <div className="flex items-center gap-2 text-sm text-purple-700 bg-purple-50 px-4 py-3 rounded-xl">
+                    <Loader2 size={15} className="animate-spin shrink-0" />
+                    Synchronisation en cours… cela peut prendre quelques secondes
+                  </div>
+                )}
+
+                {syncResult && !syncing && (
+                  <div className={`rounded-xl p-4 space-y-2 ${syncResult.errors.length > 0 ? 'bg-orange-50 border border-orange-200' : 'bg-green-50 border border-green-200'}`}>
+                    <p className="text-sm font-semibold text-gray-800">Résultat de la synchronisation</p>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      {syncResult.categories > 0 && <span className="text-green-700">✓ {syncResult.categories} catégorie{syncResult.categories > 1 ? 's' : ''} importée{syncResult.categories > 1 ? 's' : ''}</span>}
+                      {syncResult.products > 0 && <span className="text-green-700">✓ {syncResult.products} produit{syncResult.products > 1 ? 's' : ''} importé{syncResult.products > 1 ? 's' : ''}</span>}
+                      {syncResult.articles > 0 && <span className="text-green-700">✓ {syncResult.articles} article{syncResult.articles > 1 ? 's' : ''} importé{syncResult.articles > 1 ? 's' : ''}</span>}
+                      {syncResult.customers > 0 && <span className="text-green-700">✓ {syncResult.customers} client{syncResult.customers > 1 ? 's' : ''} importé{syncResult.customers > 1 ? 's' : ''}</span>}
+                      {syncResult.categories === 0 && syncResult.products === 0 && syncResult.customers === 0 && syncResult.errors.length === 0 && (
+                        <span className="text-gray-500 col-span-2">Tout est déjà à jour — aucune nouvelle donnée à importer</span>
+                      )}
+                    </div>
+                    {syncResult.errors.length > 0 && (
+                      <div className="space-y-1 pt-1 border-t border-orange-200">
+                        {syncResult.errors.map((e, i) => (
+                          <p key={i} className="text-xs text-orange-700 flex items-start gap-1">
+                            <AlertCircle size={11} className="shrink-0 mt-0.5" />{e}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
