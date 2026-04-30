@@ -220,7 +220,7 @@ export default function CataloguePage() {
   function handleExport() {
     const rows: Record<string, string | number | null>[] = [];
     filteredReferences.forEach(ref => {
-      const activeArticles = ref.articles?.filter(a => showInactive || a.is_active) || [];
+      const activeArticles = ref.articles?.filter(a => showInactive || a.is_active !== false) || [];
       if (activeArticles.length === 0) {
         rows.push({
           'Référence': ref.name,
@@ -268,7 +268,7 @@ export default function CataloguePage() {
                        ref.code.toLowerCase().includes(search.toLowerCase());
     const matchCategory = selectedCategory === 'all' || ref.category_id === selectedCategory;
     const matchAtelier = selectedAtelier === 'all' || ref.atelier === selectedAtelier;
-    const matchActive = showInactive || ref.is_active;
+    const matchActive = showInactive || ref.is_active !== false;
     return matchSearch && matchCategory && matchAtelier && matchActive;
   }).sort((a, b) => {
     let valA: string | number = '';
@@ -536,7 +536,7 @@ export default function CataloguePage() {
               <tbody className="divide-y divide-gray-50">
                 {filteredReferences.map((ref) => {
                   const atelierStyle = getAtelierStyle(ref.atelier);
-                  const activeArticles = ref.articles?.filter(a => showInactive || a.is_active) || [];
+                  const activeArticles = ref.articles?.filter(a => showInactive || a.is_active !== false) || [];
                   const isIncomplete = activeArticles.length === 0 || ref.base_unit_price === 0 || !ref.atelier || !ref.category_id;
                   return (
                     <tr key={ref.id} className={`hover:bg-gray-50 transition-colors ${!ref.is_active ? 'opacity-60' : ''}`}>
@@ -591,7 +591,7 @@ export default function CataloguePage() {
           {filteredReferences.map((ref) => {
             const atelierStyle = getAtelierStyle(ref.atelier);
             const isExpanded = expandedRefs.has(ref.id);
-            const activeArticles = ref.articles?.filter(a => showInactive || a.is_active) || [];
+            const activeArticles = ref.articles?.filter(a => showInactive || a.is_active !== false) || [];
             const isIncomplete = activeArticles.length === 0 || ref.base_unit_price === 0 || !ref.atelier || !ref.category_id;
 
             return (
