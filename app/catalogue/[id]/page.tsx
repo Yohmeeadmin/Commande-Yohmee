@@ -69,6 +69,7 @@ export default function EditReferencePage() {
     show_on_landing: false,
     description_publique: '',
     photo_url: '',
+    company_id: '',
   });
 
   // Articles
@@ -86,7 +87,7 @@ export default function EditReferencePage() {
           .select('*, articles:product_articles(*)')
           .eq('id', params.id)
           .single(),
-        supabase.from('categories').select('*').order('ordre'),
+        supabase.from('categories').select('*').order('ordre'), // filtré par company après chargement du refData
         supabase.from('clients').select('id, nom').eq('is_active', true).order('nom'),
       ]);
       setAllClients(clientsData || []);
@@ -106,6 +107,7 @@ export default function EditReferencePage() {
           show_on_landing: refData.show_on_landing ?? false,
           description_publique: refData.description_publique || '',
           photo_url: refData.photo_url || '',
+          company_id: refData.company_id || '',
         });
 
         // Convertir les articles existants
@@ -131,7 +133,9 @@ export default function EditReferencePage() {
         if (firstWithIds) setPortalClientIds(firstWithIds.portal_client_ids);
       }
 
-      setCategories(categoriesData || []);
+      // Filtrer les catégories par company du produit
+      const companyId = refData?.company_id;
+      setCategories((categoriesData || []).filter((c: any) => !companyId || c.company_id === companyId));
     } catch (error) {
       console.error('Erreur:', error);
     } finally {
@@ -146,7 +150,7 @@ export default function EditReferencePage() {
       const maxOrdre = categories.filter(c => c.atelier === reference.atelier).reduce((m, c) => Math.max(m, c.ordre), 0);
       const { data, error } = await supabase
         .from('categories')
-        .insert({ nom: newCatName.trim(), atelier: reference.atelier, ordre: maxOrdre + 1 })
+        .insert({ nom: newCatName.trim(), atelier: reference.atelier, ordre: maxOrdre + 1, company_id: reference.company_id || null })
         .select()
         .single();
       if (!error && data) {

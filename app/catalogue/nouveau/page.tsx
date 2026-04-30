@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Save, Plus, Trash2, RotateCcw, AlertCircle, X, Tag } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
@@ -29,6 +29,8 @@ interface ArticleForm {
 
 export default function NouvelleReferencePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const companyId = searchParams.get('company') || localStorage.getItem('catalogue_company_id') || '';
   const { ateliers } = useAteliers();
   const [categories, setCategories] = useState<Category[]>([]);
   const [newCatName, setNewCatName] = useState('');
@@ -69,7 +71,7 @@ export default function NouvelleReferencePage() {
       const maxOrdre = categories.filter(c => c.atelier === reference.atelier).reduce((m, c) => Math.max(m, c.ordre), 0);
       const { data, error } = await supabase
         .from('categories')
-        .insert({ nom: newCatName.trim(), atelier: reference.atelier, ordre: maxOrdre + 1 })
+        .insert({ nom: newCatName.trim(), atelier: reference.atelier, ordre: maxOrdre + 1, company_id: companyId || null })
         .select()
         .single();
       if (!error && data) {
@@ -182,6 +184,7 @@ export default function NouvelleReferencePage() {
         description: reference.description || null,
         note_production: reference.note_production || null,
         is_active: reference.is_active,
+        company_id: companyId || null,
       };
       console.log('Payload référence:', refPayload);
 

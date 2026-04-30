@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Plus, Search, Package, ChevronDown, ChevronRight, Edit2, Archive, Layers, Table2, Settings, X, Trash2, ChevronUp, ChevronsUpDown, LayoutGrid, Tag, Download } from 'lucide-react';
+import { Plus, Search, Package, ChevronDown, ChevronRight, Edit2, Archive, Layers, Table2, Settings, X, Trash2, ChevronUp, ChevronsUpDown, LayoutGrid, Tag, Download, Building2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import {
   ProductReference,
@@ -15,6 +15,12 @@ import {
 import { formatPrice, exportCSV } from '@/lib/utils';
 import { useAteliers, refreshAteliers, AtelierDB } from '@/lib/useAteliers';
 import { usePermissions } from '@/lib/permissions';
+
+interface Company {
+  id: string;
+  name: string;
+  slug: string;
+}
 
 const COLOR_PRESETS = [
   { label: 'Brun/Jaune', color: '#92400E', bgColor: '#FEF3C7' },
@@ -29,6 +35,8 @@ const COLOR_PRESETS = [
 
 export default function CataloguePage() {
   const { can } = usePermissions();
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
   const [references, setReferences] = useState<(ProductReference & { articles: ProductArticle[] })[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const { ateliers, getStyle: getAtelierStyle } = useAteliers();
@@ -50,11 +58,24 @@ export default function CataloguePage() {
   const [newCategoryName, setNewCategoryName] = useState('');
   const [savingCategory, setSavingCategory] = useState(false);
 
+  // Charger les entreprises au montage
   useEffect(() => {
-    loadData();
+    supabase.from('companies').select('id, name, slug').order('name').then(({ data }) => {
+      const list = data || [];
+      setCompanies(list);
+      const saved = localStorage.getItem('catalogue_company_id');
+      const initial = list.find(c => c.id === saved) ? saved! : list[0]?.id ?? '';
+      setSelectedCompanyId(initial);
+    });
   }, []);
 
+  // Recharger quand on change d'entreprise
+  useEffect(() => {
+    if (selectedCompanyId) loadData();
+  }, [selectedCompanyId]);
+
   async function loadData() {
+    setLoading(true);
     try {
       const [{ data: refsData }, { data: categoriesData }] = await Promise.all([
         supabase
@@ -64,8 +85,9 @@ export default function CataloguePage() {
             category:categories(id, nom),
             articles:product_articles(*)
           `)
+          .eq('company_id', selectedCompanyId)
           .order('name'),
-        supabase.from('categories').select('*').order('ordre'),
+        supabase.from('categories').select('*').eq('company_id', selectedCompanyId).order('ordre'),
       ]);
 
       setReferences(refsData || []);
@@ -75,6 +97,14 @@ export default function CataloguePage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleCompanyChange(id: string) {
+    setSelectedCompanyId(id);
+    localStorage.setItem('catalogue_company_id', id);
+    setSelectedCategory('all');
+    setSelectedAtelier('all');
+    setSearch('');
   }
 
   async function addAtelier() {
@@ -276,11 +306,29 @@ export default function CataloguePage() {
 
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl lg:text-2xl font-bold text-gray-900">Catalogue</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {filteredReferences.length} réf · {totalArticles} articles
-          </p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h1 className="text-xl lg:text-2xl font-bold text-gray-900">Catalogue</h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {filteredReferences.length} réf · {totalArticles} articles
+            </p>
+          </div>
+          {/* Sélecteur d'entreprise */}
+          {companies.length > 1 && (
+            <div className="relative">
+              <Building2 size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              <select
+                value={selectedCompanyId}
+                onChange={e => handleCompanyChange(e.target.value)}
+                className="pl-8 pr-8 py-2 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none cursor-pointer hover:border-gray-300 transition-colors"
+              >
+                {companies.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+              <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {/* Vue tableau (desktop seulement) */}
@@ -322,7 +370,7 @@ export default function CataloguePage() {
           </button>
           {can('catalogue.create') && (
             <Link
-              href="/catalogue/nouveau"
+              href={`/catalogue/nouveau${selectedCompanyId ? `?company=${selectedCompanyId}` : ''}`}
               className="flex items-center gap-2 px-3 py-2 lg:px-4 lg:py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors"
             >
               <Plus size={20} />
