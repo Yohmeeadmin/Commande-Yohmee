@@ -126,10 +126,9 @@ export async function POST(req: NextRequest) {
     || (wo.date_completed || wo.date_created || '').slice(0, 10)
     || new Date().toISOString().slice(0, 10);
 
-  // Construire la note enrichie
+  // Construire la note (quartier + note client, sans l'heure qui va dans delivery_time)
   const noteParts: string[] = [];
-  if (pickupTime) noteParts.push(`Heure : ${pickupTime}`);
-  if (quartier)   noteParts.push(`Quartier : ${quartier}`);
+  if (quartier)         noteParts.push(`Quartier : ${quartier}`);
   if (wo.customer_note) noteParts.push(wo.customer_note);
   const enrichedNote = noteParts.join('\n') || null;
 
@@ -151,6 +150,7 @@ export async function POST(req: NextRequest) {
       delivery_date: deliveryDate,
       status,
       note: enrichedNote,
+      delivery_time: pickupTime || null,
       woocommerce_order_id: wo.id,
     })
     .select('id')
