@@ -116,6 +116,20 @@ export async function POST(req: NextRequest) {
     .eq('woocommerce_order_id', wo.id)
     .maybeSingle();
 
+  // Debug : afficher les meta_data pour trouver la clé "Heure de récupération"
+  const metaKeys = (wo.meta_data ?? []).map((m: any) => ({ key: m.key, value: m.value }));
+  console.log('[WC webhook] meta_data order', wo.id, JSON.stringify(metaKeys));
+
+  // Chercher l'heure de récupération dans meta_data
+  const heureRecupMeta = (wo.meta_data ?? []).find((m: any) =>
+    m.key?.toLowerCase().includes('recuper') ||
+    m.key?.toLowerCase().includes('pickup') ||
+    m.key?.toLowerCase().includes('heure') ||
+    m.key?.toLowerCase().includes('delivery_time') ||
+    m.key?.toLowerCase().includes('livraison_date')
+  );
+  console.log('[WC webhook] heureRecup candidate:', JSON.stringify(heureRecupMeta));
+
   const deliveryDate = (wo.date_completed || wo.date_created || '').slice(0, 10)
     || new Date().toISOString().slice(0, 10);
   const status = STATUS_MAP[wo.status] ?? 'confirmee';
