@@ -94,9 +94,14 @@ export default function CommandesPage() {
   const [activeTab, setActiveTab] = useState<'commandes' | 'demandes'>('commandes');
   const [decalerOrderId, setDecalerOrderId] = useState<string | null>(null);
   const [decalerDate, setDecalerDate] = useState('');
+  const [creneauOrderId, setCreneauOrderId] = useState<string | null>(null);
+  const [creneauSlotId, setCreneauSlotId] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  useEffect(() => { loadOrders(); }, []);
+  useEffect(() => {
+    loadOrders();
+    supabase.from('delivery_slots').select('*').eq('is_active', true).order('sort_order').then(({ data }: { data: DeliverySlot[] | null }) => { if (data) setSlots(data); });
+  }, []);
 
   async function loadOrders() {
     try {
@@ -235,6 +240,15 @@ export default function CommandesPage() {
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, delivery_date: decalerDate, status: 'confirmee' } : o));
     setDecalerOrderId(null);
     setDecalerDate('');
+  }
+
+  async function changerCreneau(orderId: string) {
+    const slotId = creneauSlotId || null;
+    const slot = slotId ? slots.find(s => s.id === slotId) ?? null : null;
+    await supabase.from('orders').update({ delivery_slot_id: slotId, status: 'confirmee' }).eq('id', orderId);
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, delivery_slot_id: slotId, delivery_slot: slot as any, status: 'confirmee' } : o));
+    setCreneauOrderId(null);
+    setCreneauSlotId('');
   }
 
   const getStatusStyle = (status: string) => {
@@ -377,6 +391,21 @@ export default function CommandesPage() {
                   <button onClick={() => { setDecalerOrderId(null); setDecalerDate(''); }}
                     className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-xl text-xs font-semibold">Annuler</button>
                 </div>
+              ) : creneauOrderId === order.id ? (
+                <div className="border-t border-gray-50 px-4 py-3 flex items-center gap-2">
+                  <Bell size={14} className="text-gray-400 shrink-0" />
+                  <select value={creneauSlotId} onChange={e => setCreneauSlotId(e.target.value)}
+                    className="flex-1 px-3 py-1.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+                    <option value="">— Aucun créneau —</option>
+                    {slots.map(s => (
+                      <option key={s.id} value={s.id}>{s.name} ({s.start_time.slice(0,5)}–{s.end_time.slice(0,5)})</option>
+                    ))}
+                  </select>
+                  <button onClick={() => changerCreneau(order.id)}
+                    className="px-3 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-semibold">OK</button>
+                  <button onClick={() => { setCreneauOrderId(null); setCreneauSlotId(''); }}
+                    className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-xl text-xs font-semibold">Annuler</button>
+                </div>
               ) : (
                 <div className="flex border-t border-gray-50 divide-x divide-gray-50">
                   <button onClick={() => validerDemande(order.id)}
@@ -386,6 +415,10 @@ export default function CommandesPage() {
                   <button onClick={() => { setDecalerOrderId(order.id); setDecalerDate(order.delivery_date); }}
                     className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 transition-colors">
                     <CalendarDays size={14} /> Décaler
+                  </button>
+                  <button onClick={() => { setCreneauOrderId(order.id); setCreneauSlotId(order.delivery_slot_id || ''); }}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold text-purple-600 hover:bg-purple-50 transition-colors">
+                    <Bell size={14} /> Créneau
                   </button>
                   <button onClick={() => refuserDemande(order.id)}
                     className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold text-red-500 hover:bg-red-50 transition-colors">
