@@ -356,8 +356,12 @@ export default function CommandesPage() {
                   </div>
                   <p className="text-xs text-gray-400 mt-0.5">
                     {getDateLabel(order.delivery_date)} · {order.numero}
-                    {order.delivery_slot ? ` · ${order.delivery_slot.name}` : ''}
                   </p>
+                  {order.delivery_slot && (
+                    <p className="text-xs font-semibold text-orange-600 mt-0.5">
+                      🕐 {order.delivery_slot.name} ({order.delivery_slot.start_time.slice(0,5)}–{order.delivery_slot.end_time.slice(0,5)})
+                    </p>
+                  )}
                 </div>
                 <p className="font-bold text-gray-900 text-sm shrink-0">{formatPrice(order.total)}</p>
               </div>
