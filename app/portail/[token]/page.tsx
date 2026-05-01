@@ -50,6 +50,11 @@ function calcPrice(article: Article, typeClient: string, clientPrices: Record<st
   if (article.custom_price !== null) return article.custom_price;
   return (article.product_reference?.base_unit_price ?? 0) * article.quantity;
 }
+// Pour les récurrences : toujours le prix du lot catalogue (custom_price ou base × quantité)
+function calcLotPrice(article: Article): number {
+  if (article.custom_price !== null) return article.custom_price;
+  return (article.product_reference?.base_unit_price ?? 0) * article.quantity;
+}
 function formatPrice(n: number) { return n.toFixed(2).replace('.', ',') + ' MAD'; }
 function nextDays(n: number): string[] {
   const days: string[] = []; const d = new Date(); d.setDate(d.getDate() + 1);
@@ -610,7 +615,7 @@ export default function PortailPage() {
               {articles.filter(a => a.display_name.toLowerCase().includes(newRecSearch.toLowerCase())).slice(0, 12).map(a => {
                 if (newRecItems.find(i => i.article_id === a.id)) return null;
                 return (
-                  <button key={a.id} type="button" onClick={() => { setNewRecItems(prev => [...prev, { article_id: a.id, display_name: a.display_name, quantity: 1, unit_price: calcPrice(a, clientType, clientPrices) }]); setNewRecSearch(''); }}
+                  <button key={a.id} type="button" onClick={() => { setNewRecItems(prev => [...prev, { article_id: a.id, display_name: a.display_name, quantity: 1, unit_price: calcLotPrice(a) }]); setNewRecSearch(''); }}
                     className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-blue-50 text-left">
                     <span className="text-sm text-gray-800">{a.display_name}</span>
                     <Plus size={15} className="text-blue-600" />
