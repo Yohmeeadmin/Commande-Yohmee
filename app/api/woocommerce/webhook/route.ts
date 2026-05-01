@@ -53,7 +53,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Signature invalide' }, { status: 401 });
   }
 
-  // On traite uniquement les créations et mises à jour de commandes
   if (!topic.startsWith('order.')) {
     return NextResponse.json({ ok: true, skipped: true });
   }
@@ -63,6 +62,12 @@ export async function POST(req: NextRequest) {
     wo = JSON.parse(rawBody);
   } catch {
     return NextResponse.json({ error: 'JSON invalide' }, { status: 400 });
+  }
+
+  // ── Suppression ───────────────────────────────────────────────────────────
+  if (topic === 'order.deleted') {
+    await supabase.from('orders').delete().eq('woocommerce_order_id', wo.id);
+    return NextResponse.json({ ok: true, action: 'deleted' });
   }
 
   // ── Trouver ou créer le client ────────────────────────────────────────────
