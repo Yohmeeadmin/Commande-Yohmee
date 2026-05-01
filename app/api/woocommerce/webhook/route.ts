@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
   // Récupérer l'entreprise et son secret webhook
   const { data: company } = await supabase
     .from('companies')
-    .select('id, slug, name, nom, woocommerce_webhook_secret')
+    .select('id, slug, woocommerce_webhook_secret')
     .eq('id', companyId)
     .single();
 
@@ -206,7 +206,7 @@ export async function POST(req: NextRequest) {
   // ── WhatsApp confirmation ──────────────────────────────────────────────────
   if (phone) {
     const clientNom = billing.company || `${billing.first_name ?? ''} ${billing.last_name ?? ''}`.trim() || phone;
-    const companyName = (company as any).name || (company as any).nom || company.slug;
+    const companyName = company.slug;
     const lignes = (wo.line_items ?? [])
       .map((item: any) => `• ${item.name} x${item.quantity}`)
       .join('\n');
