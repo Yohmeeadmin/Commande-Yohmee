@@ -94,6 +94,7 @@ export default function CommandesPage() {
   const [activeTab, setActiveTab] = useState<'commandes' | 'demandes'>('commandes');
   const [decalerOrderId, setDecalerOrderId] = useState<string | null>(null);
   const [decalerDate, setDecalerDate] = useState('');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   useEffect(() => { loadOrders(); }, []);
 
@@ -208,6 +209,13 @@ export default function CommandesPage() {
     setSelectedIds(new Set());
     setSelectionMode(false);
     setDeleteConfirm(false);
+  }
+
+  async function deleteSingle(orderId: string) {
+    await supabase.from('order_items').delete().eq('order_id', orderId);
+    await supabase.from('orders').delete().eq('id', orderId);
+    setOrders(prev => prev.filter(o => o.id !== orderId));
+    setConfirmDeleteId(null);
   }
 
   async function validerDemande(orderId: string) {
@@ -647,51 +655,77 @@ export default function CommandesPage() {
                         </Link>
 
                         {/* Actions rapides — barre du bas */}
-                        {(canConfirm || canProduce || canDeliver || can('commandes.edit')) && (
-                          <div className="flex border-t border-gray-50 divide-x divide-gray-50">
-                            {canConfirm && can('commandes.change_status') && (
-                              <button
-                                onClick={() => updateStatus(order.id, 'confirmee')}
-                                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold text-emerald-600 active:bg-emerald-50"
-                              >
-                                <CheckCircle size={14} /> Confirmer
-                              </button>
-                            )}
-                            {canProduce && can('commandes.change_status') && (
-                              <button
-                                onClick={() => updateStatus(order.id, 'production')}
-                                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold text-amber-600 active:bg-amber-50"
-                              >
-                                <Play size={14} /> En production
-                              </button>
-                            )}
-                            {canDeliver && can('commandes.change_status') && (
-                              <button
-                                onClick={() => markDelivered(order.id)}
-                                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold text-blue-600 active:bg-blue-50"
-                              >
-                                <Truck size={14} /> Livrer
-                              </button>
-                            )}
-                            {can('commandes.edit') && (
-                              <button
-                                onClick={() => openEditModal(order)}
-                                className="flex items-center justify-center px-4 py-2.5 text-gray-400 active:bg-gray-50"
-                              >
-                                <Pencil size={14} />
-                              </button>
-                            )}
+                        {confirmDeleteId === order.id ? (
+                          <div className="flex border-t border-red-100 divide-x divide-red-100 bg-red-50">
+                            <span className="flex-1 flex items-center justify-center py-2.5 text-xs font-semibold text-red-600">Supprimer ?</span>
+                            <button onClick={() => deleteSingle(order.id)} className="flex items-center justify-center px-5 py-2.5 text-xs font-bold text-white bg-red-500 active:bg-red-600">Oui</button>
+                            <button onClick={() => setConfirmDeleteId(null)} className="flex items-center justify-center px-4 py-2.5 text-xs font-semibold text-gray-500 active:bg-gray-100">Non</button>
                           </div>
-                        )}
-                        {(order.status === 'livree' || order.status === 'annulee') && (
-                          <div className="border-t border-gray-50">
-                            <Link
-                              href={`/commandes/${order.id}`}
-                              className="flex items-center justify-center py-2.5 text-xs text-gray-400 font-medium"
-                            >
-                              Voir les détails →
-                            </Link>
-                          </div>
+                        ) : (
+                          <>
+                          {(canConfirm || canProduce || canDeliver || can('commandes.edit') || can('commandes.delete')) && (
+                            <div className="flex border-t border-gray-50 divide-x divide-gray-50">
+                              {canConfirm && can('commandes.change_status') && (
+                                <button
+                                  onClick={() => updateStatus(order.id, 'confirmee')}
+                                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold text-emerald-600 active:bg-emerald-50"
+                                >
+                                  <CheckCircle size={14} /> Confirmer
+                                </button>
+                              )}
+                              {canProduce && can('commandes.change_status') && (
+                                <button
+                                  onClick={() => updateStatus(order.id, 'production')}
+                                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold text-amber-600 active:bg-amber-50"
+                                >
+                                  <Play size={14} /> En production
+                                </button>
+                              )}
+                              {canDeliver && can('commandes.change_status') && (
+                                <button
+                                  onClick={() => markDelivered(order.id)}
+                                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold text-blue-600 active:bg-blue-50"
+                                >
+                                  <Truck size={14} /> Livrer
+                                </button>
+                              )}
+                              {can('commandes.edit') && (
+                                <button
+                                  onClick={() => openEditModal(order)}
+                                  className="flex items-center justify-center px-4 py-2.5 text-gray-400 active:bg-gray-50"
+                                >
+                                  <Pencil size={14} />
+                                </button>
+                              )}
+                              {can('commandes.delete') && (
+                                <button
+                                  onClick={() => setConfirmDeleteId(order.id)}
+                                  className="flex items-center justify-center px-4 py-2.5 text-red-300 active:bg-red-50"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          {(order.status === 'livree' || order.status === 'annulee') && (
+                            <div className="border-t border-gray-50 flex divide-x divide-gray-50">
+                              <Link
+                                href={`/commandes/${order.id}`}
+                                className="flex-1 flex items-center justify-center py-2.5 text-xs text-gray-400 font-medium"
+                              >
+                                Voir les détails →
+                              </Link>
+                              {can('commandes.delete') && (
+                                <button
+                                  onClick={() => setConfirmDeleteId(order.id)}
+                                  className="flex items-center justify-center px-4 py-2.5 text-red-300 active:bg-red-50"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          </>
                         )}
                       </div>
                     );
