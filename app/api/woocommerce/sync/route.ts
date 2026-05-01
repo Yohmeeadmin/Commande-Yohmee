@@ -343,9 +343,17 @@ export async function POST(req: NextRequest) {
 
         if (!client) { results.skipped++; continue; }
 
-        const deliveryDate = (wo.date_completed || wo.date_created || '').slice(0, 10);
+        const getMeta = (key: string) => (wo.meta_data ?? []).find((m: any) => m.key === key)?.value ?? null;
+        const pickupDate = getMeta('_billing_pickup_date');
+        const pickupTime = getMeta('_billing_pickup_time');
+        const quartier   = getMeta('quartier');
+        const deliveryDate = pickupDate || (wo.date_completed || wo.date_created || '').slice(0, 10);
         const status = statusMap[wo.status] ?? 'confirmee';
-        const note = wo.customer_note || null;
+        const noteParts: string[] = [];
+        if (pickupTime) noteParts.push(`Heure : ${pickupTime}`);
+        if (quartier)   noteParts.push(`Quartier : ${quartier}`);
+        if (wo.customer_note) noteParts.push(wo.customer_note);
+        const note = noteParts.join('\n') || null;
 
         const { data: order, error: orderErr } = await supabase
           .from('orders')

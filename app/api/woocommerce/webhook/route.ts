@@ -116,22 +116,23 @@ export async function POST(req: NextRequest) {
     .eq('woocommerce_order_id', wo.id)
     .maybeSingle();
 
-  // Debug : afficher les meta_data pour trouver la clé "Heure de récupération"
-  const metaKeys = (wo.meta_data ?? []).map((m: any) => ({ key: m.key, value: m.value }));
-  console.log('[WC webhook] meta_data order', wo.id, JSON.stringify(metaKeys));
+  // Extraire date et heure depuis meta_data WooCommerce
+  const getMeta = (key: string) => (wo.meta_data ?? []).find((m: any) => m.key === key)?.value ?? null;
+  const pickupDate = getMeta('_billing_pickup_date');
+  const pickupTime = getMeta('_billing_pickup_time');
+  const quartier  = getMeta('quartier');
 
-  // Chercher l'heure de récupération dans meta_data
-  const heureRecupMeta = (wo.meta_data ?? []).find((m: any) =>
-    m.key?.toLowerCase().includes('recuper') ||
-    m.key?.toLowerCase().includes('pickup') ||
-    m.key?.toLowerCase().includes('heure') ||
-    m.key?.toLowerCase().includes('delivery_time') ||
-    m.key?.toLowerCase().includes('livraison_date')
-  );
-  console.log('[WC webhook] heureRecup candidate:', JSON.stringify(heureRecupMeta));
-
-  const deliveryDate = (wo.date_completed || wo.date_created || '').slice(0, 10)
+  const deliveryDate = pickupDate
+    || (wo.date_completed || wo.date_created || '').slice(0, 10)
     || new Date().toISOString().slice(0, 10);
+
+  // Construire la note enrichie
+  const noteParts: string[] = [];
+  if (pickupTime) noteParts.push(`Heure : ${pickupTime}`);
+  if (quartier)   noteParts.push(`Quartier : ${quartier}`);
+  if (wo.customer_note) noteParts.push(wo.customer_note);
+  const enrichedNote = noteParts.join('\n') || null;
+
   const status = STATUS_MAP[wo.status] ?? 'confirmee';
 
   let orderId: string;
@@ -149,7 +150,7 @@ export async function POST(req: NextRequest) {
       client_id: clientId,
       delivery_date: deliveryDate,
       status,
-      note: wo.customer_note || null,
+      note: enrichedNote,
       woocommerce_order_id: wo.id,
     })
     .select('id')
