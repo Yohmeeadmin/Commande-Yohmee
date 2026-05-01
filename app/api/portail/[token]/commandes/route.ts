@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
+import { sendWhatsApp } from '@/lib/whatsapp';
 
 // POST /api/portail/[token]/commandes
 export async function POST(req: NextRequest, { params }: { params: Promise<{ token: string }> }) {
@@ -8,7 +9,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
 
   const { data: client } = await supabase
     .from('clients')
-    .select('id, portal_active')
+    .select('id, nom, telephone, portal_active')
     .eq('portal_token', token)
     .single();
 
@@ -63,6 +64,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
 
   const total = items.reduce((s: number, i: any) => s + i.quantity * i.unit_price, 0);
   await supabase.from('orders').update({ total }).eq('id', orderData.id);
+
+  // ── WhatsApp confirmation ──────────────────────────────────────────────────
+  if (client.telephone) {
+    const lignes = items
+      .map((i: any) => `• ${i.display_name ?? ''} x${i.quantity} — ${(i.quantity * i.unit_price).toFixed(2)} MAD`)
+      .join('\n');
+    const msgLines = [
+      `✅ Bonjour ${client.nom ?? ''}, votre commande BDK est confirmée !`,
+      ``,
+      `📅 Livraison : ${delivery_date}`,
+      lignes,
+      ``,
+      `💰 Total : ${total.toFixed(2)} MAD`,
+      note ? `📝 Note : ${note}` : '',
+    ].filter(Boolean).join('\n');
+    await sendWhatsApp(client.telephone, msgLines);
+  }
 
   return NextResponse.json({
     success: true,
