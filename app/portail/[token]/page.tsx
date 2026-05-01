@@ -201,7 +201,7 @@ export default function PortailPage() {
       if (res.ok) { const { recurrences: r } = await res.json(); setRecurrences(r || []); setRecurrencesLoaded(true); }
     } finally { setRecurrencesLoading(false); }
   }
-  useEffect(() => { if (view === 'recurrences') loadRecurrences(); }, [view]);
+  useEffect(() => { if (view === 'recurrences' || view === 'accueil') loadRecurrences(); }, [view]);
 
   async function toggleRecurrence(rec: PortalRecurrence) {
     const res = await fetch(`/api/portail/${token}/recurrences/${rec.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_active: !rec.is_active }) });
@@ -764,6 +764,43 @@ export default function PortailPage() {
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {/* Commandes récurrentes */}
+          {recurrences.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wide px-1">Commandes récurrentes</p>
+              {recurrences.map(rec => (
+                <div key={rec.id} className={`bg-white rounded-2xl border overflow-hidden ${rec.is_active ? 'border-gray-100' : 'border-gray-200 opacity-60'}`}>
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${rec.is_active ? 'bg-green-50' : 'bg-gray-100'}`}>
+                      <RefreshCw size={14} className={rec.is_active ? 'text-green-600' : 'text-gray-400'} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{rec.nom || 'Récurrence'}</p>
+                      <p className="text-xs text-gray-400 truncate">
+                        {rec.days_of_week?.length === 7 ? 'Tous les jours' : rec.days_of_week?.map((d: string) => d.charAt(0).toUpperCase() + d.slice(1, 3)).join(', ')}
+                        {' · '}{rec.items?.length || 0} art.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => toggleRecurrence(rec)}
+                        className={`p-2 rounded-xl ${rec.is_active ? 'bg-orange-50 text-orange-500' : 'bg-green-50 text-green-600'}`}
+                      >
+                        {rec.is_active ? <Pause size={15} /> : <Play size={15} />}
+                      </button>
+                      <button
+                        onClick={() => deleteRecurrence(rec)}
+                        className="p-2 rounded-xl bg-red-50 text-red-400"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
