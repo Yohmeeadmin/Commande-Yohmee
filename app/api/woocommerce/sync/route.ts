@@ -328,7 +328,19 @@ export async function POST(req: NextRequest) {
           .select('id')
           .eq('woocommerce_order_id', wo.id)
           .maybeSingle();
-        if (existingOrder) continue;
+        if (existingOrder) {
+          // Mettre à jour delivery_time et delivery_date si manquants
+          const getMeta2 = (key: string) => (wo.meta_data ?? []).find((m: any) => m.key === key)?.value ?? null;
+          const pt = getMeta2('_billing_pickup_date');
+          const ptime = getMeta2('_billing_pickup_time');
+          if (pt || ptime) {
+            await supabase.from('orders').update({
+              ...(pt ? { delivery_date: pt } : {}),
+              ...(ptime ? { delivery_time: ptime } : {}),
+            }).eq('id', existingOrder.id).is('delivery_time', null);
+          }
+          continue;
+        }
 
         // Trouver le client par téléphone
         const phone = wo.billing?.phone?.replace(/\s+/g, '') || null;

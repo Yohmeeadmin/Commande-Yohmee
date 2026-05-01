@@ -324,14 +324,17 @@ export default function CommandeDetailPage() {
               <Clock size={18} className="text-blue-600" />
             </div>
             <div>
-              <p className="text-xs text-gray-400">{order.delivery_time ? 'Heure' : 'Créneau'}</p>
-              <p className="font-semibold text-gray-900 text-sm">
-                {order.delivery_time
-                  ? order.delivery_time.slice(0, 5)
-                  : order.delivery_slot
-                    ? order.delivery_slot.name
-                    : '—'}
-              </p>
+              {(() => {
+                const time = order.delivery_time?.slice(0, 5)
+                  || order.note?.match(/Heure\s*:\s*(\d{1,2}:\d{2})/)?.[1]
+                  || null;
+                return <>
+                  <p className="text-xs text-gray-400">{time ? 'Heure' : 'Créneau'}</p>
+                  <p className="font-semibold text-gray-900 text-sm">
+                    {time ?? (order.delivery_slot ? order.delivery_slot.name : '—')}
+                  </p>
+                </>;
+              })()}
             </div>
           </div>
         </div>
