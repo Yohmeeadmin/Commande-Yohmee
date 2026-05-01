@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
 import { createHmac } from 'crypto';
-import { sendWhatsApp } from '@/lib/whatsapp';
 
 // ─── Vérification signature WooCommerce ──────────────────────────────────────
 
@@ -206,26 +205,6 @@ export async function POST(req: NextRequest) {
       unit_price: parseFloat(item.price || '0') || 0,
       article_unit_quantity: 1,
     });
-  }
-
-  // ── WhatsApp confirmation ──────────────────────────────────────────────────
-  if (phone) {
-    const clientNom = billing.company || `${billing.first_name ?? ''} ${billing.last_name ?? ''}`.trim() || phone;
-    const companyName = company.slug;
-    const lignes = (wo.line_items ?? [])
-      .map((item: any) => `• ${item.name} x${item.quantity}`)
-      .join('\n');
-    const totalStr = parseFloat(wo.total || '0').toFixed(2);
-    const msgLines = [
-      `✅ Bonjour ${clientNom}, votre commande ${companyName} est confirmée !`,
-      ``,
-      `📅 Livraison : ${deliveryDate}${pickupTime ? ` à ${pickupTime}` : ''}`,
-      lignes,
-      ``,
-      `💰 Total : ${totalStr} MAD`,
-      wo.customer_note ? `📝 Note : ${wo.customer_note}` : '',
-    ].filter(Boolean).join('\n');
-    await sendWhatsApp(phone, msgLines);
   }
 
   return NextResponse.json({ ok: true, action: 'created', order_id: orderId });
