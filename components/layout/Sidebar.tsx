@@ -21,6 +21,7 @@ import {
   Wallet,
   Receipt,
   ShoppingBag,
+  BookOpen,
 } from 'lucide-react';
 import Image from 'next/image';
 import { useUser } from '@/contexts/UserContext';
@@ -68,7 +69,12 @@ const NAV_STRUCTURE: NavEntry[] = [
   { type: 'item',  name: 'Livraisons',  href: '/livraisons',  icon: Truck,           module: 'livraisons' },
   { type: 'item',  name: 'Production',  href: '/production',  icon: ClipboardList,   module: 'production' },
   { type: 'item',  name: 'Stock',       href: '/stock',       icon: Warehouse,       module: 'stock' },
-  { type: 'item',  name: 'Recettes',    href: '/recettes',    icon: ChefHat,         module: 'recettes' },
+  { type: 'group', label: 'Recettes', icon: ChefHat, items: [
+    { name: 'Fiches recettes',   href: '/recettes',                  icon: ChefHat,      module: 'recettes' },
+    { name: 'Planning',          href: '/recettes/planning',         icon: Calendar,     module: 'recettes' },
+    { name: 'Fiche de prod',     href: '/recettes/production',       icon: ClipboardList, module: 'recettes' },
+    { name: 'Catalogue coûté',   href: '/recettes/catalogue-coute',  icon: BookOpen,     module: 'recettes' },
+  ]},
   { type: 'item',  name: 'Charges',     href: '/charges',     icon: Wallet,          module: 'charges' },
   { type: 'item',  name: 'Paramètres',  href: '/parametres',  icon: Settings,        module: 'parametres' },
 ];
