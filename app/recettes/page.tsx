@@ -307,7 +307,7 @@ function AddToCatalogueModal({ recipe, coutUnitaire, ateliers, onClose, onSaved 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 sm:p-4 bg-black/50" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50" onMouseDown={onClose}>
       <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[85vh] sm:max-h-[90vh]"
         onMouseDown={e => e.stopPropagation()}>
 
@@ -465,7 +465,7 @@ function CalculateurModal({ recipe, sousRecettes, onClose }: {
   const factorDisplay = Math.round(factor * 1000) / 1000;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 sm:p-4 bg-black/50" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50" onMouseDown={onClose}>
       <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[88vh]"
         onMouseDown={e => e.stopPropagation()}>
 
@@ -920,7 +920,7 @@ function RecipeModal({ recipe, type, stockItems, sousRecettes, productReferences
   const S = (k: keyof typeof form, v: any) => setForm(f => ({ ...f, [k]: v }));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 sm:p-4 bg-black/50" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50" onMouseDown={onClose}>
       <div className="bg-white w-full sm:max-w-2xl rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[92vh] sm:max-h-[88vh]"
         onMouseDown={e => e.stopPropagation()}>
 

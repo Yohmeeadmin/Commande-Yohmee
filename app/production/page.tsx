@@ -380,7 +380,7 @@ function MepTab({ date }: { date: string }) {
 
       {/* ── Modal Lancement ── */}
       {launchModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 sm:p-4 bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/50">
           <div className="bg-white w-full sm:max-w-md rounded-2xl shadow-2xl max-h-[85vh] sm:max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
               <p className="font-bold text-gray-900">Nouvelle MEP</p>
