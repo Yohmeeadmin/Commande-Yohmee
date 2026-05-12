@@ -71,13 +71,13 @@ const NAV_STRUCTURE: NavEntry[] = [
   { type: 'item',  name: 'Livraisons',  href: '/livraisons',  icon: Truck,           module: 'livraisons' },
   { type: 'group', label: 'Production', icon: ClipboardList, items: [
     { name: 'Production',              href: '/production',                icon: ClipboardList, module: 'production' },
+    { name: 'Planning',                href: '/production/planning',       icon: Calendar,      module: 'production' },
     { name: 'Fiche de prod',           href: '/production/fiche-de-prod',  icon: FileText,      module: 'production' },
     { name: 'Rétro-planning',          href: '/production/retro-planning', icon: CalendarClock, module: 'production' },
   ]},
   { type: 'item',  name: 'Stock',       href: '/stock',       icon: Warehouse,       module: 'stock' },
   { type: 'group', label: 'Recettes', icon: ChefHat, items: [
     { name: 'Fiches recettes',   href: '/recettes',                  icon: ChefHat,      module: 'recettes' },
-    { name: 'Planning',          href: '/recettes/planning',         icon: Calendar,     module: 'recettes' },
 { name: 'Catalogue coûté',   href: '/recettes/catalogue-coute',  icon: BookOpen,     module: 'recettes' },
   ]},
   { type: 'item',  name: 'Charges',     href: '/charges',     icon: Wallet,          module: 'charges' },
