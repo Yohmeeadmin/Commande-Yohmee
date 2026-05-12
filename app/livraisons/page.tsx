@@ -4,8 +4,8 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import {
   ChevronLeft, ChevronRight, Printer, Settings,
-  GripVertical, CheckCircle, Phone, MapPin, Package, UserCircle, Plus,
-  X, ChevronUp, ChevronDown, ChevronsUpDown, Navigation,
+  CheckCircle, Phone, MapPin, Package, Plus,
+  X, ChevronUp, ChevronDown, Navigation,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase/client';
@@ -263,11 +263,11 @@ export default function LivraisonsPage() {
   const [slots, setSlots] = useState<Slot[]>([]);
   const [orders, setOrders] = useState<DeliveryOrder[]>([]);
   const [loading, setLoading] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
   const [selectedDriver, setSelectedDriver] = useState('');
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [dragOverSlotKey, setDragOverSlotKey] = useState<string | null>(null);
   const [deliveryOrder, setDeliveryOrder] = useState<DeliveryOrder | null>(null);
   const [deliveryQtys, setDeliveryQtys] = useState<Record<string, number>>({});
   const [deliveryStep, setDeliveryStep] = useState<1 | 2>(1);
@@ -383,6 +383,16 @@ export default function LivraisonsPage() {
     await supabase.from('orders').update({ driver_id: driverId, driver_sequence: seq }).eq('id', orderId);
     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, driver_id: driverId, driver_sequence: seq } : o));
     setAssigningId(null);
+  }
+
+  async function handleMoveToSlot(orderId: string, newSlotId: string | null) {
+    const currentOrder = orders.find(o => o.id === orderId);
+    if (!currentOrder) return;
+    const currentSlotId = currentOrder.delivery_slot?.id ?? null;
+    if (currentSlotId === newSlotId) return;
+    await supabase.from('orders').update({ delivery_slot_id: newSlotId }).eq('id', orderId);
+    const newSlot = newSlotId ? (slots.find(s => s.id === newSlotId) ?? null) : null;
+    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, delivery_slot: newSlot } : o));
   }
 
   function openDeliveryModal(order: DeliveryOrder) {
@@ -925,7 +935,7 @@ export default function LivraisonsPage() {
       </div>
 
       {/* ── UI principale ────────────────────────────────────────────────── */}
-      <div className="no-print space-y-4 max-w-5xl mx-auto">
+      <div className="no-print space-y-4">
 
         {/* Header */}
         <div className="flex items-center gap-2">
@@ -963,35 +973,6 @@ export default function LivraisonsPage() {
             </button>
           </div>
         </div>
-
-        {/* Filtre créneaux */}
-        {(visibleSlots.length > 1 || hasNoSlot) && (
-          <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
-            <button
-              onClick={() => setSelectedSlot('')}
-              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${selectedSlot === '' ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
-            >
-              Tous
-            </button>
-            {visibleSlots.map(s => (
-              <button
-                key={s.id}
-                onClick={() => setSelectedSlot(s.id)}
-                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${selectedSlot === s.id ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
-              >
-                {slotLabel(s)}
-              </button>
-            ))}
-            {hasNoSlot && (
-              <button
-                onClick={() => setSelectedSlot('none')}
-                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${selectedSlot === 'none' ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
-              >
-                Sans créneau
-              </button>
-            )}
-          </div>
-        )}
 
         {/* Filtre chauffeurs */}
         {drivers.filter(d => orders.some(o => o.driver_id === d.id)).length > 0 && (
@@ -1048,320 +1029,276 @@ export default function LivraisonsPage() {
             </Link>
           </div>
         ) : (
-          <div className="space-y-6">
-            {slotGroups.map(({ key, slot, driverGroups }) => (
-              <div key={key}>
-                {/* En-tête créneau */}
-                {(() => {
-                  const slotId = slot?.id ?? null;
-                  const slotRoutes = routes.filter(
-                    r => (r.delivery_slot_id ?? null) === slotId
-                  );
-                  return (
-                    <>
-                      <div className="flex items-center gap-2 mb-3">
-                        <div className="h-px flex-1 bg-gray-200" />
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                            {slot ? slotLabel(slot) : 'Sans créneau'}
-                          </span>
-                          {slotRoutes.length > 0 && (
-                            <span className="text-xs bg-blue-100 text-blue-700 font-bold px-1.5 py-0.5 rounded-full">
-                              {slotRoutes.length} tournée{slotRoutes.length > 1 ? 's' : ''}
-                            </span>
+          /* ── Vue colonnes par créneau horaire ── */
+          <div>
+            <div className="grid gap-3 items-start" style={{ gridTemplateColumns: `repeat(${slots.length + (orders.some(o => !o.delivery_slot) ? 1 : 0)}, minmax(0, 1fr))` }}>
+              {[...slots, ...(orders.some(o => !o.delivery_slot) ? [null as Slot | null] : [])].map((slot) => {
+                const slotId = slot?.id ?? null;
+                const key = slotId ?? 'none';
+                const slotRoutes = routes.filter(r => (r.delivery_slot_id ?? null) === slotId);
+                const allSlotOrders = orders.filter(o => {
+                  const orderSlotId = o.delivery_slot?.id ?? null;
+                  if (orderSlotId !== slotId) return false;
+                  if (selectedDriver) {
+                    if (selectedDriver === 'none' && o.driver_id) return false;
+                    if (selectedDriver !== 'none' && o.driver_id !== selectedDriver) return false;
+                  }
+                  return true;
+                });
+                const activeSlotOrders = allSlotOrders.filter(o => o.status !== 'livree');
+                const deliveredSlotOrders = allSlotOrders.filter(o => o.status === 'livree');
+                const isDropTarget = dragOverSlotKey === key && draggedId !== null;
+
+                return (
+                  <div
+                    key={key}
+                    className={`min-w-0 flex flex-col rounded-2xl transition-colors ${isDropTarget ? 'ring-2 ring-blue-400 ring-offset-2 bg-blue-50/50' : ''}`}
+                    onDragOver={e => { e.preventDefault(); if (draggedId) setDragOverSlotKey(key); }}
+                    onDragLeave={e => {
+                      // only clear if leaving the column entirely
+                      if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverSlotKey(null);
+                    }}
+                    onDrop={async e => {
+                      e.preventDefault();
+                      if (draggedId) {
+                        await handleMoveToSlot(draggedId, slotId);
+                        setDraggedId(null);
+                        setDragOverSlotKey(null);
+                      }
+                    }}
+                  >
+
+                    {/* ── En-tête colonne créneau ── */}
+                    <div className={`text-white rounded-2xl px-4 py-4 mb-3 transition-colors ${isDropTarget ? 'bg-blue-600' : 'bg-gray-900'}`}>
+                      {slot ? (
+                        <>
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-2xl font-black tabular-nums leading-none">{slot.start_time.slice(0, 5)}</span>
+                            <span className="text-gray-500 text-sm">→</span>
+                            <span className="text-2xl font-black tabular-nums leading-none">{slot.end_time.slice(0, 5)}</span>
+                          </div>
+                          {slot.name && <p className="text-xs text-gray-400 mt-1 font-medium uppercase tracking-wider">{slot.name}</p>}
+                        </>
+                      ) : (
+                        <p className="text-lg font-black">Sans créneau</p>
+                      )}
+                      <div className="flex items-center justify-between mt-3">
+                        <p className="text-sm text-gray-300 font-semibold">
+                          {allSlotOrders.length} livraison{allSlotOrders.length > 1 ? 's' : ''}
+                          {deliveredSlotOrders.length > 0 && (
+                            <span className="text-gray-500 font-normal"> · {deliveredSlotOrders.length} livrée{deliveredSlotOrders.length > 1 ? 's' : ''}</span>
                           )}
-                        </div>
-                        <div className="h-px flex-1 bg-gray-200" />
-                        {can('livraisons.create_route') && (
-                        <button
-                          onClick={() => openCreateRoute(slot)}
-                          className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-full transition-colors shrink-0"
-                        >
-                          <Plus size={11} /> Tournée
-                        </button>
+                        </p>
+                        {slotRoutes.length > 0 && (
+                          <span className="text-xs bg-blue-500/25 text-blue-200 px-2 py-0.5 rounded-full font-bold">
+                            {slotRoutes.length} tournée{slotRoutes.length > 1 ? 's' : ''}
+                          </span>
                         )}
                       </div>
+                    </div>
 
-                      {/* Tournées du créneau */}
-                      {slotRoutes.length > 0 && (
-                        <div className="space-y-2 mb-4">
-                          {slotRoutes.map(route => (
-                            <RouteCard
-                              key={route.id}
-                              route={route}
-                              orders={orders}
-                              onCancelled={routeId => setRoutes(prev => prev.filter(r => r.id !== routeId))}
-                              onPrintBLs={openBL}
-                              canCancel={can('livraisons.cancel_route')}
-                              canPrintBLs={can('livraisons.print_bl')}
-                            />
+                    {/* ── Tournées du créneau ── */}
+                    {slotRoutes.length > 0 && (
+                      <div className="space-y-2 mb-3">
+                        {slotRoutes.map(route => (
+                          <RouteCard
+                            key={route.id}
+                            route={route}
+                            orders={orders}
+                            onCancelled={routeId => setRoutes(prev => prev.filter(r => r.id !== routeId))}
+                            onPrintBLs={openBL}
+                            canCancel={can('livraisons.cancel_route')}
+                            canPrintBLs={can('livraisons.print_bl')}
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    {/* ── Cartes commandes actives ── */}
+                    <div className="space-y-3 flex-1">
+                      {activeSlotOrders.length === 0 && deliveredSlotOrders.length === 0 && (
+                        <div className={`flex flex-col items-center justify-center py-8 rounded-2xl border-2 border-dashed transition-colors ${isDropTarget ? 'border-blue-400 bg-blue-50' : 'border-gray-100'}`}>
+                          <p className="text-xs text-gray-300 font-medium">{isDropTarget ? 'Déposer ici' : 'Aucune livraison'}</p>
+                        </div>
+                      )}
+                      {activeSlotOrders.map(order => {
+                        const driver = drivers.find(d => d.id === order.driver_id);
+                        const driverIdx = driver ? drivers.findIndex(d => d.id === driver.id) : -1;
+                        const color = driver ? DRIVER_COLORS[driverIdx % DRIVER_COLORS.length] : null;
+                        const hasBL = blOrderIds.has(order.id);
+                        const routeInfo = routedOrderMap.get(order.id);
+
+                        return (
+                          <div
+                            key={order.id}
+                            draggable
+                            onDragStart={() => { setDraggedId(order.id); setDragOverSlotKey(key); }}
+                            onDragEnd={() => { setDraggedId(null); setDragOverSlotKey(null); }}
+                            className={`bg-white rounded-2xl border p-4 transition-all cursor-grab active:cursor-grabbing select-none ${draggedId === order.id ? 'opacity-40 scale-95' : ''} ${hasBL ? 'border-l-4 border-l-green-400 border-gray-100' : 'border-gray-100'}`}
+                          >
+                            {/* Client + statut BL */}
+                            <div className="flex items-start justify-between gap-2 mb-3">
+                              <div className="min-w-0 flex-1">
+                                <p className="font-black text-gray-900 text-sm leading-tight truncate">
+                                  {order.client?.nom ?? '—'}
+                                </p>
+                                {order.client?.telephone && (
+                                  <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+                                    <Phone size={9} /> {order.client.telephone}
+                                  </p>
+                                )}
+                                {order.client?.adresse_livraison && (
+                                  <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5 truncate">
+                                    <MapPin size={9} /> {order.client.adresse_livraison}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex flex-col items-end gap-1 shrink-0">
+                                {hasBL && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">✓ BL</span>
+                                )}
+                                {routeInfo && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-700 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded-full">
+                                    <Navigation size={8} /> {routeInfo.routeNumber}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Produits */}
+                            {order.items.length > 0 && (
+                              <ul className="space-y-1 mb-3">
+                                {order.items.map(item => {
+                                  const delivered = item.quantity_delivered;
+                                  const isMissing = hasBL && delivered !== null && delivered < item.quantity_ordered;
+                                  const isFullyMissing = isMissing && delivered === 0;
+                                  const missing = isMissing ? item.quantity_ordered - (delivered ?? 0) : 0;
+                                  return (
+                                    <li key={item.id} className={`text-xs flex items-baseline gap-1.5 ${isMissing ? 'text-orange-600' : 'text-gray-600'}`}>
+                                      <span className={isMissing ? 'text-orange-300' : 'text-gray-200'}>•</span>
+                                      <span className={`truncate flex-1 ${isFullyMissing ? 'line-through' : ''}`}>{item.product_article?.display_name ?? '—'}</span>
+                                      <span className={`font-black shrink-0 ${isMissing ? 'text-orange-700' : 'text-gray-800'}`}>×{item.quantity_ordered}</span>
+                                      {isMissing && (
+                                        <span className="text-orange-500 font-medium shrink-0">−{missing}</span>
+                                      )}
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            )}
+
+                            {/* Note */}
+                            {order.note && (
+                              <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-2 py-1 mb-2">⚠️ {order.note}</p>
+                            )}
+
+                            {/* Footer : montant + chauffeur + actions */}
+                            <div className="flex items-center justify-between gap-1">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <p className="text-xs font-black text-gray-700 shrink-0">{formatPrice(order.total)}</p>
+                                {driver && color ? (
+                                  <button
+                                    onClick={() => can('livraisons.assign_driver') && setAssigningId(order.id)}
+                                    className="text-xs font-bold px-2 py-0.5 rounded-full shrink-0 transition-opacity hover:opacity-80"
+                                    style={{ backgroundColor: color.bg, color: color.text }}
+                                  >
+                                    {driverInitials(driver)}
+                                  </button>
+                                ) : can('livraisons.assign_driver') ? (
+                                  <button
+                                    onClick={() => setAssigningId(order.id)}
+                                    className="text-xs text-gray-400 hover:text-blue-600 border border-dashed border-gray-200 hover:border-blue-300 rounded-full px-2 py-0.5 transition-colors shrink-0"
+                                  >
+                                    + Ch.
+                                  </button>
+                                ) : null}
+                              </div>
+                              <div className="flex items-center gap-0.5 shrink-0">
+                                {can('livraisons.generate_bl') && (
+                                  <button
+                                    onClick={() => openBLDelivery(order)}
+                                    className="text-xs text-gray-400 hover:text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-lg transition-colors flex items-center gap-1 font-medium"
+                                  >
+                                    <Printer size={11} /> BL
+                                  </button>
+                                )}
+                                {can('livraisons.confirm_delivery') && (
+                                  <button
+                                    title={hasBL ? 'Confirmer la livraison' : 'Générer le BL avant de confirmer'}
+                                    disabled={!hasBL}
+                                    onClick={async () => {
+                                      await supabase.rpc('mark_order_delivered', {
+                                        p_order_id: order.id,
+                                        p_is_fully_delivered: true,
+                                        p_delivered_items: null,
+                                      });
+                                      setOrders(prev => prev.map(o =>
+                                        o.id === order.id
+                                          ? { ...o, status: 'livree', is_fully_delivered: true, items: o.items.map(i => ({ ...i, quantity_delivered: i.quantity_ordered })) }
+                                          : o
+                                      ));
+                                    }}
+                                    className={`p-1.5 rounded-xl transition-all ${hasBL ? 'text-gray-400 hover:text-green-600 hover:bg-green-50 active:scale-95' : 'text-gray-200 cursor-not-allowed'}`}
+                                  >
+                                    <CheckCircle size={18} />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Picker chauffeur */}
+                            {assigningId === order.id && (
+                              <div className="flex items-center gap-1 flex-wrap mt-2 pt-2 border-t border-gray-50">
+                                {drivers.map((d, dIdx) => (
+                                  <button
+                                    key={d.id}
+                                    onClick={() => assignDriver(order.id, d.id)}
+                                    className="text-xs px-2 py-1 rounded-lg font-bold transition-colors"
+                                    style={{ backgroundColor: DRIVER_COLORS[dIdx % DRIVER_COLORS.length].bg, color: DRIVER_COLORS[dIdx % DRIVER_COLORS.length].text }}
+                                  >
+                                    {driverInitials(d)}
+                                  </button>
+                                ))}
+                                {order.driver_id && (
+                                  <button onClick={() => assignDriver(order.id, null)} className="text-xs px-2 py-1 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 font-medium">Retirer</button>
+                                )}
+                                <button onClick={() => setAssigningId(null)} className="text-xs text-gray-400 px-1 ml-auto">✕</button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                      {/* Livrées de ce créneau (compactes) */}
+                      {deliveredSlotOrders.length > 0 && (
+                        <div className="space-y-1.5">
+                          {deliveredSlotOrders.map(order => (
+                            <div key={order.id} className="flex items-center gap-2 px-3 py-2 bg-green-50/60 rounded-xl border border-green-100 opacity-70">
+                              <CheckCircle size={13} className="text-green-500 shrink-0" />
+                              <p className="text-xs font-medium text-gray-500 line-through truncate flex-1">{order.client?.nom ?? '—'}</p>
+                              <p className="text-xs font-black text-gray-400 shrink-0">{formatPrice(order.total)}</p>
+                            </div>
                           ))}
                         </div>
                       )}
-                    </>
-                  );
-                })()}
+                    </div>
 
-                {/* Groupes chauffeurs */}
-                <div className="space-y-4">
-                  {driverGroups.map(({ driver, driverIdx, orders: dOrders }) => {
-                    const color = driver ? DRIVER_COLORS[driverIdx % DRIVER_COLORS.length] : null;
-
-                    return (
-                      <div key={driver?.id ?? 'unassigned'} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-                        {/* En-tête chauffeur */}
-                        <div
-                          className="flex items-center gap-3 px-4 py-3 border-b border-gray-50"
-                          style={color ? { backgroundColor: color.bg } : { backgroundColor: '#F9FAFB' }}
-                        >
-                          {driver ? (
-                            <>
-                              <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold" style={{ backgroundColor: color!.text, color: 'white' }}>
-                                {driverInitials(driver)}
-                              </div>
-                              <div>
-                                <p className="font-semibold text-sm" style={{ color: color!.text }}>{driverFullName(driver)}</p>
-                                {driver.phone && <p className="text-xs opacity-70" style={{ color: color!.text }}>{driver.phone}</p>}
-                              </div>
-                              <span className="ml-auto text-xs font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: 'white', color: color!.text }}>
-                                {dOrders.length} arrêt{dOrders.length > 1 ? 's' : ''}
-                              </span>
-                            </>
-                          ) : (
-                            <>
-                              <UserCircle size={20} className="text-gray-400" />
-                              <p className="font-semibold text-sm text-gray-500">Non assigné</p>
-                              <span className="ml-auto text-xs font-medium px-2 py-0.5 rounded-full bg-gray-200 text-gray-600">
-                                {dOrders.length} commande{dOrders.length > 1 ? 's' : ''}
-                              </span>
-                            </>
-                          )}
-                        </div>
-
-                        {/* Commandes */}
-                        <div className="divide-y divide-gray-50">
-                          {dOrders.map((order, stopIdx) => {
-                            const isDragging = draggedId === order.id;
-                            const isDragOver = dragOverId === order.id;
-                            const isDelivered = order.status === 'livree';
-
-                            return (
-                              <div
-                                key={order.id}
-                                draggable={!!driver}
-                                onDragStart={() => driver && setDraggedId(order.id)}
-                                onDragOver={e => { e.preventDefault(); driver && setDragOverId(order.id); }}
-                                onDragLeave={() => setDragOverId(null)}
-                                onDrop={() => driver && handleDrop(dOrders, order.id)}
-                                onDragEnd={() => { setDraggedId(null); setDragOverId(null); }}
-                                className={`flex gap-3 px-4 py-4 transition-all ${isDragging ? 'opacity-40' : ''} ${isDragOver ? 'bg-blue-50 border-l-4 border-blue-400' : blOrderIds.has(order.id) && !isDelivered ? 'border-l-4 border-green-400' : ''} ${isDelivered ? 'bg-green-50/40' : ''}`}
-                              >
-                                {/* Drag handle + numéro */}
-                                <div className="flex flex-col items-center gap-1 pt-0.5 shrink-0 w-7">
-                                  {driver && <GripVertical size={15} className="text-gray-300 cursor-grab active:cursor-grabbing" />}
-                                  <span className="text-xs font-bold text-gray-400">{driver ? stopIdx + 1 : '·'}</span>
-                                </div>
-
-                                {/* Infos commande */}
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-start justify-between gap-2">
-                                    <div className="min-w-0 flex-1">
-                                      <p className={`font-semibold text-gray-900 text-sm ${isDelivered ? 'line-through text-gray-400' : ''}`}>
-                                        {order.client?.nom ?? '—'}
-                                      </p>
-                                      {(() => {
-                                        const info = routedOrderMap.get(order.id);
-                                        if (!info) return null;
-                                        return (
-                                          <span className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded-full mt-0.5">
-                                            <Navigation size={9} />
-                                            {info.routeNumber}{info.driverName ? ` · ${info.driverName}` : ''}
-                                          </span>
-                                        );
-                                      })()}
-                                      {order.client?.telephone && (
-                                        <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
-                                          <Phone size={10} /> {order.client.telephone}
-                                        </p>
-                                      )}
-                                      {order.client?.adresse_livraison && (
-                                        <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
-                                          <MapPin size={10} /> {order.client.adresse_livraison}
-                                        </p>
-                                      )}
-                                      {order.note && (
-                                        <p className="text-xs text-amber-600 mt-1">⚠️ {order.note}</p>
-                                      )}
-                                    </div>
-
-                                    {/* Actions */}
-                                    <div className="flex items-center gap-1.5 shrink-0">
-                                      {can('livraisons.assign_driver') && (
-                                        assigningId === order.id ? (
-                                          <div className="flex items-center gap-1 flex-wrap justify-end">
-                                            {drivers.map((d, dIdx) => (
-                                              <button
-                                                key={d.id}
-                                                onClick={() => assignDriver(order.id, d.id)}
-                                                className="text-xs px-2 py-1 rounded-lg font-semibold transition-colors"
-                                                style={{ backgroundColor: DRIVER_COLORS[dIdx % DRIVER_COLORS.length].bg, color: DRIVER_COLORS[dIdx % DRIVER_COLORS.length].text }}
-                                              >
-                                                {driverInitials(d)}
-                                              </button>
-                                            ))}
-                                            {order.driver_id && (
-                                              <button onClick={() => assignDriver(order.id, null)} className="text-xs px-2 py-1 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200">Ret.</button>
-                                            )}
-                                            <button onClick={() => setAssigningId(null)} className="text-xs text-gray-400 px-1">✕</button>
-                                          </div>
-                                        ) : (
-                                          <button
-                                            onClick={() => setAssigningId(order.id)}
-                                            className="text-xs px-2 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:border-blue-300 hover:text-blue-600 transition-colors font-medium"
-                                          >
-                                            {order.driver_id
-                                              ? (() => { const d = drivers.find(d => d.id === order.driver_id); return d ? driverInitials(d) : 'Changer'; })()
-                                              : '+ Ch.'
-                                            }
-                                          </button>
-                                        )
-                                      )}
-
-                                      {can('livraisons.confirm_delivery') && (
-                                        !isDelivered ? (
-                                          <button
-                                            title={blOrderIds.has(order.id) ? 'Confirmer la livraison' : 'Générer le BL avant de confirmer'}
-                                            disabled={!blOrderIds.has(order.id)}
-                                            onClick={async () => {
-                                              await supabase.rpc('mark_order_delivered', {
-                                                p_order_id: order.id,
-                                                p_is_fully_delivered: true,
-                                                p_delivered_items: null,
-                                              });
-                                              setOrders(prev => prev.map(o =>
-                                                o.id === order.id
-                                                  ? { ...o, status: 'livree', is_fully_delivered: true, items: o.items.map(i => ({ ...i, quantity_delivered: i.quantity_ordered })) }
-                                                  : o
-                                              ));
-                                            }}
-                                            className={`p-2 rounded-xl transition-all ${blOrderIds.has(order.id) ? 'text-gray-400 hover:text-green-600 hover:bg-green-50 active:scale-95' : 'text-gray-200 cursor-not-allowed'}`}
-                                          >
-                                            <CheckCircle size={20} />
-                                          </button>
-                                        ) : (
-                                          <div className="p-2 text-green-500">
-                                            <CheckCircle size={20} />
-                                          </div>
-                                        )
-                                      )}
-                                    </div>
-                                  </div>
-
-                                  {/* Produits */}
-                                  {order.items.length > 0 && (
-                                    <ul className="mt-2 space-y-0.5">
-                                      {order.items.map(item => {
-                                        const hasBL = blOrderIds.has(order.id);
-                                        const delivered = item.quantity_delivered;
-                                        const isMissing = hasBL && delivered !== null && delivered < item.quantity_ordered;
-                                        const isFullyMissing = isMissing && delivered === 0;
-                                        const missing = isMissing ? item.quantity_ordered - (delivered ?? 0) : 0;
-                                        return (
-                                          <li key={item.id} className={`text-xs flex items-baseline gap-1.5 ${isMissing ? 'text-orange-600' : 'text-gray-600'}`}>
-                                            <span className={isMissing ? 'text-orange-300' : 'text-gray-300'}>•</span>
-                                            <span className={isFullyMissing ? 'line-through' : ''}>{item.product_article?.display_name ?? '—'}</span>
-                                            <span className={`font-semibold ${isMissing ? 'text-orange-700' : 'text-gray-800'}`}>×{item.quantity_ordered}</span>
-                                            {isMissing && (
-                                              <span className="text-orange-500 font-medium">({missing} manquant{missing > 1 ? 's' : ''})</span>
-                                            )}
-                                          </li>
-                                        );
-                                      })}
-                                    </ul>
-                                  )}
-                                  <div className="flex items-center justify-between mt-1.5">
-                                    <div className="flex items-center gap-1.5">
-                                      <p className="text-xs text-gray-400">{order.numero} · {formatPrice(order.total)}</p>
-                                      {blOrderIds.has(order.id) && !isDelivered && (
-                                        <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">✓ BL</span>
-                                      )}
-                                    </div>
-                                    {can('livraisons.generate_bl') && (
-                                      <button
-                                        onClick={() => openBLDelivery(order)}
-                                        className="text-xs text-gray-400 hover:text-blue-600 hover:bg-blue-50 px-2 py-0.5 rounded-lg transition-colors flex items-center gap-1"
-                                      >
-                                        <Printer size={11} /> BL
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
+                    {/* ── Bouton créer tournée ── */}
+                    {can('livraisons.create_route') && (
+                      <button
+                        onClick={() => openCreateRoute(slot)}
+                        className="mt-3 w-full flex items-center justify-center gap-1.5 py-3 border-2 border-dashed border-gray-200 rounded-2xl text-sm text-gray-400 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50/50 transition-colors font-semibold"
+                      >
+                        <Plus size={14} /> Tournée
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
-        {/* Livrées du jour */}
-        {deliveredOrders.length > 0 && (
-          <div>
-            <button
-              onClick={() => setShowHistory(h => !h)}
-              className="w-full flex items-center gap-3 py-3 group"
-            >
-              <div className="h-px flex-1 bg-gray-200 group-hover:bg-green-200 transition-colors" />
-              <span className="flex items-center gap-2 text-sm font-semibold text-gray-400 group-hover:text-green-600 transition-colors">
-                <CheckCircle size={15} />
-                Livrées ({deliveredOrders.length})
-                <ChevronRight size={14} className={`transition-transform ${showHistory ? 'rotate-90' : ''}`} />
-              </span>
-              <div className="h-px flex-1 bg-gray-200 group-hover:bg-green-200 transition-colors" />
-            </button>
-
-            {showHistory && (
-              <div className="bg-white rounded-2xl border border-green-100 overflow-hidden">
-                <div className="divide-y divide-gray-50">
-                  {deliveredOrders
-                    .slice()
-                    .sort((a, b) => (a.delivery_slot?.start_time ?? '99:99').localeCompare(b.delivery_slot?.start_time ?? '99:99'))
-                    .map(order => {
-                      const driver = drivers.find(d => d.id === order.driver_id);
-                      const driverIdx = driver ? drivers.findIndex(d => d.id === driver.id) : -1;
-                      const color = driver ? DRIVER_COLORS[driverIdx % DRIVER_COLORS.length] : null;
-                      return (
-                        <div key={order.id} className="flex items-center gap-3 px-4 py-3 opacity-70">
-                          <CheckCircle size={16} className="text-green-500 flex-shrink-0" />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-600 line-through truncate">{order.client?.nom ?? '—'}</p>
-                            <p className="text-xs text-gray-400 mt-0.5 truncate">
-                              {order.items.map(i => `${i.product_article?.display_name ?? '—'} ×${i.quantity_delivered ?? i.quantity_ordered}`).join(' · ')}
-                            </p>
-                          </div>
-                          {driver && color && (
-                            <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: color.bg, color: color.text }}>
-                              {driverInitials(driver)}
-                            </span>
-                          )}
-                          {!order.is_fully_delivered && (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 font-medium flex-shrink-0">
-                              Partielle
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {/* ── Modal livraison ─────────────────────────────────────────────────── */}
