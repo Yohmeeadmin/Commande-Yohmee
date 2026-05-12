@@ -421,14 +421,12 @@ function TaskCard({ task, stockPreps, onStockClick, onDoubleClick, completed, ma
   materiels?: MaterielLight[];
 }) {
   const stockSR = stockPreps.find(s => s.recipe_sheet_id === task.srId);
-  const equipment = materiels?.find(m => task.atelier ? m.atelier === task.atelier : !m.atelier);
-  const nbFournees = equipment ? Math.ceil(task.kgSR / equipment.capacite_kg) : null;
-  const kgParFournee = nbFournees ? task.kgSR / nbFournees : null;
+  const hasEquipment = materiels?.some(m => task.atelier ? m.atelier === task.atelier : !m.atelier) ?? false;
 
   return (
     <div onDoubleClick={onDoubleClick}
       className={`bg-white border rounded-2xl p-4 space-y-3 cursor-pointer select-none transition-opacity ${completed ? 'opacity-40' : ''} ${task.urgent ? 'border-red-200 bg-red-50/30' : 'border-gray-100'}`}
-      title="Double-cliquer pour ouvrir la fiche de production">
+      title="Double-cliquer pour voir les fournées">
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="font-black text-gray-900 text-base leading-tight">{task.srNom}</p>
@@ -438,13 +436,8 @@ function TaskCard({ task, stockPreps, onStockClick, onDoubleClick, completed, ma
           <p className={`text-xl font-black tabular-nums ${task.urgent ? 'text-red-600' : 'text-blue-600'}`}>
             {task.kgSR >= 1 ? `${task.kgSR.toFixed(2)} kg` : `${Math.round(task.kgSR * 1000)} g`}
           </p>
-          {nbFournees && nbFournees > 1 && (
-            <p className="text-[11px] font-bold text-orange-500 mt-0.5">
-              {nbFournees} fournées × {kgParFournee!.toFixed(1)} kg
-            </p>
-          )}
-          {nbFournees === 1 && (
-            <p className="text-[11px] font-bold text-green-500 mt-0.5">1 fournée ({equipment!.nom})</p>
+          {hasEquipment && (
+            <p className="text-[10px] text-orange-400 font-semibold mt-0.5">voir fournées ↗</p>
           )}
           <button onClick={() => onStockClick({ srId: task.srId, nom: task.srNom, kgQty: stockSR?.quantite_kg || 0 })}
             className="text-[10px] text-gray-400 hover:text-blue-500 mt-0.5">
@@ -1388,6 +1381,17 @@ export default function PlanningPage() {
         // Facteur de scaling : kgSR / rendement SR
         const rendement = sr?.rendement || 1;
         const factor = task.kgSR / rendement;
+        // Poids total de pâte = somme de tous les ingrédients en kg
+        const UNIT_TO_KG: Record<string, number> = { kg: 1, g: 0.001, mg: 0.000001, l: 1, litre: 1, litres: 1, cl: 0.01, ml: 0.001 };
+        const totalDoughKg = sr?.ingredients?.reduce((sum, ing) => {
+          const qty = ing.quantite * factor;
+          const si = ing.stock_item_id ? siMap.get(ing.stock_item_id) : null;
+          const unite = (si?.unite || 'kg').toLowerCase().trim();
+          return sum + qty * (UNIT_TO_KG[unite] ?? 1);
+        }, 0) ?? task.kgSR;
+        const eq = materiels.find(m => task.atelier ? m.atelier === task.atelier : !m.atelier);
+        const nbFournees = eq ? Math.ceil(totalDoughKg / eq.capacite_kg) : null;
+        const kgPateParFournee = nbFournees ? totalDoughKg / nbFournees : null;
         return (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 print:hidden" onClick={() => setTaskDetailModal(null)}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -1408,20 +1412,17 @@ export default function PlanningPage() {
                       {task.kgSR >= 1 ? `${task.kgSR.toFixed(2)} kg` : `${Math.round(task.kgSR * 1000)} g`}
                     </p>
                   </div>
-                  {(() => {
-                    const eq = materiels.find(m => task.atelier ? m.atelier === task.atelier : !m.atelier);
-                    if (!eq) return null;
-                    const nb = Math.ceil(task.kgSR / eq.capacite_kg);
-                    const kgPer = task.kgSR / nb;
-                    return (
-                      <div className={`px-4 py-2 rounded-xl ${nb > 1 ? 'bg-orange-50 border border-orange-100' : 'bg-green-50 border border-green-100'}`}>
-                        <p className={`text-xs font-semibold ${nb > 1 ? 'text-orange-400' : 'text-green-400'}`}>{eq.nom} · max {eq.capacite_kg} kg</p>
-                        <p className={`text-2xl font-black tabular-nums ${nb > 1 ? 'text-orange-600' : 'text-green-600'}`}>
-                          {nb} fournée{nb > 1 ? 's' : ''} × {kgPer.toFixed(2)} kg
-                        </p>
-                      </div>
-                    );
-                  })()}
+                  {eq && nbFournees && (
+                    <div className={`px-4 py-2 rounded-xl ${nbFournees > 1 ? 'bg-orange-50 border border-orange-100' : 'bg-green-50 border border-green-100'}`}>
+                      <p className={`text-xs font-semibold ${nbFournees > 1 ? 'text-orange-400' : 'text-green-400'}`}>
+                        {eq.nom} · max {eq.capacite_kg} kg pâte
+                      </p>
+                      <p className={`text-2xl font-black tabular-nums ${nbFournees > 1 ? 'text-orange-600' : 'text-green-600'}`}>
+                        {nbFournees} fournée{nbFournees > 1 ? 's' : ''} × {kgPateParFournee!.toFixed(2)} kg
+                      </p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">poids pâte total : {totalDoughKg.toFixed(2)} kg</p>
+                    </div>
+                  )}
                   {task.urgent && !isDone && (
                     <span className="px-3 py-1.5 bg-red-100 text-red-600 font-black text-sm rounded-xl">⚠ URGENT</span>
                   )}
@@ -1455,8 +1456,7 @@ export default function PlanningPage() {
 
                 {/* Ingrédients */}
                 {sr?.ingredients && sr.ingredients.length > 0 && (() => {
-                  const eq = materiels.find(m => task.atelier ? m.atelier === task.atelier : !m.atelier);
-                  const nb = eq ? Math.ceil(task.kgSR / eq.capacite_kg) : null;
+                  const nb = nbFournees;
                   return (
                     <div>
                       <div className="flex items-baseline justify-between mb-2">
