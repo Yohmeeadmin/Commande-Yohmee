@@ -6,7 +6,8 @@ export type UserRole =
 export type AppModule =
   | 'dashboard' | 'catalogue' | 'clients' | 'commandes'
   | 'recurrences' | 'planning' | 'production'
-  | 'livraisons' | 'rapports' | 'parametres' | 'stock' | 'recettes' | 'charges';
+  | 'livraisons' | 'rapports' | 'parametres' | 'stock' | 'recettes' | 'charges'
+  | 'facturation';
 
 export interface UserProfile {
   id: string;
@@ -49,12 +50,13 @@ export const ALL_MODULES: { value: AppModule; label: string; href: string }[] = 
   { value: 'stock',        label: 'Stock',         href: '/stock' },
   { value: 'recettes',    label: 'Recettes',      href: '/recettes' },
   { value: 'charges',     label: 'Charges',       href: '/charges' },
+  { value: 'facturation', label: 'Facturation',   href: '/facturation' },
 ];
 
 export const ROLE_DEFAULT_MODULES: Record<UserRole, AppModule[]> = {
-  admin:        ['dashboard', 'catalogue', 'clients', 'commandes', 'recurrences', 'planning', 'production', 'livraisons', 'rapports', 'parametres', 'stock', 'recettes', 'charges'],
-  direction:    ['dashboard', 'catalogue', 'clients', 'commandes', 'recurrences', 'planning', 'production', 'livraisons', 'rapports', 'stock', 'recettes', 'charges'],
-  commercial:   ['dashboard', 'clients', 'commandes', 'recurrences', 'catalogue'],
+  admin:        ['dashboard', 'catalogue', 'clients', 'commandes', 'recurrences', 'planning', 'production', 'livraisons', 'rapports', 'parametres', 'stock', 'recettes', 'charges', 'facturation'],
+  direction:    ['dashboard', 'catalogue', 'clients', 'commandes', 'recurrences', 'planning', 'production', 'livraisons', 'rapports', 'stock', 'recettes', 'charges', 'facturation'],
+  commercial:   ['dashboard', 'clients', 'commandes', 'recurrences', 'catalogue', 'facturation'],
   production:   ['dashboard', 'production', 'planning'],
   livraison:    ['dashboard', 'livraisons', 'planning'],
   boulangerie:  ['dashboard', 'production', 'planning'],

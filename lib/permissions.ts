@@ -39,7 +39,13 @@ export type Permission =
   | 'rapports.manage_commissions'
   // Paramètres
   | 'parametres.manage_users'
-  | 'parametres.manage_settings';
+  | 'parametres.manage_settings'
+  // Facturation
+  | 'facturation.view'
+  | 'facturation.create'
+  | 'facturation.edit'
+  | 'facturation.delete'
+  | 'facturation.manage_payments';
 
 // ─── Permissions par rôle ─────────────────────────────────────────────────────
 
@@ -53,6 +59,7 @@ const ALL_PERMISSIONS: Permission[] = [
   'livraisons.confirm_delivery', 'livraisons.create_route', 'livraisons.cancel_route',
   'rapports.view_financials', 'rapports.edit_bl', 'rapports.delete_bl', 'rapports.manage_commissions',
   'parametres.manage_users', 'parametres.manage_settings',
+  'facturation.view', 'facturation.create', 'facturation.edit', 'facturation.delete', 'facturation.manage_payments',
 ];
 
 const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
@@ -68,6 +75,7 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'livraisons.confirm_delivery', 'livraisons.create_route',
     'rapports.view_financials', 'rapports.edit_bl',
     'rapports.manage_commissions',
+    'facturation.view', 'facturation.create', 'facturation.edit', 'facturation.delete', 'facturation.manage_payments',
   ],
 
   commercial: [
@@ -75,6 +83,7 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'catalogue.create',
     'commandes.create', 'commandes.edit', 'commandes.change_status',
     'recurrences.create', 'recurrences.edit', 'recurrences.toggle',
+    'facturation.view', 'facturation.create', 'facturation.edit',
   ],
 
   production: [],

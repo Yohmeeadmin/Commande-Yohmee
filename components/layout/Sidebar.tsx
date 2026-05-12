@@ -18,6 +18,7 @@ import {
   Warehouse,
   ChefHat,
   Wallet,
+  Receipt,
 } from 'lucide-react';
 import Image from 'next/image';
 import { useUser } from '@/contexts/UserContext';
@@ -37,6 +38,7 @@ const ALL_NAVIGATION: { name: string; href: string; icon: React.ComponentType<{ 
   { name: 'Stock',        href: '/stock',        icon: Warehouse,       module: 'stock' },
   { name: 'Recettes',    href: '/recettes',     icon: ChefHat,         module: 'recettes' },
   { name: 'Charges',     href: '/charges',      icon: Wallet,          module: 'charges' },
+  { name: 'Facturation', href: '/facturation',  icon: Receipt,         module: 'facturation' },
   { name: 'Rapports',     href: '/rapports',    icon: BarChart3,       module: 'rapports' },
   { name: 'Paramètres',   href: '/parametres',  icon: Settings,        module: 'parametres' },
 ];
