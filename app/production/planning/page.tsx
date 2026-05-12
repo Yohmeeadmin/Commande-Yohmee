@@ -930,10 +930,20 @@ export default function PlanningPage() {
     return m;
   }, [orders]);
 
+  // Ateliers disponibles pour le filtre prévisions
+  const prevAteliers = useMemo(() => {
+    const set = new Set<string>();
+    productRefs.forEach(r => { if (r.atelier) set.add(r.atelier); });
+    return Array.from(set).sort();
+  }, [productRefs]);
+
   // Refs filtrées pour la grille prévisions
   const filteredPrevRefs = useMemo(() => {
     const search = prevSearch.toLowerCase().trim();
     let refs = productRefs;
+    if (selectedAtelier) {
+      refs = refs.filter(r => r.atelier === selectedAtelier);
+    }
     if (search) {
       refs = refs.filter(r => r.name.toLowerCase().includes(search) || (r.atelier || '').toLowerCase().includes(search));
     } else if (!showAllRefs) {
@@ -947,7 +957,7 @@ export default function PlanningPage() {
       refs = refs.filter(r => active.has(r.id));
     }
     return refs;
-  }, [productRefs, prevSearch, showAllRefs, weekDays, demandMap, recettesByRef]);
+  }, [productRefs, prevSearch, showAllRefs, weekDays, demandMap, recettesByRef, selectedAtelier]);
 
   // ── Save prévision ────────────────────────────────────────────────────────────
   async function savePrevision(date: string, refId: string, qty: number) {
@@ -2130,6 +2140,25 @@ export default function PlanningPage() {
               {showAllRefs ? 'Tous les produits' : `${filteredPrevRefs.length} produit${filteredPrevRefs.length > 1 ? 's' : ''}`}
             </button>
           </div>
+
+          {/* Filtre par atelier */}
+          {prevAteliers.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => setSelectedAtelier(null)}
+                className={`px-3 py-1.5 rounded-xl text-sm font-semibold transition-colors ${selectedAtelier === null ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+                Tous
+              </button>
+              {prevAteliers.map(a => (
+                <button
+                  key={a}
+                  onClick={() => setSelectedAtelier(selectedAtelier === a ? null : a)}
+                  className={`px-3 py-1.5 rounded-xl text-sm font-semibold transition-colors ${selectedAtelier === a ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+                  {a}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Grille */}
           <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
