@@ -13,6 +13,7 @@ import { useAteliers } from '@/lib/useAteliers';
 import { useAppSettings } from '@/lib/useAppSettings';
 import { formatPrice, localDateStr } from '@/lib/utils';
 import MobileFlow from '@/components/commandes/mobile/MobileFlow';
+import ImportWhatsAppModal from '@/components/commandes/ImportWhatsAppModal';
 import type { ArticleWithRef, OrderLine, OrderForm } from '@/components/commandes/mobile/types';
 
 export default function NouvelleCommandePage() {
@@ -40,6 +41,7 @@ export default function NouvelleCommandePage() {
   const [submitting, setSubmitting] = useState(false);
   const [clientPrices, setClientPrices] = useState<Record<string, number>>({});
   const [isEchantillon, setIsEchantillon] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
 
   // ─── Détection doublon ───────────────────────────────────
   const [duplicate, setDuplicate] = useState<{ id: string; numero: string; status: string; items: { product_article_id: string; quantity_ordered: number; unit_price: number; article_unit_quantity: number }[] } | null>(null);
@@ -252,6 +254,37 @@ export default function NouvelleCommandePage() {
     setSearchProduct('');
   }
 
+  function handleImportFromWhatsApp(clientId: string, dateLivraison: string, importedLines: { articleId: string; quantite: number; displayName: string }[]) {
+    // Pré-remplir le client et la date
+    setForm(f => ({ ...f, client_id: clientId, date_livraison: dateLivraison }));
+
+    // Ajouter les lignes importées
+    setLines(prev => {
+      const next = [...prev];
+      for (const imp of importedLines) {
+        const article = articles.find(a => a.id === imp.articleId);
+        if (!article) continue;
+        const selectedClient = clients.find(c => c.id === clientId);
+        const price = clientPrices[article.id] ?? calculateArticlePrice(article, article.product_reference, selectedClient?.type_client);
+        const existing = next.find(l => l.article_id === imp.articleId);
+        if (existing) {
+          existing.quantite += imp.quantite;
+        } else {
+          next.push({
+            id: crypto.randomUUID(),
+            article_id: imp.articleId,
+            article_display_name: imp.displayName,
+            quantite: imp.quantite,
+            prix_unitaire: price,
+            unit_quantity: article.quantity,
+          });
+        }
+      }
+      return next;
+    });
+    setImportModalOpen(false);
+  }
+
   const totalValeur = lines.reduce((s, l) => s + l.quantite * l.prix_unitaire, 0);
   const echantillonLineValue = lines.filter(l => l.is_echantillon).reduce((s, l) => s + l.quantite * l.prix_unitaire, 0);
   const subtotal = lines.filter(l => !l.is_echantillon).reduce((s, l) => s + l.quantite * l.prix_unitaire, 0);
@@ -269,6 +302,16 @@ export default function NouvelleCommandePage() {
 
   return (
     <>
+      {/* ─── Import WhatsApp Modal ───────────────────────── */}
+      {importModalOpen && (
+        <ImportWhatsAppModal
+          articles={articles.map(a => ({ id: a.id, display_name: a.display_name, ref_name: a.product_reference?.name }))}
+          clients={clients.map(c => ({ id: c.id, nom: c.nom }))}
+          onImport={handleImportFromWhatsApp}
+          onClose={() => setImportModalOpen(false)}
+        />
+      )}
+
       {/* ─── VERSION MOBILE ──────────────────────────────── */}
       <div className="lg:hidden">
         <MobileFlow
@@ -296,14 +339,21 @@ export default function NouvelleCommandePage() {
 
       {/* ─── VERSION DESKTOP ─────────────────────────────── */}
       <div className="hidden lg:block space-y-6">
-        <div className="flex items-center gap-4">
-          <Link href="/commandes" className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-            <ArrowLeft size={24} />
-          </Link>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Nouvelle commande</h1>
-            <p className="text-gray-500 mt-1">Créer une nouvelle commande</p>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <Link href="/commandes" className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+              <ArrowLeft size={24} />
+            </Link>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Nouvelle commande</h1>
+              <p className="text-gray-500 mt-1">Créer une nouvelle commande</p>
+            </div>
           </div>
+          <button
+            onClick={() => setImportModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-green-600 text-white rounded-xl font-semibold text-sm hover:bg-green-700 transition-colors shadow-sm">
+            <span>📲</span> Importer WhatsApp
+          </button>
         </div>
 
         {/* Alerte doublon */}
