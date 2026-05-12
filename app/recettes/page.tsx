@@ -6,6 +6,7 @@ import { PACK_TYPES, PRODUCT_STATES, generateArticleDisplayName } from '@/types'
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase/client';
 import { useAteliers } from '@/lib/useAteliers';
+import QuickRecipeSheet from '@/components/recettes/QuickRecipeSheet';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -1653,6 +1654,7 @@ export default function RecettesPage() {
   const [calculateurRecipe, setCalculateurRecipe] = useState<RecipeSheet | null>(null);
   const [filterAtelier, setFilterAtelier] = useState<string | null>(null);
   const [filterCategorie, setFilterCategorie] = useState<string | null>(null);
+  const [quickViewRecipe, setQuickViewRecipe] = useState<RecipeSheet | null>(null);
 
   const recettes = allSheets.filter(s => s.type !== 'sous_recette');
   const sousRecettes = allSheets.filter(s => s.type === 'sous_recette');
@@ -1787,6 +1789,18 @@ export default function RecettesPage() {
 
   return (
     <>
+      {/* Fiche rapide mobile */}
+      {quickViewRecipe && (
+        <QuickRecipeSheet
+          recipe={quickViewRecipe}
+          sousRecettes={sousRecettes}
+          costEntry={costMap.get(quickViewRecipe.id) ?? { coutUnitaire: 0, coutAvecPerte: 0, pv: null, tauxMarge: null }}
+          getStyle={getStyle}
+          onEdit={() => { openEdit(quickViewRecipe); setQuickViewRecipe(null); }}
+          onClose={() => setQuickViewRecipe(null)}
+        />
+      )}
+
       {/* Modals partagées mobile + desktop */}
       {calculateurRecipe && (
         <CalculateurModal
@@ -1901,7 +1915,7 @@ export default function RecettesPage() {
               const { coutUnitaire, pv, tauxMarge } = costMap.get(recipe.id) ?? { coutUnitaire: 0, pv: null, tauxMarge: null };
               const atelierStyle = recipe.atelier ? getStyle(recipe.atelier) : null;
               return (
-                <button key={recipe.id} onClick={() => openEdit(recipe)}
+                <button key={recipe.id} onClick={() => setQuickViewRecipe(recipe)}
                   className="w-full bg-white rounded-2xl border border-gray-100 px-4 py-3.5 text-left active:bg-gray-50 transition-colors">
                   <div className="flex items-start justify-between gap-2">
                     <p className="font-semibold text-gray-900 flex-1 leading-snug">{recipe.nom}</p>
