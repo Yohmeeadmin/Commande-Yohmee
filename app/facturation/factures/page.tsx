@@ -255,7 +255,7 @@ export default function FacturesPage() {
     load();
   }
 
-  function openPDF(inv: Invoice) {
+  async function openPDF(inv: Invoice) {
     const co = {
       raison_sociale: settings.raison_sociale, adresse_siege: settings.adresse_siege,
       code_postal: settings.code_postal, ville_siege: settings.ville_siege,
@@ -263,9 +263,31 @@ export default function FacturesPage() {
       site_web: settings.site_web, rc: settings.rc, if_fiscal: settings.if_fiscal,
       ice_societe: settings.ice_societe, tp: settings.tp, cnss: settings.cnss,
     };
+
+    // Charge les BL liés et les règlements en parallèle
+    const [blRes, payRes] = await Promise.all([
+      supabase.from('invoice_bons_livraison')
+        .select('bons_livraison(numero)')
+        .eq('invoice_id', inv.id),
+      supabase.from('payment_invoices')
+        .select('montant_applique, payments(date, mode, reference)')
+        .eq('invoice_id', inv.id),
+    ]);
+
+    const blRefs = (blRes.data ?? []).map((r: any) => r.bons_livraison?.numero).filter(Boolean) as string[];
+    const pays = (payRes.data ?? []).map((r: any) => ({
+      date: r.payments?.date ?? '',
+      montant: r.montant_applique,
+      mode: r.payments?.mode ?? '',
+      reference: r.payments?.reference ?? '',
+    }));
+
     setPdfDoc({
       type: 'facture', reference: inv.reference, date_emission: inv.date_emission,
       date_echeance: inv.date_echeance,
+      bl_references: blRefs.length > 0 ? blRefs : null,
+      total_regle: inv.total_regle,
+      payments: pays.length > 0 ? pays : undefined,
       client: { nom: inv.clients?.nom ?? '—', ice: inv.clients?.ice ?? null, adresse: inv.clients?.adresse_livraison ?? null, code: inv.clients?.code ?? null },
       items: (inv.invoice_items ?? []).map(i => ({ designation: i.designation, quantite: i.quantite, prix_ht: i.prix_ht, tva_pct: i.tva_pct })),
       discount_percent: inv.discount_percent, notes: inv.notes, company: co, logoUrl: settings.logo_url,

@@ -11,6 +11,13 @@ export interface FactureItem {
   tva_pct: number;
 }
 
+export interface FacturePayment {
+  date: string;
+  montant: number;
+  mode: string;
+  reference: string;
+}
+
 export interface FactureDoc {
   type: 'facture' | 'devis' | 'avoir';
   reference: string;
@@ -19,6 +26,9 @@ export interface FactureDoc {
   date_validite?: string | null;
   devis_reference?: string | null;
   invoice_reference?: string | null;
+  bl_references?: string[] | null;
+  total_regle?: number;
+  payments?: FacturePayment[];
   client: {
     nom: string;
     raison_sociale?: string | null;
@@ -149,6 +159,14 @@ export default function FacturePDF({ doc }: { doc: FactureDoc }) {
         </div>
       </div>
 
+      {/* ── Références BL ───────────────────────────────────────────────────── */}
+      {doc.bl_references && doc.bl_references.length > 0 && (
+        <div style={{ marginBottom: '4mm', fontSize: '10px', color: '#444', borderBottom: '1px solid #eee', paddingBottom: '3mm' }}>
+          <span style={{ fontWeight: 'bold' }}>Bons de livraison : </span>
+          {doc.bl_references.join(', ')}
+        </div>
+      )}
+
       {/* ── Tableau articles ─────────────────────────────────────────────────── */}
       <div style={{ textAlign: 'right', fontSize: '10px', color: '#555', marginBottom: '2px' }}>
         Montants exprimés en MAD
@@ -221,9 +239,50 @@ export default function FacturePDF({ doc }: { doc: FactureDoc }) {
               <td style={totalLabelStyle}>{doc.type === 'avoir' ? 'Montant avoir' : 'Total TTC'}</td>
               <td style={totalValueStyle}>{totalTTC.toFixed(2)}</td>
             </tr>
+            {doc.type === 'facture' && doc.total_regle !== undefined && (
+              <>
+                <tr>
+                  <td style={totalLabelStyle}>Déjà réglé</td>
+                  <td style={totalValueStyle}>{doc.total_regle.toFixed(2)}</td>
+                </tr>
+                <tr style={{ fontWeight: 'bold', color: Math.max(0, totalTTC - doc.total_regle) === 0 ? '#059669' : '#dc2626' }}>
+                  <td style={totalLabelStyle}>Reste à payer</td>
+                  <td style={totalValueStyle}>{Math.max(0, totalTTC - doc.total_regle).toFixed(2)}</td>
+                </tr>
+              </>
+            )}
           </tbody>
         </table>
       </div>
+
+      {/* ── Versements effectués ─────────────────────────────────────────────── */}
+      {doc.type === 'facture' && doc.payments && doc.payments.length > 0 && (
+        <div style={{ marginBottom: '6mm' }}>
+          <div style={{ fontSize: '10px', fontWeight: 'bold', color: '#555', marginBottom: '2mm' }}>
+            Versements déjà effectués
+          </div>
+          <table style={{ borderCollapse: 'collapse', fontSize: '10px' }}>
+            <thead>
+              <tr style={{ backgroundColor: '#f5f5f5' }}>
+                <th style={{ ...thStyle('left'), fontWeight: 'normal', padding: '1.5mm 3mm' }}>Règlement</th>
+                <th style={{ ...thStyle('right'), fontWeight: 'normal', padding: '1.5mm 3mm' }}>Montant</th>
+                <th style={{ ...thStyle('left'), fontWeight: 'normal', padding: '1.5mm 3mm' }}>Type</th>
+                <th style={{ ...thStyle('left'), fontWeight: 'normal', padding: '1.5mm 3mm' }}>Réf.</th>
+              </tr>
+            </thead>
+            <tbody>
+              {doc.payments.map((p, i) => (
+                <tr key={i} style={{ borderBottom: '1px dotted #eee' }}>
+                  <td style={{ ...tdStyle('left'), padding: '1mm 3mm' }}>{fmtDate(p.date)}</td>
+                  <td style={{ ...tdStyle('right'), padding: '1mm 3mm' }}>{p.montant.toFixed(2)}</td>
+                  <td style={{ ...tdStyle('left'), padding: '1mm 3mm', textTransform: 'capitalize' }}>{p.mode}</td>
+                  <td style={{ ...tdStyle('left'), padding: '1mm 3mm', color: '#888' }}>{p.reference}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* ── Montant en lettres ───────────────────────────────────────────────── */}
       <div style={{ marginBottom: '8mm' }}>
