@@ -13,6 +13,7 @@ import {
   ClipboardList,
   CalendarClock,
   FileText,
+  TrendingUp,
   ChevronLeft,
   ChevronRight,
   Settings,
@@ -58,9 +59,10 @@ const NAV_STRUCTURE: NavEntry[] = [
   { type: 'item',  name: 'Dashboard',   href: '/',            icon: LayoutDashboard, module: 'dashboard' },
 
   { type: 'group', label: 'Vente', icon: ShoppingBag, items: [
-    { name: 'Catalogue',    href: '/catalogue',   icon: Package,  module: 'catalogue' },
-    { name: 'Clients',      href: '/clients',     icon: Users,    module: 'clients' },
-    { name: 'Facturation',  href: '/facturation', icon: Receipt,  module: 'facturation' },
+    { name: 'Catalogue',          href: '/catalogue',         icon: Package,      module: 'catalogue' },
+    { name: 'Clients',            href: '/clients',           icon: Users,        module: 'clients' },
+    { name: 'Facturation',        href: '/facturation',       icon: Receipt,      module: 'facturation' },
+    { name: 'Prévisions de vente',href: '/previsions-vente',  icon: TrendingUp,   module: 'planning' },
   ]},
 
   { type: 'group', label: 'Commandes', icon: ShoppingCart, items: [
