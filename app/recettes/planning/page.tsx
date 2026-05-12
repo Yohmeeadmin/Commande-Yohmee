@@ -410,14 +410,21 @@ function buildPlan(
 
 // ─── TaskCard ─────────────────────────────────────────────────────────────────
 
-function TaskCard({ task, stockPreps, onStockClick, onDoubleClick, completed }: {
+interface MaterielLight { id: string; nom: string; capacite_kg: number; atelier: string | null; }
+
+function TaskCard({ task, stockPreps, onStockClick, onDoubleClick, completed, materiels }: {
   task: PrepTask;
   stockPreps: { recipe_sheet_id: string; quantite_kg: number }[];
   onStockClick: (v: { srId: string; nom: string; kgQty: number }) => void;
   onDoubleClick?: () => void;
   completed?: boolean;
+  materiels?: MaterielLight[];
 }) {
   const stockSR = stockPreps.find(s => s.recipe_sheet_id === task.srId);
+  const equipment = materiels?.find(m => task.atelier ? m.atelier === task.atelier : !m.atelier);
+  const nbFournees = equipment ? Math.ceil(task.kgSR / equipment.capacite_kg) : null;
+  const kgParFournee = nbFournees ? task.kgSR / nbFournees : null;
+
   return (
     <div onDoubleClick={onDoubleClick}
       className={`bg-white border rounded-2xl p-4 space-y-3 cursor-pointer select-none transition-opacity ${completed ? 'opacity-40' : ''} ${task.urgent ? 'border-red-200 bg-red-50/30' : 'border-gray-100'}`}
@@ -431,6 +438,14 @@ function TaskCard({ task, stockPreps, onStockClick, onDoubleClick, completed }: 
           <p className={`text-xl font-black tabular-nums ${task.urgent ? 'text-red-600' : 'text-blue-600'}`}>
             {task.kgSR >= 1 ? `${task.kgSR.toFixed(2)} kg` : `${Math.round(task.kgSR * 1000)} g`}
           </p>
+          {nbFournees && nbFournees > 1 && (
+            <p className="text-[11px] font-bold text-orange-500 mt-0.5">
+              {nbFournees} fournées × {kgParFournee!.toFixed(1)} kg
+            </p>
+          )}
+          {nbFournees === 1 && (
+            <p className="text-[11px] font-bold text-green-500 mt-0.5">1 fournée ({equipment!.nom})</p>
+          )}
           <button onClick={() => onStockClick({ srId: task.srId, nom: task.srNom, kgQty: stockSR?.quantite_kg || 0 })}
             className="text-[10px] text-gray-400 hover:text-blue-500 mt-0.5">
             stock: {stockSR?.quantite_kg ? `${stockSR.quantite_kg} kg` : '0 kg'}
@@ -563,6 +578,7 @@ export default function PlanningPage() {
   const [orders, setOrders] = useState<OrderItem[]>([]);
   const [stockProduits, setStockProduits] = useState<StockProduit[]>([]);
   const [stockPreps, setStockPreps] = useState<StockPrep[]>([]);
+  const [materiels, setMateriels] = useState<MaterielLight[]>([]);
 
   // Articles prévisionnels par jour : "date|articleId" → qty (localStorage)
   const [articlePrevisions, setArticlePrevisions] = useState<Record<string, number>>(() => {
@@ -772,7 +788,7 @@ export default function PlanningPage() {
         return res.error ? [] : (res.data || []) as StockPrep[];
       }
 
-      const [refsRes, articlesRes, recettesData, srData, prevsData, stockProdData, stockPrepData, siRes] = await Promise.all([
+      const [refsRes, articlesRes, recettesData, srData, prevsData, stockProdData, stockPrepData, siRes, matRes] = await Promise.all([
         supabase.from('product_references').select('id, name, atelier').eq('is_active', true).order('name'),
         supabase.from('product_articles').select('id, product_reference_id, pack_type, quantity, product_state, display_name, is_active').eq('is_active', true),
         fetchRecettes(),
@@ -781,6 +797,7 @@ export default function PlanningPage() {
         fetchStockProd(),
         fetchStockPrep(),
         supabase.from('stock_items').select('id, nom, unite'),
+        supabase.from('materiel').select('id, nom, capacite_kg, atelier').order('nom'),
       ]);
 
       setProductRefs((refsRes.data || []) as ProductRef[]);
@@ -791,6 +808,7 @@ export default function PlanningPage() {
       setStockProduits(stockProdData);
       setStockPreps(stockPrepData);
       setStockItems((siRes.data || []) as StockItemLight[]);
+      setMateriels((matRes.data || []) as MaterielLight[]);
 
       // Commandes — on essaie, mais ce n'est pas bloquant
       try {
@@ -2079,7 +2097,7 @@ export default function PlanningPage() {
                               )}
                               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                                 {atelierGroups.get(atelier)!.map((task, i) => (
-                                  <TaskCard key={i} task={task} stockPreps={stockPreps} onStockClick={setStockSRModal} />
+                                  <TaskCard key={i} task={task} stockPreps={stockPreps} onStockClick={setStockSRModal} materiels={materiels} />
                                 ))}
                               </div>
                             </div>

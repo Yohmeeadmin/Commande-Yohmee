@@ -14,6 +14,7 @@ import {
   CalendarClock,
   FileText,
   TrendingUp,
+  Cpu,
   ChevronLeft,
   ChevronRight,
   Settings,
@@ -76,6 +77,7 @@ const NAV_STRUCTURE: NavEntry[] = [
     { name: 'Planning',                href: '/production/planning',       icon: Calendar,      module: 'production' },
     { name: 'Fiche de prod',           href: '/production/fiche-de-prod',  icon: FileText,      module: 'production' },
     { name: 'Rétro-planning',          href: '/production/retro-planning', icon: CalendarClock, module: 'production' },
+    { name: 'Matériel',                href: '/production/materiel',       icon: Cpu,           module: 'production' },
   ]},
   { type: 'item',  name: 'Stock',       href: '/stock',       icon: Warehouse,       module: 'stock' },
   { type: 'group', label: 'Recettes', icon: ChefHat, items: [
