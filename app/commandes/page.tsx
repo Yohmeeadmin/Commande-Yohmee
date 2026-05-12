@@ -1,12 +1,14 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
-import { Plus, Search, ShoppingCart, Calendar, CheckCircle, Play, Truck, RefreshCw, Pencil, X, Bell, Trash2, Square, CheckSquare, ChevronDown, ChevronUp, Filter, Globe, CalendarDays } from 'lucide-react';
+import { Plus, Search, ShoppingCart, Calendar, CheckCircle, Play, Truck, RefreshCw, Pencil, X, Bell, Trash2, Square, CheckSquare, Filter, Globe, CalendarDays } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase/client';
 import { ORDER_STATUSES, OrderStatus } from '@/types';
-import { formatDate, formatPrice, localDateStr } from '@/lib/utils';
+import { formatPrice, localDateStr, debounce } from '@/lib/utils';
 import { usePermissions } from '@/lib/permissions';
+import { OrderListSkeleton } from '@/components/ui/Skeleton';
 
 interface DeliverySlot {
   id: string;
@@ -68,10 +70,36 @@ function isUrgent(dateStr: string): boolean {
   return diff >= 0 && diff <= 1;
 }
 
+async function fetchOrders(): Promise<OrderWithClient[]> {
+  const { data } = await supabase
+    .from('orders')
+    .select('*, source, woocommerce_order_id, client:clients(nom), delivery_slot:delivery_slots(name, start_time, end_time)')
+    .order('delivery_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(200);
+  return (data as OrderWithClient[]) || [];
+}
+
 export default function CommandesPage() {
   const { can } = usePermissions();
-  const [orders, setOrders] = useState<OrderWithClient[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+
+  const { data: orders = [], isLoading: loading } = useQuery({
+    queryKey: ['orders'],
+    queryFn: fetchOrders,
+  });
+
+  // Realtime : invalide le cache dès qu'une commande change
+  useEffect(() => {
+    const channel = supabase.channel('orders-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['orders'] });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [queryClient]);
+
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [selectedDate, setSelectedDate] = useState<string>('');
@@ -85,6 +113,10 @@ export default function CommandesPage() {
   const [editSaveError, setEditSaveError] = useState('');
   const [allArticles, setAllArticles] = useState<ArticleForSearch[]>([]);
   const [searchArticle, setSearchArticle] = useState('');
+  // Debounce la recherche (300ms)
+  const debouncedSetSearch = useMemo(() => debounce((v: string) => setSearch(v), 300), []);
+  const handleSearch = useCallback((v: string) => { setSearchInput(v); debouncedSetSearch(v); }, [debouncedSetSearch]);
+
   const [deletedItemIds, setDeletedItemIds] = useState<string[]>([]);
   // Sélection (desktop)
   const [selectionMode, setSelectionMode] = useState(false);
@@ -99,31 +131,22 @@ export default function CommandesPage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
-    loadOrders();
     supabase.from('delivery_slots').select('*').eq('is_active', true).order('sort_order').then(({ data }: { data: DeliverySlot[] | null }) => { if (data) setSlots(data); });
   }, []);
 
-  async function loadOrders() {
-    try {
-      const { data } = await supabase
-        .from('orders')
-        .select('*, source, woocommerce_order_id, client:clients(nom), delivery_slot:delivery_slots(name, start_time, end_time)')
-        .order('delivery_date', { ascending: false })
-        .order('created_at', { ascending: false })
-        .limit(200);
-      setOrders((data as OrderWithClient[]) || []);
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
-  }
-
   async function updateStatus(orderId: string, newStatus: OrderStatus) {
+    // Optimistic update
+    queryClient.setQueryData<OrderWithClient[]>(['orders'], prev =>
+      prev?.map(o => o.id === orderId ? { ...o, status: newStatus } : o) ?? []
+    );
     await supabase.from('orders').update({ status: newStatus }).eq('id', orderId);
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
   }
 
   async function markDelivered(orderId: string) {
+    queryClient.setQueryData<OrderWithClient[]>(['orders'], prev =>
+      prev?.map(o => o.id === orderId ? { ...o, status: 'livree' } : o) ?? []
+    );
     await supabase.from('orders').update({ status: 'livree', delivered_at: new Date().toISOString() }).eq('id', orderId);
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'livree' } : o));
   }
 
   async function openEditModal(order: OrderWithClient) {
@@ -198,7 +221,7 @@ export default function CommandesPage() {
       }
 
       setEditOrder(null);
-      loadOrders();
+      queryClient.invalidateQueries({ queryKey: ['orders'] });
     } catch (err: any) {
       setEditSaveError(err?.message || 'Erreur lors de la modification');
     } finally {
@@ -208,36 +231,42 @@ export default function CommandesPage() {
 
   async function deleteSelected() {
     const ids = Array.from(selectedIds);
+    queryClient.setQueryData<OrderWithClient[]>(['orders'], prev => prev?.filter(o => !selectedIds.has(o.id)) ?? []);
     await supabase.from('order_items').delete().in('order_id', ids);
     await supabase.from('orders').delete().in('id', ids);
-    setOrders(prev => prev.filter(o => !selectedIds.has(o.id)));
     setSelectedIds(new Set());
     setSelectionMode(false);
     setDeleteConfirm(false);
   }
 
   async function deleteSingle(orderId: string) {
+    queryClient.setQueryData<OrderWithClient[]>(['orders'], prev => prev?.filter(o => o.id !== orderId) ?? []);
     await supabase.from('order_items').delete().eq('order_id', orderId);
     await supabase.from('orders').delete().eq('id', orderId);
-    setOrders(prev => prev.filter(o => o.id !== orderId));
     setConfirmDeleteId(null);
   }
 
   async function validerDemande(orderId: string) {
+    queryClient.setQueryData<OrderWithClient[]>(['orders'], prev =>
+      prev?.map(o => o.id === orderId ? { ...o, status: 'confirmee' } : o) ?? []
+    );
     await supabase.from('orders').update({ status: 'confirmee' }).eq('id', orderId);
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'confirmee' } : o));
   }
 
   async function refuserDemande(orderId: string) {
     if (!confirm('Refuser cette commande ?')) return;
+    queryClient.setQueryData<OrderWithClient[]>(['orders'], prev =>
+      prev?.map(o => o.id === orderId ? { ...o, status: 'annulee' } : o) ?? []
+    );
     await supabase.from('orders').update({ status: 'annulee' }).eq('id', orderId);
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'annulee' } : o));
   }
 
   async function decalerDemande(orderId: string) {
     if (!decalerDate) return;
+    queryClient.setQueryData<OrderWithClient[]>(['orders'], prev =>
+      prev?.map(o => o.id === orderId ? { ...o, delivery_date: decalerDate, status: 'confirmee' } : o) ?? []
+    );
     await supabase.from('orders').update({ delivery_date: decalerDate, status: 'confirmee' }).eq('id', orderId);
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, delivery_date: decalerDate, status: 'confirmee' } : o));
     setDecalerOrderId(null);
     setDecalerDate('');
   }
@@ -245,8 +274,10 @@ export default function CommandesPage() {
   async function changerCreneau(orderId: string) {
     const slotId = creneauSlotId || null;
     const slot = slotId ? slots.find(s => s.id === slotId) ?? null : null;
+    queryClient.setQueryData<OrderWithClient[]>(['orders'], prev =>
+      prev?.map(o => o.id === orderId ? { ...o, delivery_slot_id: slotId, delivery_slot: slot as any, status: 'confirmee' } : o) ?? []
+    );
     await supabase.from('orders').update({ delivery_slot_id: slotId, status: 'confirmee' }).eq('id', orderId);
-    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, delivery_slot_id: slotId, delivery_slot: slot as any, status: 'confirmee' } : o));
     setCreneauOrderId(null);
     setCreneauSlotId('');
   }
@@ -293,13 +324,6 @@ export default function CommandesPage() {
     orders.filter(o => o.status === 'brouillon' || o.status === 'confirmee').length,
     [orders]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-4">
@@ -463,12 +487,12 @@ export default function CommandesPage() {
           <input
             type="text"
             placeholder="Client ou numéro…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => handleSearch(e.target.value)}
             className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm"
           />
-          {search && (
-            <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+          {searchInput && (
+            <button onClick={() => { setSearchInput(''); setSearch(''); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
               <X size={14} />
             </button>
           )}
@@ -600,7 +624,9 @@ export default function CommandesPage() {
       )}
 
       {/* Liste groupée par date */}
-      {groupedOrders.length === 0 ? (
+      {loading ? (
+        <OrderListSkeleton count={6} />
+      ) : groupedOrders.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
           <ShoppingCart className="text-gray-300 mx-auto mb-3" size={40} />
           <p className="text-gray-500 font-medium">Aucune commande</p>
@@ -608,7 +634,7 @@ export default function CommandesPage() {
             <Plus size={16} /> Créer une commande
           </Link>
         </div>
-      ) : (
+      ) : loading ? null : (
         <div className="space-y-5">
           {groupedOrders.map(({ label, date, orders: groupOrders }) => {
             const urgent = isUrgent(date);

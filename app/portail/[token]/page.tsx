@@ -286,7 +286,7 @@ export default function PortailPage() {
     try {
       const res = await fetch(`/api/portail/${token}/commandes`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: cart.map(l => ({ article_id: l.article_id, quantity: l.quantity, unit_price: l.unit_price, unit_quantity: l.unit_quantity })), delivery_date: deliveryDate, delivery_slot_id: deliverySlotId || null, note }),
+        body: JSON.stringify({ items: cart.map(l => ({ article_id: l.article_id, display_name: l.display_name, quantity: l.quantity, unit_price: l.unit_price, unit_quantity: l.unit_quantity })), delivery_date: deliveryDate, delivery_slot_id: deliverySlotId || null, note }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erreur');

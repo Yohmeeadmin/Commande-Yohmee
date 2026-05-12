@@ -16,6 +16,25 @@ const TOKEN = process.env.GREEN_API_TOKEN;
  * @param message Texte du message
  * @returns true si envoyé, false si désactivé ou erreur
  */
+export async function sendWhatsAppImage(phone: string, imageUrl: string, caption: string): Promise<boolean> {
+  if (!INSTANCE_ID || !TOKEN) return false;
+  const normalized = normalizePhone(phone);
+  if (!normalized) return false;
+  const chatId = `${normalized.replace(/^\+/, '')}@c.us`;
+  try {
+    const server = INSTANCE_ID.slice(0, 4);
+    const url = `https://${server}.api.greenapi.com/waInstance${INSTANCE_ID}/sendFileByUrl/${TOKEN}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chatId, urlFile: imageUrl, fileName: 'logo.png', caption }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function sendWhatsApp(phone: string, message: string): Promise<boolean> {
   if (!INSTANCE_ID || !TOKEN) return false; // désactivé si pas configuré
 

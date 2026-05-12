@@ -79,12 +79,26 @@ textarea:focus {
     background: white !important;
   }
 
-  .no-print {
+  .no-print, .print\:hidden {
     display: none !important;
   }
 
   .print-break {
     page-break-before: always;
+  }
+
+  /* Fiche de production : afficher uniquement le contenu de la modale */
+  body > * {
+    display: none !important;
+  }
+
+  #print-production-sheet {
+    display: block !important;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%;
+    padding: 20px;
+    font-family: system-ui, sans-serif;
   }
 }
 

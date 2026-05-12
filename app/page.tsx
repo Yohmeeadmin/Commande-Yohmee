@@ -1,12 +1,15 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { RefreshCw, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Minus, X } from 'lucide-react';
+import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { supabase } from '@/lib/supabase/client';
 import { formatPrice } from '@/lib/utils';
 import { usePermissions } from '@/lib/permissions';
 
 // ── Types ──────────────────────────────────────────────────────────────────
+
+type Period = 'today' | 'week' | 'month' | 'last_month';
 
 interface OrderItem {
   quantity_ordered: number;
@@ -14,6 +17,7 @@ interface OrderItem {
   unit_price: number;
   product_article: {
     display_name: string;
+    product_reference_id: string | null;
     product_reference: { atelier: string | null } | null;
   } | null;
 }
@@ -24,159 +28,306 @@ interface DashboardOrder {
   total: number;
   delivery_date: string;
   client: { nom: string } | null;
-  delivery_slot: { id: string; name: string; start_time: string; end_time: string } | null;
   items: OrderItem[];
 }
 
-interface SlimOrder {
+interface IngCost {
+  quantite: number;
+  stock_item_id: string | null;
+  sous_recipe_id: string | null;
+  stock_item: { prix_moyen_pondere: number | null; unite: string; poids_unitaire_g: number | null } | null;
+}
+
+interface RecipeCostData {
   id: string;
-  status: string;
+  product_reference_id: string | null;
+  rendement: number;
+  perte_pct: number;
+  type: string;
+  ingredients: IngCost[];
+}
+
+interface EcoOrder {
+  id: string;
+  total: number;
+  client: { nom: string } | null;
+  items: { quantity_ordered: number; product_article: { display_name: string; product_reference_id: string | null } | null }[];
+}
+
+interface EcoResult {
+  ca: number;
+  coutMatiere: number;
+  margeBrute: number;
+  ndRefs: string[];
+}
+
+interface ChargesTotaux {
+  rh: number;
+  fixes: number;
+  energie: number;
+  variables: number;
   total: number;
 }
 
-// ── Helpers date locale ────────────────────────────────────────────────────
+interface TrendPoint {
+  date: string;
+  label: string;
+  ca: number;
+}
 
-/** Retourne YYYY-MM-DD dans le fuseau horaire du navigateur. */
+// ── Helpers date ───────────────────────────────────────────────────────────
+
 function localDate(offsetDays = 0): string {
   const d = new Date();
   d.setDate(d.getDate() + offsetDays);
-  return [
-    d.getFullYear(),
-    String(d.getMonth() + 1).padStart(2, '0'),
-    String(d.getDate()).padStart(2, '0'),
-  ].join('-');
+  return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
 }
 
-// ── Data fetchers ──────────────────────────────────────────────────────────
+function toYYYYMM(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
 
-async function getTodayOrders(): Promise<DashboardOrder[]> {
-  const today = localDate();
+function getPeriodDates(period: Period) {
+  const today = new Date();
+  const todayStr = localDate();
+  const pad = (n: number) => String(n).padStart(2, '0');
+
+  if (period === 'today') return { start: todayStr, end: todayStr, mois: toYYYYMM(today), label: "Aujourd'hui" };
+
+  if (period === 'week') {
+    const d = new Date(today);
+    const diff = d.getDay() === 0 ? -6 : 1 - d.getDay();
+    d.setDate(d.getDate() + diff);
+    return { start: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, end: todayStr, mois: toYYYYMM(today), label: 'Cette semaine' };
+  }
+
+  if (period === 'month') {
+    return { start: `${today.getFullYear()}-${pad(today.getMonth() + 1)}-01`, end: todayStr, mois: toYYYYMM(today), label: 'Ce mois' };
+  }
+
+  // last_month
+  const lm = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const lmEnd = new Date(today.getFullYear(), today.getMonth(), 0);
+  return {
+    start: `${lm.getFullYear()}-${pad(lm.getMonth() + 1)}-01`,
+    end: `${lmEnd.getFullYear()}-${pad(lmEnd.getMonth() + 1)}-${pad(lmEnd.getDate())}`,
+    mois: toYYYYMM(lm),
+    label: 'Mois précédent',
+  };
+}
+
+// ── Calcul coût matière ────────────────────────────────────────────────────
+
+function ingToKg(ing: IngCost): number {
+  if (ing.sous_recipe_id) return ing.quantite;
+  const si = ing.stock_item;
+  if (!si) return 0;
+  switch (si.unite) {
+    case 'kg': return ing.quantite;
+    case 'g': return ing.quantite / 1000;
+    case 'L': return ing.quantite;
+    case 'mL': return ing.quantite / 1000;
+    case 'pièce': return ing.quantite * (si.poids_unitaire_g || 0) / 1000;
+    default: return ing.quantite;
+  }
+}
+
+function calcSRCostPerKg(sr: RecipeCostData, allSR: RecipeCostData[], depth = 0): number {
+  if (depth > 5) return 0;
+  let cost = 0; let kgIn = 0;
+  for (const ing of sr.ingredients) {
+    if (ing.sous_recipe_id) {
+      const n = allSR.find(x => x.id === ing.sous_recipe_id);
+      if (n) cost += ing.quantite * calcSRCostPerKg(n, allSR, depth + 1);
+      kgIn += ing.quantite;
+    } else if (ing.stock_item) {
+      cost += ing.quantite * (ing.stock_item.prix_moyen_pondere ?? 0);
+      kgIn += ingToKg(ing);
+    }
+  }
+  const kgOut = kgIn * (1 - (sr.perte_pct || 0) / 100) / (sr.rendement || 1);
+  return kgOut > 0 ? cost / kgOut : 0;
+}
+
+function calcCostPerUnit(r: RecipeCostData, allSR: RecipeCostData[]): number | null {
+  if (!r.ingredients.length) return null;
+  let cost = 0;
+  for (const ing of r.ingredients) {
+    if (ing.sous_recipe_id) {
+      const sr = allSR.find(x => x.id === ing.sous_recipe_id);
+      if (sr) cost += ing.quantite * calcSRCostPerKg(sr, allSR);
+    } else if (ing.stock_item) {
+      cost += ing.quantite * (ing.stock_item.prix_moyen_pondere ?? 0);
+    }
+  }
+  return cost / (r.rendement || 1);
+}
+
+// Cache des coûts par product_reference_id (évite de recalculer à chaque render)
+function buildCostCache(recipes: RecipeCostData[], srs: RecipeCostData[]): Map<string, number | null> {
+  const cache = new Map<string, number | null>();
+  for (const r of recipes) {
+    if (r.product_reference_id) cache.set(r.product_reference_id, calcCostPerUnit(r, srs));
+  }
+  return cache;
+}
+
+function computeEco(orders: EcoOrder[], costCache: Map<string, number | null>): EcoResult {
+  let ca = 0; let cout = 0;
+  const nd = new Set<string>();
+  for (const o of orders) {
+    ca += o.total || 0;
+    for (const item of o.items || []) {
+      const refId = item.product_article?.product_reference_id;
+      const name = item.product_article?.display_name || 'Inconnu';
+      if (!refId) { nd.add(name); continue; }
+      if (!costCache.has(refId)) { nd.add(name); continue; }
+      const cpu = costCache.get(refId);
+      if (cpu === null || cpu === undefined) { nd.add(name); continue; }
+      cout += cpu * (item.quantity_ordered || 0);
+    }
+  }
+  return { ca, coutMatiere: cout, margeBrute: ca - cout, ndRefs: Array.from(nd) };
+}
+
+// ── Fetchers ───────────────────────────────────────────────────────────────
+
+async function fetchOrders(start: string, end: string): Promise<DashboardOrder[]> {
   const { data } = await supabase
     .from('orders')
     .select(`
       id, status, total, delivery_date,
       client:clients(nom),
-      delivery_slot:delivery_slots(id, name, start_time, end_time),
       items:order_items(
         quantity_ordered, quantity_delivered, unit_price,
         product_article:product_articles(
-          display_name,
+          display_name, product_reference_id,
           product_reference:product_references(atelier)
         )
       )
     `)
-    .eq('delivery_date', today)
-    .neq('status', 'annulee');
+    .gte('delivery_date', start).lte('delivery_date', end).neq('status', 'annulee');
   return (data as DashboardOrder[]) || [];
 }
 
-async function getYesterdayOrders(): Promise<SlimOrder[]> {
+async function fetchEcoOrders(start: string, end: string): Promise<EcoOrder[]> {
   const { data } = await supabase
     .from('orders')
-    .select('id, status, total')
-    .eq('delivery_date', localDate(-1))
-    .neq('status', 'annulee');
-  return (data as SlimOrder[]) || [];
+    .select(`id, total, client:clients(nom), items:order_items(quantity_ordered, product_article:product_articles(display_name, product_reference_id))`)
+    .gte('delivery_date', start).lte('delivery_date', end).neq('status', 'annulee');
+  return (data as EcoOrder[]) || [];
 }
 
-async function getLateOrders(): Promise<SlimOrder[]> {
-  const today = localDate();
+async function fetchRecipes(): Promise<{ recipes: RecipeCostData[]; srs: RecipeCostData[] }> {
   const { data } = await supabase
-    .from('orders')
-    .select('id, status, total')
-    .lt('delivery_date', today)
-    .not('status', 'in', '("livree","annulee")');
-  return (data as SlimOrder[]) || [];
+    .from('recipe_sheets')
+    .select(`id, product_reference_id, rendement, perte_pct, type, ingredients:recipe_ingredients!recipe_sheet_id(quantite, stock_item_id, sous_recipe_id, stock_item:stock_items(prix_moyen_pondere, unite, poids_unitaire_g))`);
+  const all = (data as RecipeCostData[]) || [];
+  return { recipes: all.filter(r => r.type === 'recette'), srs: all.filter(r => r.type === 'sous_recette') };
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────
+async function fetchCharges(mois: string): Promise<ChargesTotaux> {
+  const [{ data: rhData, error: rhError }, { data: pres }, { data: emps }, { data: fix }, { data: enr }, { data: vari }] = await Promise.all([
+    supabase.rpc('get_masse_salariale', { p_mois: mois }),
+    supabase.from('rh_presences').select('employe_id, jours_travailles, prime').eq('mois', mois),
+    supabase.from('rh_employes').select('id, salaire_mensuel').eq('actif', true),
+    supabase.from('charges_fixes').select('montant').eq('actif', true),
+    supabase.from('charges_energie').select('montant').eq('mois', mois),
+    supabase.from('charges_variables').select('montant').eq('mois', mois),
+  ]);
 
-function calcDelta(today: number, yesterday: number) {
-  if (yesterday === 0) return { pct: today > 0 ? 100 : 0, dir: today > 0 ? 'up' : 'flat' } as const;
-  const p = Math.round(((today - yesterday) / yesterday) * 100);
-  return { pct: Math.abs(p), dir: p > 0 ? ('up' as const) : p < 0 ? ('down' as const) : ('flat' as const) };
+  // RH : utilise le RPC si disponible, sinon fallback JS
+  let rh = 0;
+  const rpcVal = Number((rhData as { rh: number | string }[] | null)?.[0]?.rh ?? 0);
+  if (!rhError && rpcVal > 0) {
+    rh = rpcVal;
+  } else {
+    // Fallback JS (même logique que la page RH)
+    const empMap = new Map<string, number>();
+    ((emps as { id: string; salaire_mensuel: number }[]) || []).forEach(e => empMap.set(e.id, e.salaire_mensuel));
+    const presIds = new Set(((pres as { employe_id: string }[]) || []).map(p => p.employe_id));
+    rh = ((pres as { employe_id: string; jours_travailles: number; prime: number }[]) || [])
+      .reduce((s, p) => s + (empMap.get(p.employe_id) ?? 0) / 26 * (p.jours_travailles || 0) + (p.prime || 0), 0)
+      + ((emps as { id: string; salaire_mensuel: number }[]) || []).filter(e => !presIds.has(e.id)).reduce((s, e) => s + e.salaire_mensuel, 0);
+  }
+
+  const fixes = ((fix as { montant: number }[]) || []).reduce((s, f) => s + f.montant, 0);
+  const energie = ((enr as { montant: number }[]) || []).reduce((s, e) => s + e.montant, 0);
+  const variables = ((vari as { montant: number }[]) || []).reduce((s, v) => s + v.montant, 0);
+  return { rh, fixes, energie, variables, total: rh + fixes + energie + variables };
 }
 
-// ── Sub-components ─────────────────────────────────────────────────────────
+async function fetchLateCount(): Promise<number> {
+  // Via fonction Postgres get_orders_kpis (évite un COUNT séparé)
+  const { data } = await supabase.rpc('get_orders_kpis', { p_date: localDate() });
+  return Number((data as { late_count: number | string }[] | null)?.[0]?.late_count ?? 0);
+}
 
-function KPICard({
-  label, value, sub, accent,
-}: { label: string; value: string; sub?: string; accent?: string }) {
-  return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-      <p className="text-xs font-medium text-gray-400 mb-1.5 leading-none">{label}</p>
-      <p className={`text-xl font-black leading-none ${accent ?? 'text-gray-900'}`}>{value}</p>
-      {sub && <p className="text-[11px] text-gray-300 mt-1.5 leading-none">{sub}</p>}
-    </div>
+async function fetchTrend(): Promise<TrendPoint[]> {
+  // Via fonction Postgres get_ca_trend (GROUP BY en base)
+  const { data } = await supabase.rpc('get_ca_trend', {
+    p_start: localDate(-29),
+    p_end: localDate(),
+  });
+  const map = new Map<string, number>();
+  for (let i = 0; i < 30; i++) map.set(localDate(-29 + i), 0);
+  ((data as { delivery_date: string; ca: number | string }[]) || []).forEach(r =>
+    map.set(r.delivery_date, Number(r.ca))
   );
+  return Array.from(map.entries()).map(([date, ca]) => ({
+    date, ca,
+    label: new Date(date + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }),
+  }));
 }
 
-function KPIGrid({ orders, lateOrders, showFinancials }: { orders: DashboardOrder[]; lateOrders: SlimOrder[]; showFinancials: boolean }) {
-  const ca = orders.reduce((s, o) => s + (o.total || 0), 0);
-  const nb = orders.length;
-  const livrees = orders.filter(o => o.status === 'livree').length;
-  const restantes = orders.filter(o => o.status !== 'livree').length;
-  const panierMoy = nb > 0 ? ca / nb : 0;
-  const incompletes = orders.filter(o =>
-    o.status === 'livree' &&
-    o.items.some(i => i.quantity_delivered !== null && i.quantity_delivered !== undefined && i.quantity_delivered < i.quantity_ordered)
-  ).length;
+// ── Composants ─────────────────────────────────────────────────────────────
 
-  return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-      {showFinancials && <KPICard label="CA du jour" value={formatPrice(ca)} />}
-      <KPICard label="Commandes" value={String(nb)} />
-      <KPICard label="Livrées" value={String(livrees)} accent="text-green-600" />
-      <KPICard
-        label="Restantes"
-        value={String(restantes)}
-        accent={restantes > 0 ? 'text-amber-600' : 'text-gray-900'}
-      />
-      <KPICard
-        label="Incomplètes"
-        value={String(incompletes)}
-        accent={incompletes > 0 ? 'text-orange-500' : 'text-gray-900'}
-        sub="livrées partiellement"
-      />
-
-      <KPICard
-        label="En retard"
-        value={String(lateOrders.length)}
-        accent={lateOrders.length > 0 ? 'text-red-500' : 'text-gray-900'}
-        sub="jours précédents"
-      />
-      {showFinancials && <KPICard label="Panier moy." value={formatPrice(panierMoy)} />}
-    </div>
-  );
+function DeltaBadge({ a, b }: { a: number; b: number }) {
+  if (b === 0) return <span className="text-xs text-gray-300 flex items-center gap-1"><Minus size={10} />—</span>;
+  const pct = Math.round(((a - b) / b) * 100);
+  if (pct === 0) return <span className="text-xs text-gray-400 flex items-center gap-1"><Minus size={10} />0%</span>;
+  if (pct > 0) return <span className="text-xs text-green-600 font-semibold flex items-center gap-1"><TrendingUp size={11} />+{pct}%</span>;
+  return <span className="text-xs text-red-500 font-semibold flex items-center gap-1"><TrendingDown size={11} />{pct}%</span>;
 }
 
-function PerformanceStats({ orders }: { orders: DashboardOrder[] }) {
-  const total = orders.length;
-  const livrees = orders.filter(o => o.status === 'livree').length;
-  const enProduction = orders.filter(o => o.status === 'production').length;
-  const aLivrer = orders.filter(o => o.status === 'confirmee').length;
+// Ligne P&L
+function PLRow({ eco, charges, period }: { eco: EcoResult; charges: ChargesTotaux; period: Period }) {
+  const hasND = eco.ndRefs.length > 0;
+  const isMonthly = period === 'month' || period === 'last_month';
+  const resultat = eco.margeBrute - charges.total;
+  const pct = (n: number) => eco.ca > 0 ? ` · ${((n / eco.ca) * 100).toFixed(1)}%` : '';
 
-  const txLivraison = total > 0 ? Math.round((livrees / total) * 100) : 0;
-  const txProduction = total > 0 ? Math.round((enProduction / total) * 100) : 0;
-  const txALivrer = total > 0 ? Math.round((aLivrer / total) * 100) : 0;
-
-  const stats = [
-    { label: 'Livraison', value: `${txLivraison}%`, color: 'text-green-700', bg: 'bg-green-50', bar: 'bg-green-500', pct: txLivraison },
-    { label: 'En production', value: `${txProduction}%`, color: 'text-orange-700', bg: 'bg-orange-50', bar: 'bg-orange-400', pct: txProduction },
-    { label: 'À livrer', value: `${txALivrer}%`, color: 'text-blue-700', bg: 'bg-blue-50', bar: 'bg-blue-500', pct: txALivrer },
+  const cells = [
+    { label: 'CA', val: formatPrice(eco.ca), sub: null, color: 'text-gray-900', bg: '' },
+    {
+      label: 'Coût matière', val: hasND ? 'ND' : formatPrice(eco.coutMatiere),
+      sub: hasND ? 'données incomplètes' : `food cost${pct(eco.coutMatiere)}`,
+      color: hasND ? 'text-red-400' : 'text-gray-900', bg: hasND ? 'bg-red-50' : '',
+    },
+    {
+      label: 'Marge brute', val: hasND ? 'ND' : formatPrice(eco.margeBrute),
+      sub: hasND ? null : pct(eco.margeBrute).slice(3),
+      color: hasND ? 'text-red-400' : eco.margeBrute >= 0 ? 'text-green-700' : 'text-red-500', bg: '',
+    },
+    ...(isMonthly ? [
+      { label: 'Charges', val: formatPrice(charges.total), sub: pct(charges.total).slice(3), color: 'text-gray-900', bg: '' },
+      {
+        label: 'Résultat', val: hasND ? 'ND' : formatPrice(resultat),
+        sub: hasND ? null : pct(resultat).slice(3),
+        color: hasND ? 'text-red-400' : resultat >= 0 ? 'text-green-700' : 'text-red-500',
+        bg: resultat >= 0 ? 'bg-green-50' : 'bg-red-50',
+      },
+    ] : []),
   ];
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-      <p className="text-sm font-semibold text-gray-800 mb-4">Performance</p>
-      <div className="grid grid-cols-3 gap-3">
-        {stats.map(s => (
-          <div key={s.label} className={`${s.bg} rounded-xl p-3`}>
-            <p className={`text-2xl font-black ${s.color} leading-none`}>{s.value}</p>
-            <p className="text-[11px] text-gray-500 mt-1.5 leading-tight">{s.label}</p>
-            <div className="h-1 bg-white/60 rounded-full mt-2 overflow-hidden">
-              <div className={`h-full ${s.bar} rounded-full`} style={{ width: `${s.pct}%` }} />
-            </div>
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="grid" style={{ gridTemplateColumns: `repeat(${cells.length}, 1fr)` }}>
+        {cells.map((c, i) => (
+          <div key={c.label} className={`p-4 ${c.bg} ${i < cells.length - 1 ? 'border-r border-gray-100' : ''}`}>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1.5">{c.label}</p>
+            <p className={`text-base font-black leading-none ${c.color}`}>{c.val}</p>
+            {c.sub && <p className="text-[11px] text-gray-400 mt-1">{c.sub}</p>}
           </div>
         ))}
       </div>
@@ -184,172 +335,151 @@ function PerformanceStats({ orders }: { orders: DashboardOrder[] }) {
   );
 }
 
-const ATELIER_BAR_COLORS: Record<string, string> = {
-  Boulangerie: 'bg-amber-400',
-  Viennoiserie: 'bg-orange-400',
-  'Pâtisserie': 'bg-pink-400',
-  Chocolaterie: 'bg-rose-500',
-  Traiteur: 'bg-teal-400',
-};
+// Alertes
+function AlertsBanner({ lateCount, ndRefs, foodCost, cible }: {
+  lateCount: number; ndRefs: string[]; foodCost: number | null; cible: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const alerts = [
+    lateCount > 0 && { red: true, msg: `${lateCount} commande${lateCount > 1 ? 's' : ''} en retard` },
+    ndRefs.length > 0 && { red: false, msg: `${ndRefs.length} référence${ndRefs.length > 1 ? 's' : ''} sans coût`, action: () => setOpen(true) },
+    foodCost !== null && foodCost > cible && { red: false, msg: `Food cost ${foodCost.toFixed(1)}% · objectif ${cible}%` },
+  ].filter(Boolean) as { red: boolean; msg: string; action?: () => void }[];
 
-function ProductionAnalysis({ orders }: { orders: DashboardOrder[] }) {
-  const atelierMap = new Map<string, { ca: number; qty: number }>();
-  let totalItems = 0;
-
-  orders.forEach(order => {
-    (order.items || []).forEach(item => {
-      const atelier = item.product_article?.product_reference?.atelier || 'Autre';
-      const lineCA = (item.unit_price || 0) * (item.quantity_ordered || 0);
-      const prev = atelierMap.get(atelier) ?? { ca: 0, qty: 0 };
-      atelierMap.set(atelier, { ca: prev.ca + lineCA, qty: prev.qty + (item.quantity_ordered || 0) });
-      totalItems += item.quantity_ordered || 0;
-    });
-  });
-
-  const totalCA = Array.from(atelierMap.values()).reduce((s, v) => s + v.ca, 0);
-  const sorted = Array.from(atelierMap.entries()).sort((a, b) => b[1].ca - a[1].ca);
+  if (!alerts.length) return (
+    <div className="flex items-center gap-2 bg-green-50 border border-green-100 rounded-2xl px-4 py-3">
+      <div className="w-2 h-2 bg-green-400 rounded-full" />
+      <p className="text-sm font-medium text-green-700">Tout est en ordre</p>
+    </div>
+  );
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-      <div className="flex items-center justify-between mb-4">
-        <p className="text-sm font-semibold text-gray-800">Répartition CA</p>
-        {totalItems > 0 && (
-          <span className="text-xs text-gray-400 bg-gray-50 px-2.5 py-1 rounded-lg font-medium">
-            {totalItems} articles
-          </span>
-        )}
+    <>
+      <div className="rounded-2xl overflow-hidden border border-gray-100 shadow-sm divide-y divide-gray-100">
+        {alerts.map((a, i) => (
+          <div key={i} className={`flex items-center justify-between px-4 py-3 ${a.red ? 'bg-red-50' : 'bg-amber-50'}`}>
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={14} className={a.red ? 'text-red-500' : 'text-amber-500'} />
+              <p className={`text-sm font-medium ${a.red ? 'text-red-700' : 'text-amber-700'}`}>{a.msg}</p>
+            </div>
+            {a.action && <button onClick={a.action} className="text-xs font-bold text-amber-600 underline underline-offset-2">Voir</button>}
+          </div>
+        ))}
       </div>
-
-      {sorted.length === 0 ? (
-        <div className="text-center py-8">
-          <p className="text-sm text-gray-300">Aucune donnée de production</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {sorted.map(([atelier, { ca, qty }]) => {
-            const share = totalCA > 0 ? Math.round((ca / totalCA) * 100) : 0;
-            const barColor = ATELIER_BAR_COLORS[atelier] ?? 'bg-gray-400';
-            return (
-              <div key={atelier}>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-sm text-gray-700 font-medium">{atelier}</span>
-                  <div className="flex items-center gap-3">
-                    <span className="text-[11px] text-gray-300">{qty} art.</span>
-                    <span className="text-sm font-bold text-gray-900 w-9 text-right">{share}%</span>
-                  </div>
+      {open && (
+        <>
+          <div className="fixed inset-0 bg-black/40 z-50" onClick={() => setOpen(false)} />
+          <div className="fixed inset-x-4 top-1/2 -translate-y-1/2 z-50 bg-white rounded-2xl shadow-xl p-5 max-w-sm mx-auto">
+            <div className="flex items-center justify-between mb-3">
+              <p className="font-semibold text-gray-900">Références sans coût</p>
+              <button onClick={() => setOpen(false)}><X size={18} className="text-gray-400" /></button>
+            </div>
+            <div className="space-y-1 max-h-64 overflow-y-auto">
+              {ndRefs.map(n => (
+                <div key={n} className="flex items-center gap-2 py-2 border-b border-gray-50 last:border-0">
+                  <div className="w-1.5 h-1.5 bg-amber-400 rounded-full shrink-0" />
+                  <p className="text-sm text-gray-700">{n}</p>
                 </div>
-                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full ${barColor} rounded-full transition-all duration-700`}
-                    style={{ width: `${share}%` }}
-                  />
-                </div>
-                <p className="text-[11px] text-gray-300 mt-1">{formatPrice(ca)}</p>
-              </div>
-            );
-          })}
-        </div>
+              ))}
+            </div>
+          </div>
+        </>
       )}
-    </div>
+    </>
   );
 }
 
-function DeliveryAnalysis({ orders }: { orders: DashboardOrder[] }) {
-  const slotMap = new Map<string, { label: string; total: number; livrees: number }>();
+// Ops du jour
+function TodayOps({ orders }: { orders: DashboardOrder[] }) {
+  const nb = orders.length;
+  const livrees = orders.filter(o => o.status === 'livree').length;
+  const prod = orders.filter(o => o.status === 'production').length;
+  const aLivrer = orders.filter(o => ['confirmee', 'prete'].includes(o.status)).length;
+  const ca = orders.reduce((s, o) => s + (o.total || 0), 0);
+  const tx = nb > 0 ? Math.round((livrees / nb) * 100) : 0;
 
-  orders.forEach(order => {
-    const key = order.delivery_slot?.id ?? '__none__';
-    const label = order.delivery_slot
-      ? `${order.delivery_slot.name} · ${order.delivery_slot.start_time.slice(0, 5)}–${order.delivery_slot.end_time.slice(0, 5)}`
-      : 'Sans créneau';
-    const prev = slotMap.get(key) ?? { label, total: 0, livrees: 0 };
-    slotMap.set(key, {
-      label,
-      total: prev.total + 1,
-      livrees: prev.livrees + (order.status === 'livree' ? 1 : 0),
-    });
-  });
-
-  const slots = Array.from(slotMap.values()).sort((a, b) => a.label.localeCompare(b.label));
+  const cells = [
+    { label: 'Commandes', val: String(nb), color: 'text-gray-900' },
+    { label: 'Livrées', val: String(livrees), color: 'text-green-600' },
+    { label: 'En production', val: String(prod), color: prod > 0 ? 'text-orange-500' : 'text-gray-400' },
+    { label: 'À livrer', val: String(aLivrer), color: aLivrer > 0 ? 'text-blue-600' : 'text-gray-400' },
+    { label: 'Taux service', val: `${tx}%`, color: tx === 100 ? 'text-green-600' : tx >= 70 ? 'text-amber-600' : 'text-red-500' },
+    { label: 'CA du jour', val: formatPrice(ca), color: 'text-gray-900' },
+  ];
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-      <p className="text-sm font-semibold text-gray-800 mb-4">Analyse livraison</p>
-
-      {slots.length === 0 ? (
-        <div className="text-center py-8">
-          <p className="text-sm text-gray-300">Aucune commande aujourd&apos;hui</p>
-        </div>
-      ) : (
-        <div className="divide-y divide-gray-50">
-          {slots.map(slot => {
-            const pctVal = slot.total > 0 ? Math.round((slot.livrees / slot.total) * 100) : 0;
-            const barColor =
-              pctVal === 100 ? 'bg-green-500' : pctVal >= 50 ? 'bg-amber-400' : 'bg-red-400';
-            const textColor =
-              pctVal === 100 ? 'text-green-600' : pctVal >= 50 ? 'text-amber-600' : 'text-red-500';
-            return (
-              <div key={slot.label} className="flex items-center justify-between py-3.5">
-                <div>
-                  <p className="text-sm font-medium text-gray-900">{slot.label}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {slot.livrees} / {slot.total} livrée{slot.livrees > 1 ? 's' : ''}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full ${barColor} rounded-full transition-all duration-700`}
-                      style={{ width: `${pctVal}%` }}
-                    />
-                  </div>
-                  <span className={`text-sm font-bold w-9 text-right ${textColor}`}>{pctVal}%</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <p className="px-5 py-3 text-sm font-semibold text-gray-800 border-b border-gray-50">Aujourd&apos;hui</p>
+      <div className="grid grid-cols-3 sm:grid-cols-6">
+        {cells.map((c, i) => (
+          <div key={c.label} className={`p-4 text-center ${i < cells.length - 1 ? 'border-r border-gray-50' : ''}`}>
+            <p className={`text-xl font-black leading-none ${c.color}`}>{c.val}</p>
+            <p className="text-[11px] text-gray-400 mt-1.5 leading-tight">{c.label}</p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
+// Graphique CA 30j
+function CATrend({ data }: { data: TrendPoint[] }) {
+  const total30 = data.reduce((s, d) => s + d.ca, 0);
+  const avg = data.length ? total30 / data.length : 0;
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="flex items-start justify-between mb-1">
+        <p className="text-sm font-semibold text-gray-800">CA — 30 derniers jours</p>
+        <p className="text-xs text-gray-400">moy. {formatPrice(Math.round(avg))}/j</p>
+      </div>
+      <p className="text-2xl font-black text-gray-900 mb-4">{formatPrice(total30)}</p>
+      <ResponsiveContainer width="100%" height={100}>
+        <AreaChart data={data} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+          <defs>
+            <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.18} />
+              <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#d1d5db' }} tickLine={false} axisLine={false} interval={4} />
+          <Tooltip
+            contentStyle={{ fontSize: 12, borderRadius: 10, border: '1px solid #f3f4f6', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}
+            formatter={(v) => [formatPrice(Number(v) || 0), 'CA']}
+            labelStyle={{ color: '#6b7280', fontWeight: 600 }}
+          />
+          <Area type="monotone" dataKey="ca" stroke="#3b82f6" strokeWidth={2} fill="url(#grad)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: '#3b82f6' }} />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// Top clients
 function TopClients({ orders }: { orders: DashboardOrder[] }) {
-  const clientMap = new Map<string, number>();
-  orders.forEach(order => {
-    const nom = order.client?.nom ?? 'Inconnu';
-    clientMap.set(nom, (clientMap.get(nom) ?? 0) + (order.total || 0));
-  });
-
-  const top5 = Array.from(clientMap.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
-
-  const max = top5[0]?.[1] ?? 1;
+  const map = new Map<string, number>();
+  orders.forEach(o => { const n = o.client?.nom ?? 'Inconnu'; map.set(n, (map.get(n) ?? 0) + (o.total || 0)); });
+  const top = Array.from(map.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const max = top[0]?.[1] ?? 1;
+  const caTotal = orders.reduce((s, o) => s + (o.total || 0), 0);
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-      <p className="text-sm font-semibold text-gray-800 mb-4">Top clients du jour</p>
-
-      {top5.length === 0 ? (
-        <div className="text-center py-8">
-          <p className="text-sm text-gray-300">Aucune commande aujourd&apos;hui</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {top5.map(([nom, ca], i) => (
+      <p className="text-sm font-semibold text-gray-800 mb-4">Top clients</p>
+      {top.length === 0 ? <p className="text-sm text-gray-300 text-center py-6">Aucune commande</p> : (
+        <div className="space-y-3.5">
+          {top.map(([nom, ca], i) => (
             <div key={nom} className="flex items-center gap-3">
-              <span className="w-5 text-xs font-bold text-gray-200 shrink-0">{i + 1}</span>
+              <span className="w-4 text-xs font-bold text-gray-200 shrink-0">{i + 1}</span>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center justify-between mb-1">
                   <p className="text-sm font-medium text-gray-900 truncate">{nom}</p>
-                  <p className="text-sm font-bold text-gray-900 ml-3 shrink-0">{formatPrice(ca)}</p>
+                  <div className="flex items-center gap-2 ml-2 shrink-0">
+                    <span className="text-[11px] text-gray-300">{caTotal > 0 ? `${Math.round((ca / caTotal) * 100)}%` : ''}</span>
+                    <span className="text-sm font-bold text-gray-900">{formatPrice(ca)}</span>
+                  </div>
                 </div>
                 <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-blue-500 rounded-full transition-all duration-700"
-                    style={{ width: `${Math.round((ca / max) * 100)}%` }}
-                  />
+                  <div className="h-full bg-blue-500 rounded-full transition-all duration-700" style={{ width: `${Math.round((ca / max) * 100)}%` }} />
                 </div>
               </div>
             </div>
@@ -360,151 +490,210 @@ function TopClients({ orders }: { orders: DashboardOrder[] }) {
   );
 }
 
-function DeltaBadge({ dir, pct }: { dir: 'up' | 'down' | 'flat'; pct: number }) {
-  if (dir === 'flat') {
-    return (
-      <span className="inline-flex items-center gap-1 text-gray-400 text-xs font-medium">
-        <Minus size={10} />0%
-      </span>
-    );
-  }
-  if (dir === 'up') {
-    return (
-      <span className="inline-flex items-center gap-1 text-green-600 text-xs font-semibold">
-        <TrendingUp size={11} />+{pct}%
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1 text-red-500 text-xs font-semibold">
-      <TrendingDown size={11} />-{pct}%
-    </span>
-  );
-}
-
-function ComparisonBar({
-  todayOrders, yesterdayOrders,
-}: { todayOrders: DashboardOrder[]; yesterdayOrders: SlimOrder[] }) {
-  const caToday = todayOrders.reduce((s, o) => s + (o.total || 0), 0);
-  const caYesterday = yesterdayOrders.reduce((s, o) => s + (o.total || 0), 0);
-  const nbToday = todayOrders.length;
-  const nbYesterday = yesterdayOrders.length;
-
-  const caDelta = calcDelta(caToday, caYesterday);
-  const nbDelta = calcDelta(nbToday, nbYesterday);
+// CA par atelier
+function AtelierRepartition({ orders }: { orders: DashboardOrder[] }) {
+  const map = new Map<string, number>();
+  orders.forEach(o => o.items?.forEach(item => {
+    const a = item.product_article?.product_reference?.atelier || 'Autre';
+    map.set(a, (map.get(a) ?? 0) + (item.unit_price || 0) * (item.quantity_ordered || 0));
+  }));
+  const sorted = Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+  const total = sorted.reduce((s, [, v]) => s + v, 0);
+  const COLORS: Record<string, string> = { Boulangerie: 'bg-amber-400', Viennoiserie: 'bg-orange-400', 'Pâtisserie': 'bg-pink-400', Chocolaterie: 'bg-rose-500', Traiteur: 'bg-teal-400' };
 
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-      <p className="text-sm font-semibold text-gray-800 mb-4">Comparaison hier</p>
-      <div className="grid grid-cols-2 gap-6">
-        <div>
-          <p className="text-xs text-gray-400 mb-1">CA aujourd&apos;hui</p>
-          <p className="text-lg font-black text-gray-900 leading-none">{formatPrice(caToday)}</p>
-          <div className="flex items-center gap-2 mt-2 flex-wrap">
-            <DeltaBadge dir={caDelta.dir} pct={caDelta.pct} />
-            <span className="text-[11px] text-gray-300">{formatPrice(caYesterday)} hier</span>
-          </div>
+      <p className="text-sm font-semibold text-gray-800 mb-4">CA par atelier</p>
+      {sorted.length === 0 ? <p className="text-sm text-gray-300 text-center py-6">Aucune donnée</p> : (
+        <div className="space-y-3">
+          {sorted.map(([atelier, ca]) => {
+            const pct = total > 0 ? Math.round((ca / total) * 100) : 0;
+            return (
+              <div key={atelier}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm text-gray-700">{atelier}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-gray-300">{pct}%</span>
+                    <span className="text-sm font-bold text-gray-900 w-20 text-right">{formatPrice(ca)}</span>
+                  </div>
+                </div>
+                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div className={`h-full ${COLORS[atelier] ?? 'bg-gray-400'} rounded-full`} style={{ width: `${pct}%` }} />
+                </div>
+              </div>
+            );
+          })}
         </div>
-        <div>
-          <p className="text-xs text-gray-400 mb-1">Commandes</p>
-          <p className="text-lg font-black text-gray-900 leading-none">{nbToday}</p>
-          <div className="flex items-center gap-2 mt-2 flex-wrap">
-            <DeltaBadge dir={nbDelta.dir} pct={nbDelta.pct} />
-            <span className="text-[11px] text-gray-300">{nbYesterday} hier</span>
-          </div>
-        </div>
+      )}
+    </div>
+  );
+}
+
+// Charges breakdown
+function ChargesBreakdown({ charges, ca }: { charges: ChargesTotaux; ca: number }) {
+  const items = [
+    { label: 'RH', val: charges.rh, color: 'bg-blue-500' },
+    { label: 'Fixes', val: charges.fixes, color: 'bg-purple-500' },
+    { label: 'Énergie', val: charges.energie, color: 'bg-yellow-500' },
+    { label: 'Variables', val: charges.variables, color: 'bg-orange-500' },
+  ];
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm font-semibold text-gray-800">Charges du mois</p>
+        <p className="text-sm font-black text-gray-900">{formatPrice(charges.total)}</p>
+      </div>
+      <div className="space-y-3">
+        {items.map(item => {
+          const pct = charges.total > 0 ? Math.round((item.val / charges.total) * 100) : 0;
+          return (
+            <div key={item.label}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm text-gray-600">{item.label}</span>
+                <div className="flex items-center gap-2">
+                  {ca > 0 && <span className="text-[11px] text-gray-300">{((item.val / ca) * 100).toFixed(1)}% CA</span>}
+                  <span className="text-sm font-bold text-gray-900 w-24 text-right">{formatPrice(item.val)}</span>
+                </div>
+              </div>
+              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                <div className={`h-full ${item.color} rounded-full`} style={{ width: `${pct}%` }} />
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-// ── Page ───────────────────────────────────────────────────────────────────
+// ── Page principale ────────────────────────────────────────────────────────
+
+const PERIODS: { value: Period; label: string }[] = [
+  { value: 'today', label: "Aujourd'hui" },
+  { value: 'week', label: 'Cette semaine' },
+  { value: 'month', label: 'Ce mois' },
+  { value: 'last_month', label: 'Mois précédent' },
+];
 
 export default function DashboardPage() {
   const { can } = usePermissions();
   const showFinancials = can('dashboard.view_financials');
-  const [todayOrders, setTodayOrders] = useState<DashboardOrder[]>([]);
-  const [yesterdayOrders, setYesterdayOrders] = useState<SlimOrder[]>([]);
-  const [lateOrders, setLateOrders] = useState<SlimOrder[]>([]);
+
+  const [period, setPeriod] = useState<Period>('month');
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
+  const [orders, setOrders] = useState<DashboardOrder[]>([]);
+  const [todayOrders, setTodayOrders] = useState<DashboardOrder[]>([]);
+  const [eco, setEco] = useState<EcoResult>({ ca: 0, coutMatiere: 0, margeBrute: 0, ndRefs: [] });
+  const [charges, setCharges] = useState<ChargesTotaux>({ rh: 0, fixes: 0, energie: 0, variables: 0, total: 0 });
+  const [lateCount, setLateCount] = useState(0);
+  const [trend, setTrend] = useState<TrendPoint[]>([]);
+
   const load = useCallback(async () => {
     setLoading(true);
-    try {
-      const [today, yesterday, late] = await Promise.all([
-        getTodayOrders(),
-        getYesterdayOrders(),
-        getLateOrders(),
-      ]);
-      setTodayOrders(today);
-      setYesterdayOrders(yesterday);
-      setLateOrders(late);
-      setLastRefresh(new Date());
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    const { start, end, mois } = getPeriodDates(period);
+    const today = localDate();
+    const isToday = period === 'today';
+
+    const [periodOrders, todayData, ecoOrders, { recipes, srs }, chargesData, late, trendData] = await Promise.all([
+      fetchOrders(start, end),
+      isToday ? Promise.resolve(null) : fetchOrders(today, today),
+      fetchEcoOrders(start, end),
+      fetchRecipes(),
+      fetchCharges(mois),
+      fetchLateCount(),
+      fetchTrend(),
+    ]);
+
+    const costCache = buildCostCache(recipes, srs);
+    setOrders(periodOrders);
+    setTodayOrders(isToday ? periodOrders : (todayData ?? []));
+    setEco(computeEco(ecoOrders, costCache));
+    setCharges(chargesData);
+    setLateCount(late);
+    setTrend(trendData);
+    setLastRefresh(new Date());
+    setLoading(false);
+  }, [period]);
 
   useEffect(() => { load(); }, [load]);
 
-  const dateLabel = new Date().toLocaleDateString('fr-FR', {
-    weekday: 'long', day: 'numeric', month: 'long',
-  });
+  // Realtime : toute modif sur orders → refetch du dashboard (throttled 5s)
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const channel = supabase.channel('dashboard-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => load(), 5000);
+      })
+      .subscribe();
+    return () => { if (timer) clearTimeout(timer); supabase.removeChannel(channel); };
+  }, [load]);
+
+  const isMonthly = period === 'month' || period === 'last_month';
+  const foodCost = eco.ca > 0 ? (eco.coutMatiere / eco.ca) * 100 : null;
+  const { label: periodLabel } = getPeriodDates(period);
 
   return (
     <div className="space-y-4">
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-black text-gray-900 leading-none">Dashboard</h1>
-          <p className="text-sm text-gray-400 mt-1 capitalize">{dateLabel}</p>
+          <p className="text-sm text-gray-400 mt-1">{periodLabel}</p>
         </div>
-        <button
-          onClick={load}
-          disabled={loading}
-          className="flex items-center gap-2 px-3 py-2 text-sm text-gray-500 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 active:scale-95 transition-all disabled:opacity-50 shadow-sm shrink-0"
-        >
-          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-          <span className="text-xs">
-            {loading
-              ? 'Chargement…'
-              : lastRefresh
-                ? lastRefresh.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
-                : '—'}
-          </span>
+        <button onClick={load} disabled={loading}
+          className="flex items-center gap-1.5 px-3 py-2 text-xs text-gray-500 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 disabled:opacity-50 shadow-sm shrink-0">
+          <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+          {lastRefresh ? lastRefresh.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '—'}
         </button>
       </div>
 
-      {/* Skeleton initial */}
-      {loading && todayOrders.length === 0 ? (
+      {/* Sélecteur de période */}
+      <div className="flex gap-2 overflow-x-auto pb-0.5 -mx-1 px-1">
+        {PERIODS.map(p => (
+          <button key={p.value} onClick={() => setPeriod(p.value)}
+            className={`px-4 py-2 rounded-xl text-sm font-semibold whitespace-nowrap transition-all shrink-0 ${
+              period === p.value ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-500 border border-gray-200 hover:border-blue-200'
+            }`}>
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      {loading && !orders.length ? (
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
         </div>
       ) : (
         <>
-          {/* KPI row */}
-          <KPIGrid orders={todayOrders} lateOrders={lateOrders} showFinancials={showFinancials} />
+          {/* P&L */}
+          {showFinancials && <PLRow eco={eco} charges={charges} period={period} />}
 
-          {/* Performance + Comparaison */}
-          <div className="grid lg:grid-cols-2 gap-4">
-            <PerformanceStats orders={todayOrders} />
-            {showFinancials && <ComparisonBar todayOrders={todayOrders} yesterdayOrders={yesterdayOrders} />}
-          </div>
+          {/* Alertes */}
+          {showFinancials && <AlertsBanner lateCount={lateCount} ndRefs={eco.ndRefs} foodCost={foodCost} cible={35} />}
 
-          {/* Production + Livraison */}
-          <div className="grid lg:grid-cols-2 gap-4">
-            <ProductionAnalysis orders={todayOrders} />
-            <DeliveryAnalysis orders={todayOrders} />
-          </div>
+          {/* Ops du jour */}
+          <TodayOps orders={todayOrders} />
 
-          {/* Top clients */}
-          {showFinancials && <TopClients orders={todayOrders} />}
+          {/* Tendance 30j */}
+          {showFinancials && <CATrend data={trend} />}
 
-          {/* Footnote */}
+          {/* 2 colonnes */}
+          {showFinancials && (
+            <div className="grid lg:grid-cols-2 gap-4">
+              <TopClients orders={orders} />
+              <AtelierRepartition orders={orders} />
+            </div>
+          )}
+
+          {/* Charges (mensuel seulement) */}
+          {showFinancials && isMonthly && <ChargesBreakdown charges={charges} ca={eco.ca} />}
+
           <p className="text-center text-[11px] text-gray-200 pb-2">
-            Données du jour · hors commandes annulées
+            {lastRefresh ? `Actualisé ${lastRefresh.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : ''} · hors commandes annulées
           </p>
         </>
       )}

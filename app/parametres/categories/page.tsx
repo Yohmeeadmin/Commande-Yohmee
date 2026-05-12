@@ -331,11 +331,130 @@ function CategoriesTab() {
   );
 }
 
+// ─── MP Categories Tab ────────────────────────────────────────────────────────
+
+interface StockCategory { id: string; nom: string; ordre: number; }
+
+function MpCategoriesTab() {
+  const [cats, setCats] = useState<StockCategory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newName, setNewName] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+
+  useEffect(() => { load(); }, []);
+
+  async function load() {
+    setLoading(true);
+    const { data } = await supabase.from('stock_categories').select('*').order('ordre');
+    setCats(data || []);
+    setLoading(false);
+  }
+
+  async function add() {
+    if (!newName.trim()) return;
+    setAdding(true);
+    const maxOrdre = cats.reduce((m, c) => Math.max(m, c.ordre), 0);
+    const { data, error } = await supabase.from('stock_categories').insert({ nom: newName.trim(), ordre: maxOrdre + 1 }).select().single();
+    if (!error && data) { setCats(p => [...p, data]); setNewName(''); }
+    setAdding(false);
+  }
+
+  async function saveEdit(id: string) {
+    if (!editName.trim()) return;
+    await supabase.from('stock_categories').update({ nom: editName.trim() }).eq('id', id);
+    setCats(p => p.map(c => c.id === id ? { ...c, nom: editName.trim() } : c));
+    setEditingId(null);
+  }
+
+  async function remove(id: string) {
+    if (!confirm('Supprimer cette catégorie ?')) return;
+    await supabase.from('stock_categories').delete().eq('id', id);
+    setCats(p => p.filter(c => c.id !== id));
+  }
+
+  async function move(cat: StockCategory, dir: 'up' | 'down') {
+    const sorted = [...cats].sort((a, b) => a.ordre - b.ordre);
+    const idx = sorted.findIndex(c => c.id === cat.id);
+    const swapIdx = dir === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= sorted.length) return;
+    const other = sorted[swapIdx];
+    await Promise.all([
+      supabase.from('stock_categories').update({ ordre: other.ordre }).eq('id', cat.id),
+      supabase.from('stock_categories').update({ ordre: cat.ordre }).eq('id', other.id),
+    ]);
+    setCats(p => p.map(c => {
+      if (c.id === cat.id) return { ...c, ordre: other.ordre };
+      if (c.id === other.id) return { ...c, ordre: cat.ordre };
+      return c;
+    }));
+  }
+
+  if (loading) return <div className="flex justify-center py-8"><div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>;
+
+  const sorted = [...cats].sort((a, b) => a.ordre - b.ordre);
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-gray-500">Ces catégories s'appliquent aux matières premières (articles du stock).</p>
+
+      {sorted.map((cat, i) => (
+        <div key={cat.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl group">
+          <div className="flex flex-col gap-0.5 shrink-0">
+            <button onClick={() => move(cat, 'up')} disabled={i === 0}
+              className="text-gray-300 hover:text-gray-600 disabled:opacity-20 leading-none text-xs">▲</button>
+            <button onClick={() => move(cat, 'down')} disabled={i === sorted.length - 1}
+              className="text-gray-300 hover:text-gray-600 disabled:opacity-20 leading-none text-xs">▼</button>
+          </div>
+
+          {editingId === cat.id ? (
+            <input autoFocus value={editName} onChange={e => setEditName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') saveEdit(cat.id); if (e.key === 'Escape') setEditingId(null); }}
+              className="flex-1 px-3 py-1.5 border border-blue-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          ) : (
+            <span className="flex-1 text-sm font-medium text-gray-800">{cat.nom}</span>
+          )}
+
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+            {editingId === cat.id ? (
+              <>
+                <button onClick={() => saveEdit(cat.id)} className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg"><Check size={15} /></button>
+                <button onClick={() => setEditingId(null)} className="p-1.5 text-gray-400 hover:bg-gray-100 rounded-lg"><X size={15} /></button>
+              </>
+            ) : (
+              <>
+                <button onClick={() => { setEditingId(cat.id); setEditName(cat.nom); }}
+                  className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"><Pencil size={15} /></button>
+                <button onClick={() => remove(cat.id)}
+                  className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 size={15} /></button>
+              </>
+            )}
+          </div>
+        </div>
+      ))}
+
+      {sorted.length === 0 && <p className="text-sm text-gray-400 text-center py-4">Aucune catégorie MP.</p>}
+
+      <div className="flex gap-2 pt-2">
+        <input type="text" value={newName} onChange={e => setNewName(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
+          placeholder="Ex : Farines, Fruits, Produits laitiers…"
+          className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        <button onClick={add} disabled={adding || !newName.trim()}
+          className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
+          <Plus size={16} /> Ajouter
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CategoriesPage() {
   const { profile } = useUser();
-  const [tab, setTab] = useState<'ateliers' | 'categories'>('ateliers');
+  const [tab, setTab] = useState<'ateliers' | 'categories' | 'mp'>('ateliers');
 
   if (profile?.role !== 'admin') {
     return (
@@ -360,22 +479,18 @@ export default function CategoriesPage() {
       <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
         {/* Onglets */}
         <div className="flex border-b border-gray-100">
-          <button onClick={() => setTab('ateliers')}
-            className={`px-6 py-4 text-sm font-semibold border-b-2 transition-colors ${
-              tab === 'ateliers' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}>
-            Ateliers
-          </button>
-          <button onClick={() => setTab('categories')}
-            className={`px-6 py-4 text-sm font-semibold border-b-2 transition-colors ${
-              tab === 'categories' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}>
-            Catégories
-          </button>
+          {(['ateliers', 'categories', 'mp'] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`px-6 py-4 text-sm font-semibold border-b-2 transition-colors ${tab === t ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+              {t === 'ateliers' ? 'Ateliers' : t === 'categories' ? 'Catégories PF' : 'Catégories MP'}
+            </button>
+          ))}
         </div>
 
         <div className="p-6">
-          {tab === 'ateliers' ? <AteliersTab /> : <CategoriesTab />}
+          {tab === 'ateliers' && <AteliersTab />}
+          {tab === 'categories' && <CategoriesTab />}
+          {tab === 'mp' && <MpCategoriesTab />}
         </div>
       </div>
     </div>

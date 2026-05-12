@@ -4,6 +4,7 @@ import "./globals.css";
 import { UserProvider } from "@/contexts/UserContext";
 import AppShell from "@/components/layout/AppShell";
 import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
+import { QueryProvider } from "@/components/QueryProvider";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -47,11 +48,13 @@ export default function RootLayout({
     <html lang="fr" className={`${inter.className} h-full`}>
       <body className="h-full bg-gray-50">
         <ServiceWorkerRegistration />
-        <UserProvider>
-          <AppShell>
-            {children}
-          </AppShell>
-        </UserProvider>
+        <QueryProvider>
+          <UserProvider>
+            <AppShell>
+              {children}
+            </AppShell>
+          </UserProvider>
+        </QueryProvider>
       </body>
     </html>
   );

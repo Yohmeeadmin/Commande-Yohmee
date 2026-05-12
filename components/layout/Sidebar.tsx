@@ -15,6 +15,9 @@ import {
   Settings,
   LogOut,
   RefreshCw,
+  Warehouse,
+  ChefHat,
+  Wallet,
 } from 'lucide-react';
 import Image from 'next/image';
 import { useUser } from '@/contexts/UserContext';
@@ -31,6 +34,9 @@ const ALL_NAVIGATION: { name: string; href: string; icon: React.ComponentType<{ 
   { name: 'Planning',     href: '/planning',    icon: Calendar,        module: 'planning' },
   { name: 'Livraisons',   href: '/livraisons',  icon: Truck,           module: 'livraisons' },
   { name: 'Production',   href: '/production',  icon: ClipboardList,   module: 'production' },
+  { name: 'Stock',        href: '/stock',        icon: Warehouse,       module: 'stock' },
+  { name: 'Recettes',    href: '/recettes',     icon: ChefHat,         module: 'recettes' },
+  { name: 'Charges',     href: '/charges',      icon: Wallet,          module: 'charges' },
   { name: 'Rapports',     href: '/rapports',    icon: BarChart3,       module: 'rapports' },
   { name: 'Paramètres',   href: '/parametres',  icon: Settings,        module: 'parametres' },
 ];

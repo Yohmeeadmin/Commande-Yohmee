@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 
 export interface AtelierDB {
@@ -41,11 +41,11 @@ export function useAteliers() {
     };
   }, []);
 
-  const getStyle = (value: string) => {
+  const getStyle = useCallback((value: string) => {
     const a = ateliers.find(at => at.value === value);
     if (a) return { label: a.label, color: a.color, bgColor: a.bg_color };
     return { label: value, color: '#6B7280', bgColor: '#F3F4F6' };
-  };
+  }, [ateliers]);
 
   return { ateliers, getStyle };
 }

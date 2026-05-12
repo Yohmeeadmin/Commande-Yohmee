@@ -50,7 +50,7 @@ export async function PATCH(
 
   const { error } = await getSupabaseAdmin()
     .from('profiles')
-    .update({ first_name, last_name, role, modules, ateliers, is_active, driver_id: driver_id ?? null })
+    .update({ first_name, last_name, role, modules, ateliers, is_active, driver_id: driver_id || null })
     .eq('id', id);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

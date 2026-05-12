@@ -7,6 +7,7 @@ import {
   GripVertical, CheckCircle, Phone, MapPin, Package, UserCircle, Plus,
   X, ChevronUp, ChevronDown, ChevronsUpDown, Navigation,
 } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase/client';
 import { Driver, driverFullName, driverInitials } from '@/types';
 import { formatPrice, localDateStr } from '@/lib/utils';
@@ -261,7 +262,7 @@ export default function LivraisonsPage() {
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [orders, setOrders] = useState<DeliveryOrder[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [selectedDriver, setSelectedDriver] = useState('');
   const [assigningId, setAssigningId] = useState<string | null>(null);
@@ -305,6 +306,23 @@ export default function LivraisonsPage() {
   const [blOrderIds, setBlOrderIds] = useState<Set<string>>(new Set());
 
   // ── Load ────────────────────────────────────────────────────────────────────
+  const queryClient = useQueryClient();
+
+  const { isLoading: queryLoading } = useQuery({
+    queryKey: ['livraisons', date],
+    queryFn: () => loadData(date),
+    staleTime: 1000 * 30, // 30s
+  });
+
+  // Realtime : commandes changent → invalide livraisons
+  useEffect(() => {
+    const channel = supabase.channel('livraisons-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['livraisons', date] });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [date, queryClient]);
 
   const loadData = useCallback(async (d: string) => {
     setLoading(true);
@@ -347,7 +365,7 @@ export default function LivraisonsPage() {
     }
   }, [todayStr]);
 
-  useEffect(() => { loadData(date); }, [date, loadData]);
+  // useEffect(() => { loadData(date); }, [date, loadData]); // Remplacé par useQuery ci-dessus
 
   // ── Actions ─────────────────────────────────────────────────────────────────
 
@@ -1017,7 +1035,7 @@ export default function LivraisonsPage() {
         )}
 
         {/* Contenu */}
-        {loading ? (
+        {(loading || queryLoading) ? (
           <div className="flex items-center justify-center h-48">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
           </div>

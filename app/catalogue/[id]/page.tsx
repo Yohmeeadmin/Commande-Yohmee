@@ -31,6 +31,7 @@ interface ArticleForm {
   is_active: boolean;
   is_new: boolean; // true si créé localement, pas encore en DB
   is_deleted: boolean; // true si marqué pour suppression
+  custom_label: string; // libellé personnalisé (vide = utiliser le généré)
 }
 
 export default function EditReferencePage() {
@@ -124,6 +125,7 @@ export default function EditReferencePage() {
           is_active: a.is_active,
           is_new: false,
           is_deleted: false,
+          custom_label: (a as any).custom_label || '',
         }));
 
         setArticles(existingArticles);
@@ -198,6 +200,7 @@ export default function EditReferencePage() {
       is_active: true,
       is_new: true,
       is_deleted: false,
+      custom_label: '',
     };
     setArticles([...articles, newArticle]);
   }
@@ -264,6 +267,17 @@ export default function EditReferencePage() {
 
   // Générer le libellé d'un article
   function getDisplayName(article: ArticleForm): string {
+    if (article.custom_label?.trim()) return article.custom_label.trim();
+    return generateArticleDisplayName(
+      reference.code || 'REF',
+      reference.name || 'Produit',
+      article.pack_type,
+      article.quantity,
+      article.product_state
+    );
+  }
+
+  function getGeneratedLabel(article: ArticleForm): string {
     return generateArticleDisplayName(
       reference.code || 'REF',
       reference.name || 'Produit',
@@ -366,12 +380,12 @@ export default function EditReferencePage() {
 
       // Articles à créer
       const toCreate = articles.filter(a => a.is_new && !a.is_deleted);
-      if (toCreate.length > 0) {
+      for (const a of toCreate) {
         const { error } = await supabase
           .from('product_articles')
-          .insert(toCreate.map(a => ({
+          .insert({
             product_reference_id: params.id,
-            display_name: generateArticleDisplayName(reference.code, reference.name, a.pack_type, a.quantity, a.product_state),
+            display_name: a.custom_label?.trim() || generateArticleDisplayName(reference.code, reference.name, a.pack_type, a.quantity, a.product_state),
             pack_type: a.pack_type,
             quantity: a.quantity,
             product_state: a.product_state,
@@ -380,20 +394,17 @@ export default function EditReferencePage() {
             prix_particulier: a.prix_particulier !== '' ? parseFloat(a.prix_particulier) : null,
             is_active: a.is_active,
             portal_client_ids: portalClientIds.length > 0 ? portalClientIds : null,
-          })));
-        if (error) throw error;
+          });
+        if (error && error.code !== '23505') throw error; // ignorer les doublons de contrainte unique
       }
 
-      // Articles à mettre à jour
+      // Articles à mettre à jour — ne pas toucher les colonnes de la clé unique (pack_type, quantity, product_state)
       const toUpdate = articles.filter(a => !a.is_new && !a.is_deleted && a.db_id);
       for (const article of toUpdate) {
         const { error } = await supabase
           .from('product_articles')
           .update({
-            display_name: generateArticleDisplayName(reference.code, reference.name, article.pack_type, article.quantity, article.product_state),
-            pack_type: article.pack_type,
-            quantity: article.quantity,
-            product_state: article.product_state,
+            display_name: article.custom_label?.trim() || generateArticleDisplayName(reference.code, reference.name, article.pack_type, article.quantity, article.product_state),
             custom_price: article.is_price_modified && article.custom_price !== '' ? parseFloat(article.custom_price) : null,
             prix_pro: article.prix_pro !== '' ? parseFloat(article.prix_pro) : null,
             prix_particulier: article.prix_particulier !== '' ? parseFloat(article.prix_particulier) : null,
@@ -808,10 +819,16 @@ export default function EditReferencePage() {
                       </div>
                     </div>
 
-                    {/* Libellé généré */}
+                    {/* Libellé */}
                     <div className="bg-white border border-gray-200 rounded-lg px-3 py-2">
-                      <p className="text-xs text-gray-500 mb-1">Libellé généré</p>
-                      <p className="font-mono text-sm text-gray-900">{displayName}</p>
+                      <p className="text-xs text-gray-500 mb-1">Libellé{article.custom_label?.trim() ? ' (personnalisé)' : ' (généré)'}</p>
+                      <input
+                        type="text"
+                        value={article.custom_label || ''}
+                        onChange={e => updateArticle(article.id, 'custom_label', e.target.value)}
+                        placeholder={getGeneratedLabel(article)}
+                        className="w-full font-mono text-sm text-gray-900 bg-transparent focus:outline-none placeholder:text-gray-400"
+                      />
                     </div>
 
                     {/* Champs article */}

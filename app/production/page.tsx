@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import { ClipboardList, Calendar, Printer, ChevronLeft, ChevronRight, Package, X, Check, Bell, CheckCircle2, RotateCcw } from 'lucide-react';
+import { ClipboardList, Calendar, Printer, ChevronLeft, ChevronRight, Package, X, Check, Bell, CheckCircle2, RotateCcw, ChefHat, Plus } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase/client';
 import { formatDate, localDateStr } from '@/lib/utils';
 import { getProductStateStyle, PACK_TYPES, ProductState } from '@/types';
@@ -153,6 +154,411 @@ function SwipeableRow({ children, onSwipeLeft }: { children: React.ReactNode; on
   );
 }
 
+// ─── Onglet MEP ──────────────────────────────────────────────────────────────
+
+function MepTab({ date }: { date: string }) {
+  const [orders, setOrders] = useState<any[]>([]);
+  const [sheets, setSheets] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Modal lancement
+  const [launchModal, setLaunchModal] = useState(false);
+  const [launchLines, setLaunchLines] = useState<{ sheet_id: string; nb_patons: number }[]>([]);
+  const [launchDate, setLaunchDate] = useState(new Date().toISOString().slice(0, 10));
+  const [launching, setLaunching] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    const [{ data: sh }, { data: ord }] = await Promise.all([
+      supabase.from('production_sheets').select(`
+        id, rendement_theorique,
+        sous_recette:recipe_sheets!production_sheets_sous_recette_id_fkey(id, nom),
+        recipe:recipe_sheets!production_sheets_recipe_sheet_id_fkey(id, nom)
+      `).order('created_at'),
+      supabase.from('production_orders_fp').select(`
+        id, date_production, statut, notes,
+        production_order_lines(
+          id, numero_paton, quantite_theorique, quantite_reelle, statut, notes,
+          production_sheet:production_sheets(
+            id, rendement_theorique,
+            sous_recette:recipe_sheets!production_sheets_sous_recette_id_fkey(id, nom),
+            recipe:recipe_sheets!production_sheets_recipe_sheet_id_fkey(id, nom)
+          )
+        )
+      `)
+      .in('statut', ['planifie', 'en_cours'])
+      .order('date_production', { ascending: false }),
+    ]);
+    setSheets(sh || []);
+    setOrders(ord || []);
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, [date]);
+
+  function openLaunch() {
+    if (sheets.length === 0) return;
+    setLaunchLines([{ sheet_id: sheets[0].id, nb_patons: 1 }]);
+    setLaunchDate(new Date().toISOString().slice(0, 10));
+    setLaunchModal(true);
+  }
+
+  function addLaunchLine(sheetId: string) {
+    setLaunchLines(l => [...l, { sheet_id: sheetId, nb_patons: 1 }]);
+  }
+
+  function updateLaunchLine(idx: number, nb: number) {
+    setLaunchLines(l => l.map((x, i) => i === idx ? { ...x, nb_patons: nb } : x));
+  }
+
+  function updateLaunchSheet(idx: number, sheetId: string) {
+    setLaunchLines(l => l.map((x, i) => i === idx ? { ...x, sheet_id: sheetId } : x));
+  }
+
+  function removeLaunchLine(idx: number) {
+    setLaunchLines(l => l.filter((_, i) => i !== idx));
+  }
+
+  async function launchProduction() {
+    if (launchLines.length === 0) return;
+    setLaunching(true);
+    try {
+      const { data: order, error: oErr } = await supabase
+        .from('production_orders_fp')
+        .insert({ date_production: launchDate, statut: 'en_cours' })
+        .select('id').single();
+      if (oErr || !order) throw oErr;
+
+      const lines: any[] = [];
+      let paton = 1;
+      for (const line of launchLines) {
+        const sheet = sheets.find((s: any) => s.id === line.sheet_id);
+        if (!sheet) continue;
+        for (let i = 0; i < line.nb_patons; i++) {
+          lines.push({
+            production_order_id: order.id,
+            production_sheet_id: line.sheet_id,
+            numero_paton: paton++,
+            quantite_theorique: sheet.rendement_theorique,
+            statut: 'en_attente',
+          });
+        }
+      }
+      if (lines.length > 0) {
+        const { error: lErr } = await supabase.from('production_order_lines').insert(lines);
+        if (lErr) throw lErr;
+      }
+      setLaunchModal(false);
+      load();
+    } catch (e: any) {
+      alert('Erreur : ' + e.message);
+    } finally {
+      setLaunching(false);
+    }
+  }
+
+  async function toggleLine(lineId: string, current: string) {
+    const newStatut = current === 'termine' ? 'en_attente' : 'termine';
+    await supabase.from('production_order_lines').update({ statut: newStatut }).eq('id', lineId);
+    setOrders(prev => prev.map(o => ({
+      ...o,
+      production_order_lines: o.production_order_lines.map((l: any) =>
+        l.id === lineId ? { ...l, statut: newStatut } : l
+      )
+    })));
+  }
+
+  async function saveQteReelle(lineId: string, val: number) {
+    await supabase.from('production_order_lines').update({ quantite_reelle: val }).eq('id', lineId);
+    setOrders(prev => prev.map(o => ({
+      ...o,
+      production_order_lines: o.production_order_lines.map((l: any) =>
+        l.id === lineId ? { ...l, quantite_reelle: val } : l
+      )
+    })));
+  }
+
+  async function terminerOrder(orderId: string) {
+    await supabase.from('production_orders_fp').update({ statut: 'termine' }).eq('id', orderId);
+    setOrders(prev => prev.filter(o => o.id !== orderId));
+  }
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-32">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600" />
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* Bouton nouvelle MEP */}
+      <div className="flex justify-end">
+        <button
+          onClick={openLaunch}
+          disabled={sheets.length === 0}
+          className="flex items-center gap-2 px-3 py-2 bg-emerald-600 text-white rounded-xl text-sm font-medium hover:bg-emerald-700 disabled:opacity-40"
+        >
+          <Plus size={15} /> Nouvelle MEP
+        </button>
+      </div>
+
+      {orders.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
+          <ChefHat className="mx-auto text-gray-300 mb-3" size={32} />
+          <p className="text-gray-500 font-medium">Aucune MEP en cours</p>
+          {sheets.length === 0 && (
+            <p className="text-xs text-gray-400 mt-1">Créez d'abord des fiches dans Recettes → FP</p>
+          )}
+        </div>
+      ) : (
+        orders.map(order => {
+          const lines: any[] = order.production_order_lines || [];
+          const done = lines.filter((l: any) => l.statut === 'termine').length;
+          const total = lines.length;
+          const pct = total > 0 ? Math.round(done / total * 100) : 0;
+
+          return (
+            <div key={order.id} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                <div>
+                  <p className="font-black text-gray-900 text-sm">
+                    MEP du {new Date(order.date_production).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-0.5">{done}/{total} pâtons terminés</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-20 h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="text-xs font-bold text-emerald-600">{pct}%</span>
+                  {done === total && total > 0 && (
+                    <button onClick={() => terminerOrder(order.id)}
+                      className="px-2 py-1 text-xs bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700">
+                      Clôturer
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="divide-y divide-gray-50">
+                {lines.map((line: any) => {
+                  const sr = line.production_sheet?.sous_recette;
+                  const recipe = line.production_sheet?.recipe;
+                  const isDone = line.statut === 'termine';
+                  return (
+                    <div key={line.id} className={`flex items-center gap-3 px-4 py-3 ${isDone ? 'opacity-60' : ''}`}>
+                      <button onClick={() => toggleLine(line.id, line.statut)}
+                        className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
+                          isDone ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-gray-300 hover:border-emerald-400'
+                        }`}>
+                        {isDone && <Check size={12} />}
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm font-semibold ${isDone ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                          Pâton #{line.numero_paton} — {sr?.nom || '?'}
+                        </p>
+                        {recipe && <p className="text-xs text-gray-400">→ {recipe.nom}</p>}
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className="text-xs text-gray-400">Théo: <span className="font-bold text-gray-600">{line.quantite_theorique}</span></span>
+                        <input
+                          type="number"
+                          defaultValue={line.quantite_reelle ?? ''}
+                          placeholder="Réel"
+                          onBlur={e => { const v = parseInt(e.target.value); if (!isNaN(v)) saveQteReelle(line.id, v); }}
+                          className="w-16 text-center text-xs border border-gray-200 rounded-lg px-1 py-1 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })
+      )}
+
+      {/* ── Modal Lancement ── */}
+      {launchModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 sm:p-4 bg-black/50">
+          <div className="bg-white w-full sm:max-w-md rounded-2xl shadow-2xl max-h-[85vh] sm:max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
+              <p className="font-bold text-gray-900">Nouvelle MEP</p>
+              <button onClick={() => setLaunchModal(false)} className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {/* Date */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Date de production</label>
+                <input type="date" value={launchDate}
+                  onChange={e => setLaunchDate(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+              </div>
+
+              {/* Lignes pâtons */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-semibold text-gray-600">Pâtons à produire</label>
+                  <button onClick={() => addLaunchLine(sheets[0]?.id)}
+                    className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200">
+                    + Ajouter
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {launchLines.map((line, idx) => {
+                    const sheet = sheets.find((s: any) => s.id === line.sheet_id);
+                    return (
+                      <div key={idx} className="p-3 bg-gray-50 rounded-xl space-y-2">
+                        <div className="flex items-center gap-2">
+                          <select value={line.sheet_id}
+                            onChange={e => updateLaunchSheet(idx, e.target.value)}
+                            className="flex-1 px-2 py-1.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-1 focus:ring-emerald-400">
+                            {sheets.map((s: any) => (
+                              <option key={s.id} value={s.id}>
+                                {s.sous_recette?.nom} → {s.recipe?.nom || '?'}
+                              </option>
+                            ))}
+                          </select>
+                          {launchLines.length > 1 && (
+                            <button onClick={() => removeLaunchLine(idx)}
+                              className="p-1.5 text-gray-300 hover:text-red-500 rounded-lg">
+                              <X size={14} />
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs text-gray-400 flex-1">
+                            {line.nb_patons} × {sheet?.rendement_theorique || 0} = <span className="font-bold text-gray-600">{line.nb_patons * (sheet?.rendement_theorique || 0)} pcs théo.</span>
+                          </label>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs text-gray-400">Pâtons</span>
+                            <input type="number" min={1} value={line.nb_patons}
+                              onChange={e => updateLaunchLine(idx, parseInt(e.target.value) || 1)}
+                              className="w-14 px-2 py-1.5 border border-gray-200 rounded-lg text-sm text-center focus:outline-none focus:ring-1 focus:ring-emerald-400" />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Résumé */}
+              <div className="bg-emerald-50 rounded-xl p-3">
+                <p className="text-xs font-semibold text-emerald-700 mb-1">Résumé</p>
+                {launchLines.map((line, idx) => {
+                  const sheet = sheets.find((s: any) => s.id === line.sheet_id);
+                  return (
+                    <div key={idx} className="flex justify-between text-xs text-emerald-600">
+                      <span>{sheet?.recipe?.nom || sheet?.sous_recette?.nom}</span>
+                      <span className="font-bold">{line.nb_patons * (sheet?.rendement_theorique || 0)} pcs</span>
+                    </div>
+                  );
+                })}
+                <div className="border-t border-emerald-200 mt-1.5 pt-1.5 flex justify-between text-xs font-bold text-emerald-800">
+                  <span>Total pâtons</span>
+                  <span>{launchLines.reduce((s, l) => s + l.nb_patons, 0)} pâtons</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-5 py-4 border-t border-gray-100 flex gap-3 shrink-0">
+              <button onClick={() => setLaunchModal(false)}
+                className="flex-1 px-4 py-2.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50">
+                Annuler
+              </button>
+              <button onClick={launchProduction} disabled={launching || launchLines.length === 0}
+                className="flex-1 px-4 py-2.5 text-sm font-medium bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 disabled:opacity-40 flex items-center justify-center gap-2">
+                <ChefHat size={14} /> {launching ? 'Lancement...' : 'Lancer la MEP'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Fonction pure extraite pour React Query ─────────────────────────────────
+
+async function loadProductionFn(date: string): Promise<{ groups: ProductionGroup[]; slots: { id: string; name: string; start_time: string; end_time: string }[] }> {
+  const [y, m, d] = date.split('-').map(Number);
+  const JOURS_JS = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+  const dayFr = JOURS_JS[new Date(y, m - 1, d).getDay()];
+
+  const [{ data: orders }, { data: slotsData }, { data: recurringData }, { data: existingRecOrders }] = await Promise.all([
+    supabase.from('orders').select('id, delivery_slot_id').eq('delivery_date', date).in('status', ['confirmee', 'production']),
+    supabase.from('delivery_slots').select('id, name, start_time, end_time').eq('is_active', true).order('sort_order'),
+    supabase.from('recurring_orders').select('id, type_recurrence, jours_semaine, date_debut, date_fin, delivery_slot_id').eq('is_active', true).lte('date_debut', date),
+    supabase.from('orders').select('recurring_order_id').eq('delivery_date', date).not('recurring_order_id', 'is', null),
+  ]);
+
+  const existingRecIds = new Set((existingRecOrders || []).map((o: any) => o.recurring_order_id));
+  const previews = ((recurringData || []) as any[])
+    .filter(rec => {
+      if (rec.date_fin && rec.date_fin < date) return false;
+      if (rec.type_recurrence === 'hebdo' && !rec.jours_semaine.includes(dayFr)) return false;
+      if (existingRecIds.has(rec.id)) return false;
+      return true;
+    })
+    .map(rec => ({ recurring_order_id: rec.id, delivery_slot_id: rec.delivery_slot_id }));
+
+  const productMap = new Map<string, ProductionItem>();
+
+  if (orders && orders.length > 0) {
+    const slotMap: Record<string, string | null> = {};
+    orders.forEach((o: any) => { slotMap[o.id] = o.delivery_slot_id; });
+    const { data: items } = await supabase.from('order_items').select(`order_id, quantity_ordered, units_total, article_unit_quantity, product_article:product_articles(display_name, pack_type, quantity, product_state, product_reference:product_references(name, code, atelier))`).in('order_id', orders.map((o: any) => o.id));
+    (items || []).forEach((item: any) => {
+      const art = item.product_article; const ref = art?.product_reference;
+      if (!art || !ref) return;
+      const slotId = slotMap[item.order_id] ?? null;
+      const key = `${ref.code}-${art.pack_type}-${art.quantity}-${art.product_state}-${slotId ?? 'none'}`;
+      const existing = productMap.get(key);
+      if (existing) { existing.quantity += item.quantity_ordered; existing.totalUnits += item.units_total || 0; }
+      else productMap.set(key, { refName: ref.name, refCode: ref.code, atelier: ref.atelier, packType: art.pack_type, packQuantity: art.quantity, productState: art.product_state, displayName: art.display_name, quantity: item.quantity_ordered, totalUnits: item.units_total || 0, slotId });
+    });
+  }
+
+  if (previews && previews.length > 0) {
+    const recurringIds = previews.map((p: any) => p.recurring_order_id);
+    const previewSlotMap: Record<string, string | null> = {};
+    previews.forEach((p: any) => { previewSlotMap[p.recurring_order_id] = p.delivery_slot_id; });
+    const { data: previewItems } = await supabase.from('recurring_order_items').select(`recurring_order_id, quantite, product_article:product_articles!product_article_id(display_name, pack_type, quantity, product_state, product_reference:product_references(name, code, atelier))`).in('recurring_order_id', recurringIds);
+    (previewItems || []).forEach((item: any) => {
+      const art = item.product_article; const ref = art?.product_reference;
+      if (!art || !ref) return;
+      const slotId = previewSlotMap[item.recurring_order_id] ?? null;
+      const key = `${ref.code}-${art.pack_type}-${art.quantity}-${art.product_state}-${slotId ?? 'none'}`;
+      const existing = productMap.get(key);
+      if (existing) { existing.quantity += item.quantite; existing.totalUnits += item.quantite; }
+      else productMap.set(key, { refName: ref.name, refCode: ref.code, atelier: ref.atelier, packType: art.pack_type, packQuantity: art.quantity, productState: art.product_state, displayName: art.display_name, quantity: item.quantite, totalUnits: item.quantite, slotId });
+    });
+  }
+
+  if (productMap.size === 0) return { groups: [], slots: slotsData || [] };
+
+  const atelierMap = new Map<string, ProductionItem[]>();
+  productMap.forEach(item => {
+    const existing = atelierMap.get(item.atelier) || [];
+    existing.push(item);
+    atelierMap.set(item.atelier, existing);
+  });
+
+  const groups: ProductionGroup[] = Array.from(atelierMap.entries())
+    .map(([atelier, items]) => ({
+      atelier, atelierLabel: atelier, atelierColor: '', atelierBgColor: '',
+      items: items.sort((a, b) => a.refName.localeCompare(b.refName)),
+      totalQuantity: items.reduce((sum, i) => sum + i.quantity, 0),
+    }))
+    .sort((a, b) => a.atelierLabel.localeCompare(b.atelierLabel));
+
+  return { groups, slots: slotsData || [] };
+}
+
 export default function ProductionPage() {
   const { ateliers, getStyle: getAtelierStyle } = useAteliers();
   const { profile } = useUser();
@@ -160,11 +566,10 @@ export default function ProductionPage() {
 
   const [date, setDate] = useState(localDateStr());
   const [production, setProduction] = useState<ProductionGroup[]>([]);
-  const [loading, setLoading] = useState(true);
   const [selectedAtelier, setSelectedAtelier] = useState<string>(defaultAtelier);
   const [slots, setSlots] = useState<{ id: string; name: string; start_time: string; end_time: string }[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<string>('all');
-  const [activeTab, setActiveTab] = useState<'production' | 'rappel'>('production');
+  const [activeTab, setActiveTab] = useState<'production' | 'rappel' | 'mep'>('production');
   const [rappelOrders, setRappelOrders] = useState<any[]>([]);
   const [rappelLoading, setRappelLoading] = useState(false);
 
@@ -204,7 +609,38 @@ export default function ProductionPage() {
   const [printAtelier, setPrintAtelier] = useState<string>('all');
   const [printSlots, setPrintSlots] = useState<string[]>([]); // vide = tous
 
-  useEffect(() => { loadProduction(); }, [date]);
+  const queryClient = useQueryClient();
+
+  const { data: productionData, isLoading } = useQuery({
+    queryKey: ['production', date],
+    queryFn: () => loadProductionFn(date),
+    staleTime: 1000 * 30, // 30s (production change souvent)
+  });
+
+  // Sync local state depuis React Query + enrichissement avec getAtelierStyle
+  useEffect(() => {
+    if (productionData) {
+      const enriched = productionData.groups.map(g => {
+        const style = getAtelierStyle(g.atelier);
+        return { ...g, atelierLabel: style.label, atelierColor: style.color, atelierBgColor: style.bgColor };
+      });
+      setProduction(enriched);
+      setSlots(productionData.slots);
+    }
+  }, [productionData, getAtelierStyle]);
+
+  const loading = isLoading;
+
+  // Realtime : commandes changent → invalide la vue production
+  useEffect(() => {
+    const channel = supabase.channel('production-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['production', date] });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [date, queryClient]);
+
   useEffect(() => { loadRappels(); }, []);
 
   async function loadRappels() {
@@ -238,160 +674,6 @@ export default function ProductionPage() {
     }
   }
 
-  async function loadProduction() {
-    setLoading(true);
-    try {
-      // Jour de semaine en français (parsing local pour éviter les décalages UTC)
-      const [y, m, d] = date.split('-').map(Number);
-      const JOURS_JS = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
-      const dayFr = JOURS_JS[new Date(y, m - 1, d).getDay()];
-
-      const [
-        { data: orders },
-        { data: slotsData },
-        { data: recurringData },
-        { data: existingRecOrders },
-      ] = await Promise.all([
-        supabase.from('orders').select('id, delivery_slot_id').eq('delivery_date', date).in('status', ['confirmee', 'production']),
-        supabase.from('delivery_slots').select('id, name, start_time, end_time').eq('is_active', true).order('sort_order'),
-        supabase.from('recurring_orders').select('id, type_recurrence, jours_semaine, date_debut, date_fin, delivery_slot_id').eq('is_active', true).lte('date_debut', date),
-        supabase.from('orders').select('recurring_order_id').eq('delivery_date', date).not('recurring_order_id', 'is', null),
-      ]);
-
-      const existingRecIds = new Set((existingRecOrders || []).map((o: any) => o.recurring_order_id));
-      const previews = ((recurringData || []) as any[])
-        .filter((rec) => {
-          if (rec.date_fin && rec.date_fin < date) return false;
-          if (rec.type_recurrence === 'hebdo' && !rec.jours_semaine.includes(dayFr)) return false;
-          if (existingRecIds.has(rec.id)) return false;
-          return true;
-        })
-        .map((rec) => ({ recurring_order_id: rec.id, delivery_slot_id: rec.delivery_slot_id }));
-
-      setSlots(slotsData || []);
-
-      const productMap = new Map<string, ProductionItem>();
-
-      // --- Commandes réelles ---
-      if (orders && orders.length > 0) {
-        const slotMap: Record<string, string | null> = {};
-        orders.forEach((o: any) => { slotMap[o.id] = o.delivery_slot_id; });
-
-        const { data: items } = await supabase
-          .from('order_items')
-          .select(`
-            order_id,
-            quantity_ordered,
-            units_total,
-            article_unit_quantity,
-            product_article:product_articles(
-              display_name,
-              pack_type,
-              quantity,
-              product_state,
-              product_reference:product_references(name, code, atelier)
-            )
-          `)
-          .in('order_id', orders.map((o: any) => o.id));
-
-        (items || []).forEach((item: any) => {
-          const art = item.product_article;
-          const ref = art?.product_reference;
-          if (!art || !ref) return;
-          const slotId = slotMap[item.order_id] ?? null;
-          const key = `${ref.code}-${art.pack_type}-${art.quantity}-${art.product_state}-${slotId ?? 'none'}`;
-          const existing = productMap.get(key);
-          if (existing) {
-            existing.quantity += item.quantity_ordered;
-            existing.totalUnits += item.units_total || 0;
-          } else {
-            productMap.set(key, {
-              refName: ref.name, refCode: ref.code, atelier: ref.atelier,
-              packType: art.pack_type, packQuantity: art.quantity,
-              productState: art.product_state, displayName: art.display_name,
-              quantity: item.quantity_ordered, totalUnits: item.units_total || 0, slotId,
-            });
-          }
-        });
-      }
-
-      // --- Aperçus récurrents (si pas de commande réelle pour ce jour) ---
-      if (previews && previews.length > 0) {
-        const recurringIds = previews.map((p: any) => p.recurring_order_id);
-        const previewSlotMap: Record<string, string | null> = {};
-        previews.forEach((p: any) => { previewSlotMap[p.recurring_order_id] = p.delivery_slot_id; });
-
-        const { data: previewItems } = await supabase
-          .from('recurring_order_items')
-          .select(`
-            recurring_order_id,
-            quantite,
-            product_article:product_articles!product_article_id(
-              display_name,
-              pack_type,
-              quantity,
-              product_state,
-              product_reference:product_references(name, code, atelier)
-            )
-          `)
-          .in('recurring_order_id', recurringIds);
-
-        (previewItems || []).forEach((item: any) => {
-          const art = item.product_article;
-          const ref = art?.product_reference;
-          if (!art || !ref) return;
-          const slotId = previewSlotMap[item.recurring_order_id] ?? null;
-          const key = `${ref.code}-${art.pack_type}-${art.quantity}-${art.product_state}-${slotId ?? 'none'}`;
-          const existing = productMap.get(key);
-          if (existing) {
-            existing.quantity += item.quantite;
-            existing.totalUnits += item.quantite;
-          } else {
-            productMap.set(key, {
-              refName: ref.name, refCode: ref.code, atelier: ref.atelier,
-              packType: art.pack_type, packQuantity: art.quantity,
-              productState: art.product_state, displayName: art.display_name,
-              quantity: item.quantite, totalUnits: item.quantite, slotId,
-            });
-          }
-        });
-      }
-
-      if (productMap.size === 0) {
-        setProduction([]);
-        setLoading(false);
-        return;
-      }
-
-      // Grouper par atelier
-      const atelierMap = new Map<string, ProductionItem[]>();
-      productMap.forEach((item) => {
-        const existing = atelierMap.get(item.atelier) || [];
-        existing.push(item);
-        atelierMap.set(item.atelier, existing);
-      });
-
-      const groups: ProductionGroup[] = Array.from(atelierMap.entries())
-        .map(([atelier, items]) => {
-          const style = getAtelierStyle(atelier);
-          return {
-            atelier,
-            atelierLabel: style.label,
-            atelierColor: style.color,
-            atelierBgColor: style.bgColor,
-            items: items.sort((a, b) => a.refName.localeCompare(b.refName)),
-            totalQuantity: items.reduce((sum, i) => sum + i.quantity, 0),
-          };
-        })
-        .sort((a, b) => a.atelierLabel.localeCompare(b.atelierLabel));
-
-      setProduction(groups);
-    } catch (error) {
-      console.error('Erreur chargement production:', error);
-    } finally {
-      setLoading(false);
-    }
-  }
 
   const changeDate = (days: number) => {
     const newDate = new Date(date + 'T12:00:00');
@@ -540,7 +822,19 @@ export default function ProductionPage() {
             </span>
           )}
         </button>
+        <button
+          onClick={() => setActiveTab('mep')}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
+            activeTab === 'mep' ? 'bg-emerald-600 text-white' : 'bg-white text-gray-500 border border-gray-200'
+          }`}
+        >
+          <ChefHat size={15} />
+          MEP
+        </button>
       </div>
+
+      {/* Contenu onglet MEP */}
+      {activeTab === 'mep' && <MepTab date={date} />}
 
       {/* Contenu onglet Rappel */}
       {activeTab === 'rappel' && (

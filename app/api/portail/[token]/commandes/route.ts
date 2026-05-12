@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase/admin';
-import { sendWhatsApp } from '@/lib/whatsapp';
+import { sendWhatsApp, sendWhatsAppImage } from '@/lib/whatsapp';
 
 // POST /api/portail/[token]/commandes
 export async function POST(req: NextRequest, { params }: { params: Promise<{ token: string }> }) {
@@ -67,19 +67,35 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
 
   // ── WhatsApp confirmation ──────────────────────────────────────────────────
   if (client.telephone) {
+    const { data: settings } = await supabase.from('app_settings').select('logo_url, company_name').eq('id', 1).single();
+    const logoUrl = (settings as any)?.logo_url ?? null;
+    const companyName = (settings as any)?.company_name ?? 'BDK';
+
+    const dateFormatted = new Date(delivery_date).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
     const lignes = items
-      .map((i: any) => `• ${i.display_name ?? ''} x${i.quantity} — ${(i.quantity * i.unit_price).toFixed(2)} MAD`)
+      .map((i: any) => `• *${i.display_name ?? 'Article'}* × ${i.quantity} — ${(i.quantity * i.unit_price).toFixed(2)} MAD`)
       .join('\n');
-    const msgLines = [
-      `✅ Bonjour ${client.nom ?? ''}, votre commande BDK est confirmée !`,
+
+    const message = [
+      `✅ *Bonjour ${client.nom ?? ''} !*`,
+      `Votre commande *${companyName}* est confirmée.`,
       ``,
-      `📅 Livraison : ${delivery_date}`,
+      `📅 *Livraison :* ${dateFormatted}`,
+      ``,
       lignes,
       ``,
-      `💰 Total : ${total.toFixed(2)} MAD`,
-      note ? `📝 Note : ${note}` : '',
-    ].filter(Boolean).join('\n');
-    await sendWhatsApp(client.telephone, msgLines);
+      `💰 *Total : ${total.toFixed(2)} MAD*`,
+      note ? `📝 _Note : ${note}_` : '',
+      ``,
+      `_Merci pour votre confiance 🙏_`,
+    ].filter(l => l !== undefined && l !== null).join('\n');
+
+    if (logoUrl) {
+      const sent = await sendWhatsAppImage(client.telephone, logoUrl, message);
+      if (!sent) await sendWhatsApp(client.telephone, message);
+    } else {
+      await sendWhatsApp(client.telephone, message);
+    }
   }
 
   return NextResponse.json({

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ChevronLeft, ChevronRight, Calendar, Plus, X, ExternalLink } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase/client';
 import { ORDER_STATUSES } from '@/types';
 import { formatPrice, formatDate, getWeekDates } from '@/lib/utils';
@@ -30,19 +31,32 @@ export default function PlanningPage() {
     return new Date(today.setDate(diff));
   });
   const [entries, setEntries] = useState<PlanningEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-
   const [selectedEntry, setSelectedEntry] = useState<PlanningEntry | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [selectedItems, setSelectedItems] = useState<any[]>([]);
   const [loadingPanel, setLoadingPanel] = useState(false);
 
   const weekDates = getWeekDates(weekStart);
+  const queryClient = useQueryClient();
+  const weekKey = weekStart.toISOString().split('T')[0];
 
-  useEffect(() => { loadData(); }, [weekStart]);
+  const { isLoading: loading } = useQuery({
+    queryKey: ['planning', weekKey],
+    queryFn: () => loadData(),
+    staleTime: 1000 * 60, // 1 min
+  });
+
+  // Realtime : commandes changent → invalide le planning
+  useEffect(() => {
+    const channel = supabase.channel('planning-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['planning', weekKey] });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [weekKey, queryClient]);
 
   async function loadData() {
-    setLoading(true);
     try {
       const startDate = weekDates[0].toISOString().split('T')[0];
       const endDate = weekDates[6].toISOString().split('T')[0];
@@ -125,8 +139,6 @@ export default function PlanningPage() {
       setEntries([...orderEntries, ...previewEntries]);
     } catch (error) {
       console.error('Erreur:', error);
-    } finally {
-      setLoading(false);
     }
   }
 

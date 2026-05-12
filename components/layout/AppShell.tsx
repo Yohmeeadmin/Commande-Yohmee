@@ -6,7 +6,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import {
   MoreHorizontal, X, ChevronRight,
-  RefreshCw, Users, Package, BarChart3, Settings, LogOut,
+  RefreshCw, Users, Package, BarChart3, Settings, LogOut, Warehouse, ChefHat, Wallet,
 } from 'lucide-react';
 import { useUser } from '@/contexts/UserContext';
 import { useAppSettings } from '@/lib/useAppSettings';
@@ -24,11 +24,14 @@ const OVERFLOW_NAV: {
   icon: React.ComponentType<{ size?: number; className?: string }>;
   module: AppModule;
 }[] = [
-  { name: 'Récurrentes', href: '/recurrences', icon: RefreshCw, module: 'recurrences' },
-  { name: 'Clients',     href: '/clients',     icon: Users,     module: 'clients' },
-  { name: 'Catalogue',   href: '/catalogue',   icon: Package,   module: 'catalogue' },
-  { name: 'Rapports',    href: '/rapports',    icon: BarChart3, module: 'rapports' },
-  { name: 'Paramètres',  href: '/parametres',  icon: Settings,  module: 'parametres' },
+  { name: 'Charges',      href: '/charges',      icon: Wallet,     module: 'charges' },
+  { name: 'Récurrentes', href: '/recurrences', icon: RefreshCw,  module: 'recurrences' },
+  { name: 'Clients',     href: '/clients',     icon: Users,      module: 'clients' },
+  { name: 'Catalogue',   href: '/catalogue',   icon: Package,    module: 'catalogue' },
+  { name: 'Stock',       href: '/stock',       icon: Warehouse,  module: 'stock' },
+  { name: 'Recettes',    href: '/recettes',    icon: ChefHat,    module: 'recettes' },
+  { name: 'Rapports',    href: '/rapports',    icon: BarChart3,  module: 'rapports' },
+  { name: 'Paramètres',  href: '/parametres',  icon: Settings,   module: 'parametres' },
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -83,19 +86,21 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
       {/* Sidebar desktop uniquement */}
-      <div className="hidden lg:block">
+      <div className="hidden lg:block print:hidden">
         <Sidebar />
       </div>
 
       {/* Navigation bas mobile */}
-      <BottomNav />
+      <div className="print:hidden">
+        <BottomNav />
+      </div>
 
       {/* Contenu principal */}
-      <main className={`min-h-full transition-all duration-300 ${collapsed ? 'lg:pl-20' : 'lg:pl-64'}`}>
+      <main className={`min-h-full transition-all duration-300 ${collapsed ? 'lg:pl-20' : 'lg:pl-64'} print:pl-0`}>
 
         {/* Header mobile — logo centré + bouton Plus */}
         <div
-          className="lg:hidden sticky top-0 z-30 bg-white border-b border-gray-100"
+          className="lg:hidden print:hidden sticky top-0 z-30 bg-white border-b border-gray-100"
           style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
         >
           <div className="flex items-center justify-between px-4" style={{ minHeight: 56 }}>
