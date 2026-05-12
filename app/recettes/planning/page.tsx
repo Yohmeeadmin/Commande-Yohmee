@@ -1409,8 +1409,9 @@ export default function PlanningPage() {
                   <div className={`px-4 py-2 rounded-xl ${isDone ? 'bg-green-100' : 'bg-white'}`}>
                     <p className="text-xs text-gray-400 font-semibold">À produire</p>
                     <p className={`text-3xl font-black tabular-nums ${task.urgent ? 'text-red-600' : 'text-blue-600'}`}>
-                      {task.kgSR >= 1 ? `${task.kgSR.toFixed(2)} kg` : `${Math.round(task.kgSR * 1000)} g`}
+                      {totalDoughKg >= 1 ? `${totalDoughKg.toFixed(2)} kg` : `${Math.round(totalDoughKg * 1000)} g`}
                     </p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">poids pâte</p>
                   </div>
                   {eq && nbFournees && (
                     <div className={`px-4 py-2 rounded-xl ${nbFournees > 1 ? 'bg-orange-50 border border-orange-100' : 'bg-green-50 border border-green-100'}`}>
