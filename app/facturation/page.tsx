@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { FileText, Receipt, CreditCard, RotateCcw, TrendingUp, Clock, CheckCircle, AlertCircle } from 'lucide-react';
+import { FileText, Receipt, CreditCard, RotateCcw, TrendingUp, Clock, CheckCircle, AlertCircle, BarChart3 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { formatPrice, formatDate } from '@/lib/utils';
 
@@ -27,6 +27,7 @@ const MODULES = [
   { label: 'Factures', href: '/facturation/factures', icon: Receipt, color: 'bg-blue-50 text-blue-600', description: 'Facturation clients' },
   { label: 'Règlements', href: '/facturation/reglements', icon: CreditCard, color: 'bg-green-50 text-green-600', description: 'Suivi des paiements' },
   { label: 'Avoirs', href: '/facturation/avoirs', icon: RotateCcw, color: 'bg-orange-50 text-orange-600', description: 'Notes de crédit' },
+  { label: 'Rapports', href: '/facturation/rapports', icon: BarChart3, color: 'bg-gray-50 text-gray-600', description: 'Ventes, production, BL, commissions' },
 ];
 
 export default function FacturationPage() {
@@ -105,7 +106,7 @@ export default function FacturationPage() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-black text-gray-900">Facturation</h1>
-        <p className="text-gray-500 text-sm mt-1">Devis, factures, règlements et avoirs</p>
+        <p className="text-gray-500 text-sm mt-1">Devis, factures, règlements, avoirs et rapports</p>
       </div>
 
       {/* KPIs */}
@@ -160,7 +161,7 @@ export default function FacturationPage() {
       </div>
 
       {/* Modules */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {MODULES.map(m => (
           <Link key={m.href} href={m.href}
             className="bg-white rounded-2xl border border-gray-100 p-5 hover:border-gray-200 hover:shadow-md transition-all group">

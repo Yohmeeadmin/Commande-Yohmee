@@ -10,7 +10,6 @@ import {
   Calendar,
   Truck,
   ClipboardList,
-  BarChart3,
   ChevronLeft,
   Settings,
   LogOut,
@@ -39,7 +38,6 @@ const ALL_NAVIGATION: { name: string; href: string; icon: React.ComponentType<{ 
   { name: 'Recettes',    href: '/recettes',     icon: ChefHat,         module: 'recettes' },
   { name: 'Charges',     href: '/charges',      icon: Wallet,          module: 'charges' },
   { name: 'Facturation', href: '/facturation',  icon: Receipt,         module: 'facturation' },
-  { name: 'Rapports',     href: '/rapports',    icon: BarChart3,       module: 'rapports' },
   { name: 'Paramètres',   href: '/parametres',  icon: Settings,        module: 'parametres' },
 ];
 
