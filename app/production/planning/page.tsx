@@ -1401,13 +1401,27 @@ export default function PlanningPage() {
                   </div>
                   <button onClick={() => setTaskDetailModal(null)} className="p-2 hover:bg-white/60 rounded-xl shrink-0"><X size={18} /></button>
                 </div>
-                <div className="mt-4 flex items-center gap-3">
+                <div className="mt-4 flex items-center gap-3 flex-wrap">
                   <div className={`px-4 py-2 rounded-xl ${isDone ? 'bg-green-100' : 'bg-white'}`}>
                     <p className="text-xs text-gray-400 font-semibold">À produire</p>
                     <p className={`text-3xl font-black tabular-nums ${task.urgent ? 'text-red-600' : 'text-blue-600'}`}>
                       {task.kgSR >= 1 ? `${task.kgSR.toFixed(2)} kg` : `${Math.round(task.kgSR * 1000)} g`}
                     </p>
                   </div>
+                  {(() => {
+                    const eq = materiels.find(m => task.atelier ? m.atelier === task.atelier : !m.atelier);
+                    if (!eq) return null;
+                    const nb = Math.ceil(task.kgSR / eq.capacite_kg);
+                    const kgPer = task.kgSR / nb;
+                    return (
+                      <div className={`px-4 py-2 rounded-xl ${nb > 1 ? 'bg-orange-50 border border-orange-100' : 'bg-green-50 border border-green-100'}`}>
+                        <p className={`text-xs font-semibold ${nb > 1 ? 'text-orange-400' : 'text-green-400'}`}>{eq.nom} · max {eq.capacite_kg} kg</p>
+                        <p className={`text-2xl font-black tabular-nums ${nb > 1 ? 'text-orange-600' : 'text-green-600'}`}>
+                          {nb} fournée{nb > 1 ? 's' : ''} × {kgPer.toFixed(2)} kg
+                        </p>
+                      </div>
+                    );
+                  })()}
                   {task.urgent && !isDone && (
                     <span className="px-3 py-1.5 bg-red-100 text-red-600 font-black text-sm rounded-xl">⚠ URGENT</span>
                   )}
@@ -1440,28 +1454,42 @@ export default function PlanningPage() {
                 </div>
 
                 {/* Ingrédients */}
-                {sr?.ingredients && sr.ingredients.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-2">Ingrédients (pour {task.kgSR >= 1 ? `${task.kgSR.toFixed(2)} kg` : `${Math.round(task.kgSR * 1000)} g`})</p>
-                    <div className="bg-gray-50 rounded-xl overflow-hidden">
-                      {sr.ingredients.map((ing, i) => {
-                        const qty = ing.quantite * factor;
-                        const srNested = ing.sous_recipe_id ? srMap.get(ing.sous_recipe_id) : null;
-                        const si = ing.stock_item_id ? siMap.get(ing.stock_item_id) : null;
-                        const nom = srNested?.nom || si?.nom || (ing.sous_recipe_id ? `SR ${ing.sous_recipe_id.slice(0, 8)}` : `MP ${ing.stock_item_id?.slice(0, 8)}`);
-                        const unite = si?.unite || 'kg';
-                        return (
-                          <div key={i} className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 last:border-0">
-                            <span className="text-sm text-gray-700">{nom}</span>
-                            <span className="text-sm font-black text-gray-900 tabular-nums">
-                              {qty >= 1 ? qty.toFixed(2) : (qty * 1000).toFixed(0) + ' g'} {qty >= 1 ? unite : ''}
-                            </span>
-                          </div>
-                        );
-                      })}
+                {sr?.ingredients && sr.ingredients.length > 0 && (() => {
+                  const eq = materiels.find(m => task.atelier ? m.atelier === task.atelier : !m.atelier);
+                  const nb = eq ? Math.ceil(task.kgSR / eq.capacite_kg) : null;
+                  return (
+                    <div>
+                      <div className="flex items-baseline justify-between mb-2">
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider">
+                          Ingrédients (pour {task.kgSR >= 1 ? `${task.kgSR.toFixed(2)} kg` : `${Math.round(task.kgSR * 1000)} g`})
+                        </p>
+                        {nb && nb > 1 && (
+                          <p className="text-[10px] font-black text-orange-400 uppercase tracking-wider">/ fournée</p>
+                        )}
+                      </div>
+                      <div className="bg-gray-50 rounded-xl overflow-hidden">
+                        {sr.ingredients.map((ing, i) => {
+                          const qty = ing.quantite * factor;
+                          const qtyPerFournee = nb ? qty / nb : null;
+                          const srNested = ing.sous_recipe_id ? srMap.get(ing.sous_recipe_id) : null;
+                          const si = ing.stock_item_id ? siMap.get(ing.stock_item_id) : null;
+                          const nom = srNested?.nom || si?.nom || (ing.sous_recipe_id ? `SR ${ing.sous_recipe_id.slice(0, 8)}` : `MP ${ing.stock_item_id?.slice(0, 8)}`);
+                          const unite = si?.unite || 'kg';
+                          const fmt = (v: number) => v >= 1 ? `${v.toFixed(2)} ${unite}` : `${(v * 1000).toFixed(0)} g`;
+                          return (
+                            <div key={i} className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 last:border-0 gap-3">
+                              <span className="text-sm text-gray-700 flex-1">{nom}</span>
+                              <span className="text-sm font-black text-gray-900 tabular-nums">{fmt(qty)}</span>
+                              {qtyPerFournee !== null && nb! > 1 && (
+                                <span className="text-xs font-bold text-orange-500 tabular-nums w-20 text-right">{fmt(qtyPerFournee)}</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
 
               {/* Actions */}
