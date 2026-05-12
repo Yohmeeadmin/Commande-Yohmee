@@ -538,11 +538,18 @@ export default function FacturesPage() {
                   {clients.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
                 </select>
               </div>
-              {unbilledBLs.length === 0 ? (
-                <p className="text-center text-gray-400 py-8">Aucun BL non facturé</p>
-              ) : (
+              {(() => {
+                const selectedClientNom = clients.find(c => c.id === formClientId)?.nom ?? '';
+                const visibleBLs = formClientId
+                  ? unbilledBLs.filter(bl => bl.client_nom.toLowerCase() === selectedClientNom.toLowerCase())
+                  : unbilledBLs;
+                return visibleBLs.length === 0 ? (
+                  <p className="text-center text-gray-400 py-8">
+                    {formClientId ? 'Aucun BL non facturé pour ce client' : 'Aucun BL non facturé'}
+                  </p>
+                ) : (
                 <div className="space-y-2">
-                  {unbilledBLs.map(bl => (
+                  {visibleBLs.map(bl => (
                     <label key={bl.id} className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 hover:bg-gray-50 cursor-pointer">
                       <input type="checkbox" checked={selectedBLs.includes(bl.id)}
                         onChange={e => setSelectedBLs(prev => e.target.checked ? [...prev, bl.id] : prev.filter(id => id !== bl.id))}
@@ -555,7 +562,8 @@ export default function FacturesPage() {
                     </label>
                   ))}
                 </div>
-              )}
+                );
+              })()}
             </div>
             <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
               <button onClick={() => setModalOpen(null)}
