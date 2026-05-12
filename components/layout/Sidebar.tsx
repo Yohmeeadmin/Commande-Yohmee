@@ -60,9 +60,11 @@ const NAV_STRUCTURE: NavEntry[] = [
     { name: 'Facturation',  href: '/facturation', icon: Receipt,  module: 'facturation' },
   ]},
 
-  { type: 'item',  name: 'Commandes',   href: '/commandes',   icon: ShoppingCart,    module: 'commandes' },
-  { type: 'item',  name: 'Récurrentes', href: '/recurrences', icon: RefreshCw,       module: 'recurrences' },
-  { type: 'item',  name: 'Planning',    href: '/planning',    icon: Calendar,        module: 'planning' },
+  { type: 'group', label: 'Commandes', icon: ShoppingCart, items: [
+    { name: 'Commandes',   href: '/commandes',   icon: ShoppingCart, module: 'commandes' },
+    { name: 'Récurrentes', href: '/recurrences', icon: RefreshCw,    module: 'recurrences' },
+    { name: 'Planning',    href: '/planning',    icon: Calendar,     module: 'planning' },
+  ]},
   { type: 'item',  name: 'Livraisons',  href: '/livraisons',  icon: Truck,           module: 'livraisons' },
   { type: 'item',  name: 'Production',  href: '/production',  icon: ClipboardList,   module: 'production' },
   { type: 'item',  name: 'Stock',       href: '/stock',       icon: Warehouse,       module: 'stock' },
