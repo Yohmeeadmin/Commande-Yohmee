@@ -8,6 +8,8 @@ import { supabase } from '@/lib/supabase/client';
 
 interface Supplier { id: string; nom: string; }
 
+interface StockZone { id: string; nom: string; couleur: string; }
+
 interface StockItem {
   id: string;
   nom: string;
@@ -20,7 +22,9 @@ interface StockItem {
   conditionnement: string | null;
   poids_conditionnement: number;
   prix_achat: number;
+  zone_id: string | null;
   supplier?: { nom: string } | null;
+  zone?: StockZone | null;
 }
 
 interface ProductArticle {
@@ -52,21 +56,22 @@ interface ProductReference {
 
 const UNITES = ['kg', 'g', 'L', 'cl', 'pièce', 'sachet', 'boîte', 'carton', 'litre'];
 
-const emptyItem = (): Omit<StockItem, 'id' | 'supplier'> => ({
+const emptyItem = (): Omit<StockItem, 'id' | 'supplier' | 'zone'> => ({
   nom: '', unite: 'kg', stock_actuel: 0, stock_min: 0, prix_moyen_pondere: 0,
   supplier_id: null, categorie: null, conditionnement: null,
-  poids_conditionnement: 0, prix_achat: 0,
+  poids_conditionnement: 0, prix_achat: 0, zone_id: null,
 });
 
 // ─── Formulaire article (partagé modal + carte) ──────────────────────────────
 
 const CONDITIONNEMENTS = ['Sac', 'Carton', 'Bidon', 'Bouteille', 'Pot', 'Boîte', 'Barquette', 'Sachet', 'Fût', 'Jerrycan', 'Pièce', 'Palette'];
 
-function ItemForm({ itemForm, IF, stockCategories, suppliers }: {
-  itemForm: Omit<StockItem, 'id' | 'supplier'>;
-  IF: (k: keyof Omit<StockItem, 'id' | 'supplier'>, v: any) => void;
+function ItemForm({ itemForm, IF, stockCategories, suppliers, zones }: {
+  itemForm: Omit<StockItem, 'id' | 'supplier' | 'zone'>;
+  IF: (k: keyof Omit<StockItem, 'id' | 'supplier' | 'zone'>, v: any) => void;
   stockCategories: { id: string; nom: string }[];
   suppliers: Supplier[];
+  zones: StockZone[];
 }) {
   return (
     <div className="space-y-4">
@@ -96,6 +101,18 @@ function ItemForm({ itemForm, IF, stockCategories, suppliers }: {
           </select>
         </label>
       </div>
+
+      {/* Zone de stockage */}
+      {zones.length > 0 && (
+        <label className="flex flex-col gap-1">
+          <span className="text-xs text-gray-500 font-medium px-1">Zone de stockage</span>
+          <select value={itemForm.zone_id ?? ''} onChange={e => IF('zone_id', e.target.value || null)}
+            className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">— Aucune zone</option>
+            {zones.map(z => <option key={z.id} value={z.id}>{z.nom}</option>)}
+          </select>
+        </label>
+      )}
 
       {/* Conditionnement */}
       <div className="border-t border-gray-100 pt-3">
@@ -192,6 +209,7 @@ export default function ArticlesPage() {
   const [items, setItems] = useState<StockItem[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [stockCategories, setStockCategories] = useState<{ id: string; nom: string }[]>([]);
+  const [zones, setZones] = useState<StockZone[]>([]);
   const [loadingMp, setLoadingMp] = useState(true);
   const [search, setSearch] = useState('');
   const [filterAlert, setFilterAlert] = useState(false);
@@ -228,14 +246,16 @@ export default function ArticlesPage() {
   }, [selectedCompanyId]);
 
   async function loadMp() {
-    const [{ data: it }, { data: sup }, { data: sc }] = await Promise.all([
-      supabase.from('stock_items').select('*, supplier:suppliers(nom)').order('nom'),
+    const [{ data: it }, { data: sup }, { data: sc }, { data: z }] = await Promise.all([
+      supabase.from('stock_items').select('*, supplier:suppliers(nom), zone:stock_zones(id, nom, couleur)').order('nom'),
       supabase.from('suppliers').select('id, nom').order('nom'),
       supabase.from('stock_categories').select('id, nom').order('ordre'),
+      supabase.from('stock_zones').select('id, nom, couleur').order('ordre'),
     ]);
     setItems((it as StockItem[]) || []);
     setSuppliers(sup || []);
     setStockCategories(sc || []);
+    setZones((z as StockZone[]) || []);
     setLoadingMp(false);
   }
 
@@ -348,6 +368,7 @@ export default function ArticlesPage() {
       conditionnement: item.conditionnement,
       poids_conditionnement: poids,
       prix_achat: prix,
+      zone_id: item.zone_id,
     });
   }
 
@@ -420,7 +441,7 @@ export default function ArticlesPage() {
 
             {/* Corps scrollable */}
             <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
-              <ItemForm itemForm={itemForm} IF={IF} stockCategories={stockCategories} suppliers={suppliers} />
+              <ItemForm itemForm={itemForm} IF={IF} stockCategories={stockCategories} suppliers={suppliers} zones={zones} />
             </div>
 
             {/* Footer fixe */}
@@ -448,7 +469,7 @@ export default function ArticlesPage() {
                   <X size={16} className="text-gray-400" />
                 </button>
               </div>
-              <ItemForm itemForm={itemForm} IF={IF} stockCategories={stockCategories} suppliers={suppliers} />
+              <ItemForm itemForm={itemForm} IF={IF} stockCategories={stockCategories} suppliers={suppliers} zones={zones} />
               <div className="flex gap-2">
                 <button onClick={() => { setShowNewItem(false); setItemForm(emptyItem()); }}
                   className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600">Annuler</button>

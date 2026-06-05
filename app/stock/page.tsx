@@ -1,9 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, Package, Search, LayoutList, Table2 } from 'lucide-react';
+import { AlertTriangle, Package, Search, LayoutList, Table2, Settings, Plus, Trash2, X, Check } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import Link from 'next/link';
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+interface StockZone { id: string; nom: string; couleur: string; ordre: number; }
 
 interface StockItem {
   id: string;
@@ -14,8 +18,12 @@ interface StockItem {
   prix_moyen_pondere: number;
   categorie: string | null;
   conditionnement: string | null;
+  zone_id: string | null;
+  zone?: StockZone | null;
   supplier: { nom: string } | null;
 }
+
+// ─── Helpers UI ───────────────────────────────────────────────────────────────
 
 function StockBadge({ actuel, min }: { actuel: number; min: number }) {
   if (actuel <= 0) return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Rupture</span>;
@@ -34,8 +42,138 @@ function StockBar({ actuel, min }: { actuel: number; min: number }) {
   );
 }
 
+const COULEURS_PRESET = [
+  '#6366f1','#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6','#F97316','#84CC16',
+];
+
+// ─── Modal gestion des zones ──────────────────────────────────────────────────
+
+function ZonesModal({ zones, onClose, onSaved }: {
+  zones: StockZone[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [list, setList] = useState<StockZone[]>(zones);
+  const [newNom, setNewNom] = useState('');
+  const [newCouleur, setNewCouleur] = useState(COULEURS_PRESET[0]);
+  const [saving, setSaving] = useState(false);
+
+  async function addZone() {
+    if (!newNom.trim()) return;
+    setSaving(true);
+    const { data } = await supabase.from('stock_zones').insert({ nom: newNom.trim(), couleur: newCouleur, ordre: list.length }).select().single();
+    if (data) setList(l => [...l, data as StockZone]);
+    setNewNom('');
+    setSaving(false);
+  }
+
+  async function deleteZone(id: string) {
+    await supabase.from('stock_zones').delete().eq('id', id);
+    setList(l => l.filter(z => z.id !== id));
+  }
+
+  async function updateNom(id: string, nom: string) {
+    await supabase.from('stock_zones').update({ nom }).eq('id', id);
+    setList(l => l.map(z => z.id === id ? { ...z, nom } : z));
+  }
+
+  async function updateCouleur(id: string, couleur: string) {
+    await supabase.from('stock_zones').update({ couleur }).eq('id', id);
+    setList(l => l.map(z => z.id === id ? { ...z, couleur } : z));
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[85vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h2 className="font-bold text-gray-900">Zones de stock</h2>
+          <button onClick={() => { onSaved(); onClose(); }} className="p-1.5 hover:bg-gray-100 rounded-lg">
+            <X size={18} className="text-gray-500" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2">
+          {list.length === 0 && (
+            <p className="text-sm text-gray-400 text-center py-4">Aucune zone — créez-en une ci-dessous</p>
+          )}
+          {list.map(zone => (
+            <ZoneRow key={zone.id} zone={zone} onUpdateNom={updateNom} onUpdateCouleur={updateCouleur} onDelete={deleteZone} />
+          ))}
+        </div>
+
+        {/* Nouvelle zone */}
+        <div className="border-t border-gray-100 px-5 py-4 space-y-3">
+          <p className="text-xs font-semibold text-gray-500 uppercase">Nouvelle zone</p>
+          <div className="flex gap-2">
+            <input
+              value={newNom} onChange={e => setNewNom(e.target.value)}
+              placeholder="Ex : Chambre froide"
+              onKeyDown={e => e.key === 'Enter' && addZone()}
+              className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button onClick={addZone} disabled={saving || !newNom.trim()}
+              className="px-3 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-40">
+              <Plus size={16} />
+            </button>
+          </div>
+          <div className="flex gap-1.5 flex-wrap">
+            {COULEURS_PRESET.map(c => (
+              <button key={c} onClick={() => setNewCouleur(c)}
+                className="w-6 h-6 rounded-full border-2 transition-all"
+                style={{ backgroundColor: c, borderColor: newCouleur === c ? '#111' : 'transparent' }} />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ZoneRow({ zone, onUpdateNom, onUpdateCouleur, onDelete }: {
+  zone: StockZone;
+  onUpdateNom: (id: string, nom: string) => void;
+  onUpdateCouleur: (id: string, couleur: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [nom, setNom] = useState(zone.nom);
+
+  function save() {
+    if (nom.trim()) onUpdateNom(zone.id, nom.trim());
+    setEditing(false);
+  }
+
+  return (
+    <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+      <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: zone.couleur }} />
+      {editing ? (
+        <input value={nom} onChange={e => setNom(e.target.value)}
+          onBlur={save} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }}
+          autoFocus className="flex-1 px-2 py-1 border border-blue-400 rounded-lg text-sm focus:outline-none" />
+      ) : (
+        <button onClick={() => setEditing(true)} className="flex-1 text-left text-sm font-medium text-gray-800 hover:text-blue-600">
+          {zone.nom}
+        </button>
+      )}
+      <div className="flex gap-1">
+        {COULEURS_PRESET.map(c => (
+          <button key={c} onClick={() => onUpdateCouleur(zone.id, c)}
+            className="w-4 h-4 rounded-full border transition-all"
+            style={{ backgroundColor: c, borderColor: zone.couleur === c ? '#111' : 'transparent' }} />
+        ))}
+      </div>
+      <button onClick={() => onDelete(zone.id)} className="p-1 text-gray-300 hover:text-red-500 rounded-lg transition-colors">
+        <Trash2 size={14} />
+      </button>
+    </div>
+  );
+}
+
+// ─── Page principale ──────────────────────────────────────────────────────────
+
 export default function StockPage() {
   const [mp, setMp] = useState<StockItem[]>([]);
+  const [zones, setZones] = useState<StockZone[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterAlert, setFilterAlert] = useState(false);
@@ -44,22 +182,25 @@ export default function StockPage() {
   const [editingSeuilId, setEditingSeuilId] = useState<string | null>(null);
   const [editingSeuilVal, setEditingSeuilVal] = useState<number>(0);
   const [filterCategorie, setFilterCategorie] = useState('');
+  const [filterZoneId, setFilterZoneId] = useState<string | null>(null);
+  const [showZonesModal, setShowZonesModal] = useState(false);
 
   useEffect(() => { load(); }, []);
+
+  async function load() {
+    const [{ data: items }, { data: z }] = await Promise.all([
+      supabase.from('stock_items').select('*, supplier:suppliers(nom), zone:stock_zones(id, nom, couleur, ordre)').order('nom'),
+      supabase.from('stock_zones').select('*').order('ordre'),
+    ]);
+    setMp((items as StockItem[]) || []);
+    setZones((z as StockZone[]) || []);
+    setLoading(false);
+  }
 
   async function saveSeuil(id: string) {
     await supabase.from('stock_items').update({ stock_min: editingSeuilVal }).eq('id', id);
     setMp(p => p.map(i => i.id === id ? { ...i, stock_min: editingSeuilVal } : i));
     setEditingSeuilId(null);
-  }
-
-  async function load() {
-    const { data } = await supabase
-      .from('stock_items')
-      .select('*, supplier:suppliers(nom)')
-      .order('nom');
-    setMp(data || []);
-    setLoading(false); // ne s'affiche que si mp est encore vide (premier chargement)
   }
 
   const categories = Array.from(new Set(mp.map(i => i.categorie).filter(Boolean))) as string[];
@@ -70,12 +211,13 @@ export default function StockPage() {
     const matchAlert = !filterAlert || i.stock_actuel <= i.stock_min;
     const matchInStock = !filterInStock || i.stock_actuel > 0;
     const matchCat = !filterCategorie || i.categorie === filterCategorie;
-    return matchSearch && matchAlert && matchInStock && matchCat;
+    const matchZone = filterZoneId === null ? true : filterZoneId === '__sans' ? !i.zone_id : i.zone_id === filterZoneId;
+    return matchSearch && matchAlert && matchInStock && matchCat && matchZone;
   });
 
   const enAlerte = mp.filter(i => i.stock_actuel <= i.stock_min && i.stock_actuel > 0).length;
   const enRupture = mp.filter(i => i.stock_actuel <= 0).length;
-  const valeurStock = mp.reduce((s, i) => s + i.stock_actuel * i.prix_moyen_pondere, 0);
+  const valeurStock = displayed.reduce((s, i) => s + i.stock_actuel * i.prix_moyen_pondere, 0);
 
   return (
     <div className="space-y-4">
@@ -85,11 +227,39 @@ export default function StockPage() {
           <h1 className="text-xl font-bold text-gray-900">Stock</h1>
           <p className="text-sm text-gray-400">{displayed.length} / {mp.length} article{mp.length > 1 ? 's' : ''}</p>
         </div>
-        <Link href="/stock/articles"
-          className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700">
-          Gérer les articles
-        </Link>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowZonesModal(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50">
+            <Settings size={14} /> Zones
+          </button>
+          <Link href="/stock/articles"
+            className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700">
+            Gérer les articles
+          </Link>
+        </div>
       </div>
+
+      {/* Onglets zones */}
+      {zones.length > 0 && (
+        <div className="flex gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
+          <button onClick={() => setFilterZoneId(null)}
+            className={`flex-shrink-0 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${filterZoneId === null ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+            Toutes
+          </button>
+          {zones.map(z => (
+            <button key={z.id} onClick={() => setFilterZoneId(filterZoneId === z.id ? null : z.id)}
+              className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${filterZoneId === z.id ? 'text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+              style={filterZoneId === z.id ? { backgroundColor: z.couleur, borderColor: z.couleur } : {}}>
+              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: filterZoneId === z.id ? 'white' : z.couleur }} />
+              {z.nom}
+            </button>
+          ))}
+          <button onClick={() => setFilterZoneId('__sans')}
+            className={`flex-shrink-0 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${filterZoneId === '__sans' ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-400 hover:bg-gray-50'}`}>
+            Sans zone
+          </button>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -103,7 +273,7 @@ export default function StockPage() {
         </div>
         <div className="bg-white rounded-2xl border border-gray-100 px-4 py-3">
           <p className="text-2xl font-black text-gray-900">{valeurStock >= 1000 ? `${(valeurStock / 1000).toFixed(1)}k` : valeurStock.toFixed(0)}</p>
-          <p className="text-xs text-gray-400 mt-0.5">Valeur MAD</p>
+          <p className="text-xs text-gray-400 mt-0.5">Valeur MAD{filterZoneId !== null ? ' (zone)' : ''}</p>
         </div>
       </div>
 
@@ -166,6 +336,7 @@ export default function StockPage() {
             <thead className="border-b border-gray-100 bg-gray-50">
               <tr className="text-xs text-gray-400 uppercase">
                 <th className="text-left px-4 py-3">Article</th>
+                <th className="text-left px-3 py-3 hidden sm:table-cell">Zone</th>
                 <th className="text-left px-3 py-3 hidden sm:table-cell">Catégorie</th>
                 <th className="text-left px-3 py-3 hidden md:table-cell">Conditionnement</th>
                 <th className="text-left px-3 py-3 hidden sm:table-cell">Fournisseur</th>
@@ -183,6 +354,14 @@ export default function StockPage() {
                 return (
                   <tr key={item.id} className={`border-t border-gray-50 hover:bg-gray-50 transition-colors ${item.stock_actuel <= 0 ? 'bg-red-50/40' : item.stock_actuel <= item.stock_min ? 'bg-orange-50/40' : ''}`}>
                     <td className="px-4 py-2.5 font-medium text-gray-900">{item.nom}</td>
+                    <td className="px-3 py-2.5 hidden sm:table-cell">
+                      {item.zone ? (
+                        <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium text-white"
+                          style={{ backgroundColor: item.zone.couleur }}>
+                          {item.zone.nom}
+                        </span>
+                      ) : <span className="text-gray-300 text-xs">—</span>}
+                    </td>
                     <td className="px-3 py-2.5 text-gray-400 text-xs hidden sm:table-cell">{item.categorie ?? '—'}</td>
                     <td className="px-3 py-2.5 text-gray-400 text-xs hidden md:table-cell">{item.conditionnement ?? '—'}</td>
                     <td className="px-3 py-2.5 text-gray-400 text-xs hidden sm:table-cell">{item.supplier?.nom ?? '—'}</td>
@@ -199,13 +378,11 @@ export default function StockPage() {
                           onBlur={() => saveSeuil(item.id)}
                           onKeyDown={e => { if (e.key === 'Enter') saveSeuil(item.id); if (e.key === 'Escape') setEditingSeuilId(null); }}
                           autoFocus
-                          className="w-20 px-2 py-1 border border-blue-400 rounded-lg text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          className="w-20 px-2 py-1 border border-blue-400 rounded-lg text-sm text-right focus:outline-none"
                         />
                       ) : (
-                        <button
-                          onClick={() => { setEditingSeuilId(item.id); setEditingSeuilVal(item.stock_min); }}
-                          className="text-gray-700 hover:text-blue-600 hover:underline cursor-pointer min-w-[2rem] text-right block w-full"
-                        >
+                        <button onClick={() => { setEditingSeuilId(item.id); setEditingSeuilVal(item.stock_min); }}
+                          className="text-gray-700 hover:text-blue-600 hover:underline cursor-pointer min-w-[2rem] text-right block w-full">
                           {item.stock_min}
                         </button>
                       )}
@@ -225,7 +402,7 @@ export default function StockPage() {
             </tbody>
             <tfoot className="border-t border-gray-200 bg-gray-50">
               <tr className="text-xs text-gray-500 font-semibold">
-                <td className="px-4 py-2.5" colSpan={8}>Total</td>
+                <td className="px-4 py-2.5" colSpan={9}>Total</td>
                 <td className="px-3 py-2.5 text-right hidden md:table-cell">
                   {displayed.reduce((s, i) => s + i.stock_actuel * i.prix_moyen_pondere, 0).toFixed(0)} MAD
                 </td>
@@ -246,6 +423,12 @@ export default function StockPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="font-semibold text-gray-900 truncate">{item.nom}</p>
+                    {item.zone && (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium text-white"
+                        style={{ backgroundColor: item.zone.couleur }}>
+                        {item.zone.nom}
+                      </span>
+                    )}
                     {item.categorie && (
                       <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full">{item.categorie}</span>
                     )}
@@ -268,6 +451,15 @@ export default function StockPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {/* Modal zones */}
+      {showZonesModal && (
+        <ZonesModal
+          zones={zones}
+          onClose={() => setShowZonesModal(false)}
+          onSaved={load}
+        />
       )}
     </div>
   );
