@@ -26,6 +26,13 @@ import {
   Receipt,
   ShoppingBag,
   BookOpen,
+  Layers,
+  UserRound,
+  BarChart3,
+  ListOrdered,
+  Building2,
+  ClipboardCheck,
+  BarChart2,
 } from 'lucide-react';
 import Image from 'next/image';
 import { useUser } from '@/contexts/UserContext';
@@ -64,6 +71,7 @@ const NAV_STRUCTURE: NavEntry[] = [
     { name: 'Clients',            href: '/clients',           icon: Users,        module: 'clients' },
     { name: 'Facturation',        href: '/facturation',       icon: Receipt,      module: 'facturation' },
     { name: 'Prévisions de vente',href: '/previsions-vente',  icon: TrendingUp,   module: 'planning' },
+    { name: 'Rapports',           href: '/facturation/rapports', icon: BarChart3, module: 'facturation' },
   ]},
 
   { type: 'group', label: 'Commandes', icon: ShoppingCart, items: [
@@ -78,8 +86,19 @@ const NAV_STRUCTURE: NavEntry[] = [
     { name: 'Fiche de prod',           href: '/production/fiche-de-prod',  icon: FileText,      module: 'production' },
     { name: 'Rétro-planning',          href: '/production/retro-planning', icon: CalendarClock, module: 'production' },
     { name: 'Matériel',                href: '/production/materiel',       icon: Cpu,           module: 'production' },
+    { name: 'Postes',                  href: '/production/postes',         icon: Layers,        module: 'production' },
+    { name: 'Planning équipe',          href: '/production/personnel',      icon: UserRound,     module: 'production' },
   ]},
-  { type: 'item',  name: 'Stock',       href: '/stock',       icon: Warehouse,       module: 'stock' },
+  { type: 'group', label: 'Stock', icon: Warehouse, items: [
+    { name: 'Stock',         href: '/stock',                  icon: Warehouse,      module: 'stock' },
+    { name: 'Articles',      href: '/stock/articles',         icon: Package,        module: 'stock' },
+    { name: 'Commandes',     href: '/stock/bons-commande',    icon: ListOrdered,    module: 'stock' },
+    { name: 'Fournisseurs',  href: '/stock/fournisseurs',     icon: Building2,      module: 'stock' },
+    { name: 'Factures',      href: '/stock/factures',         icon: Receipt,        module: 'stock' },
+    { name: 'Économat',      href: '/stock/economat',         icon: ClipboardList,  module: 'stock' },
+    { name: 'Inventaire',    href: '/stock/inventaire',       icon: ClipboardCheck, module: 'stock' },
+    { name: 'Analyses',      href: '/stock/analyses',         icon: BarChart2,      module: 'stock' },
+  ]},
   { type: 'group', label: 'Recettes', icon: ChefHat, items: [
     { name: 'Fiches recettes',   href: '/recettes',                  icon: ChefHat,      module: 'recettes' },
 { name: 'Catalogue coûté',   href: '/recettes/catalogue-coute',  icon: BookOpen,     module: 'recettes' },
