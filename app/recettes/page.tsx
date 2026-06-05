@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, ChefHat, Search, X, Trash2, ChevronDown, ChevronUp, AlertTriangle, RotateCcw, LayoutList, Table2, BookOpen, FileText, ShoppingBag, Calculator, CalendarDays } from 'lucide-react';
-import { PACK_TYPES, PRODUCT_STATES, generateArticleDisplayName } from '@/types';
+import { Plus, ChefHat, Search, X, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, AlertTriangle, RotateCcw, LayoutList, Table2, BookOpen, FileText, ShoppingBag, Calculator, CalendarDays, Check, FileSpreadsheet } from 'lucide-react';
+import { PACK_TYPES, PRODUCT_STATES, ProductState, generateArticleDisplayName } from '@/types';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase/client';
 import { useAteliers } from '@/lib/useAteliers';
@@ -71,7 +71,14 @@ interface RecipeSheet {
   ingredients?: IngredientLine[];
   gabarits?: Gabarit[];
   product_reference?: ProductReferenceLight | null;
+  etats_config?: EtatsConfig | null;
 }
+
+// ─── Types procédé / états ────────────────────────────────────────────────────
+
+type EtapeOverride = { skip?: boolean; duree?: number | null };
+type EtatConfig = { dlc_heures: number | null; overrides: Record<number, EtapeOverride> };
+type EtatsConfig = Partial<Record<string, EtatConfig>>;
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -646,6 +653,8 @@ function RecipeModal({ recipe, type, stockItems, sousRecettes, productReferences
     };
   });
 
+  const [step, setStep] = useState<1 | 2>(1);
+  const [sheetId, setSheetId] = useState<string | null>(recipe?.id ?? null);
   const [saving, setSaving] = useState(false);
   const [ingSearch, setIngSearch] = useState('');
   const [ingTab, setIngTab] = useState<'mp' | 'sr'>('mp');
@@ -665,6 +674,141 @@ function RecipeModal({ recipe, type, stockItems, sousRecettes, productReferences
     setNewCatNom('');
     setAddingCat(false);
   }
+  // ─── Étapes du procédé ───────────────────────────────────────────────────────
+  interface EtapeLocal { id?: string; nom: string; duree_fixe_min: number | null; duree_par_piece_sec: number | null; materiel_id: string | null; mode: 'auto' | 'manuel' | null; pieces_par_plaque: number | null; plaques_par_niveau: number | null; niveaux: number | null; notes: string | null; }
+  interface MaterielLight { id: string; nom: string; type: string; config: Record<string, unknown> | null; }
+  const [etapes, setEtapes] = useState<EtapeLocal[]>([]);
+  const [materiels, setMateriels] = useState<MaterielLight[]>([]);
+  // Étapes des sous-recettes liées (pour suggestion d'import)
+  const [srEtapes, setSrEtapes] = useState<Record<string, { nom: string; etapes: EtapeLocal[] }>>({});
+
+  // Charger les étapes existantes + matériels si édition
+  useEffect(() => {
+    supabase.from('materiel').select('id, nom, type, config').order('nom')
+      .then((res: { data: MaterielLight[] | null }) => setMateriels(res.data ?? []));
+    if (!recipe?.id) return;
+    supabase.from('etapes_recette').select('id, nom, duree_fixe_min, duree_par_piece_sec, materiel_id, mode, pieces_par_plaque, plaques_par_niveau, niveaux, notes')
+      .eq('recipe_sheet_id', recipe.id).order('ordre')
+      .then((res: { data: EtapeLocal[] | null }) => setEtapes(res.data ?? []));
+  }, [recipe?.id]);
+
+  // Charger les étapes des sous-recettes quand les lignes changent
+  useEffect(() => {
+    const srIds = form.lignes.filter(l => l.sous_recipe_id).map(l => l.sous_recipe_id as string);
+    if (srIds.length === 0) { setSrEtapes({}); return; }
+    Promise.all(srIds.map(srId =>
+      supabase.from('etapes_recette').select('nom, duree_fixe_min, duree_par_piece_sec, notes').eq('recipe_sheet_id', srId).order('ordre')
+        .then((res: { data: EtapeLocal[] | null }) => ({ srId, etapes: res.data ?? [] }))
+    )).then(results => {
+      const map: Record<string, { nom: string; etapes: EtapeLocal[] }> = {};
+      results.forEach(({ srId, etapes: et }) => {
+        if (et.length === 0) return;
+        const sr = form.lignes.find(l => l.sous_recipe_id === srId)?.sous_recipe;
+        map[srId] = { nom: sr?.nom ?? srId, etapes: et };
+      });
+      setSrEtapes(map);
+    });
+  }, [form.lignes]);
+
+  function addEtape() {
+    setEtapes(prev => [...prev, { nom: '', duree_fixe_min: null, duree_par_piece_sec: null, materiel_id: null, mode: null, pieces_par_plaque: null, plaques_par_niveau: null, niveaux: null, notes: null }]);
+  }
+  function updateEtape(idx: number, patch: Partial<EtapeLocal>) {
+    setEtapes(prev => prev.map((e, i) => i === idx ? { ...e, ...patch } : e));
+  }
+  function removeEtape(idx: number) {
+    setEtapes(prev => prev.filter((_, i) => i !== idx));
+  }
+  function moveEtape(idx: number, dir: -1 | 1) {
+    const next = idx + dir;
+    if (next < 0 || next >= etapes.length) return;
+    setEtapes(prev => { const a = [...prev]; [a[idx], a[next]] = [a[next], a[idx]]; return a; });
+  }
+  function importerSR(srId: string) {
+    const sr = srEtapes[srId];
+    if (!sr) return;
+    setEtapes(prev => [...prev, ...sr.etapes.map(e => ({ nom: e.nom, duree_fixe_min: e.duree_fixe_min, duree_par_piece_sec: e.duree_par_piece_sec, materiel_id: e.materiel_id, mode: e.mode, pieces_par_plaque: e.pieces_par_plaque, plaques_par_niveau: e.plaques_par_niveau, niveaux: e.niveaux, notes: e.notes }))]);
+  }
+  const [simQty, setSimQty] = useState(100);
+
+  function etapeMin(e: EtapeLocal, qty: number): number {
+    let t = e.duree_fixe_min ?? 0;
+    if (e.duree_par_piece_sec && qty > 0) t += (e.duree_par_piece_sec * qty) / 60;
+    return t;
+  }
+
+  const totalProcMin = etapes.reduce((s, e) => s + etapeMin(e, simQty), 0);
+
+  function fmtProcMin(min: number) {
+    if (min <= 0) return '';
+    if (min < 60) return `${Math.round(min)} min`;
+    const h = Math.floor(min / 60); const m = Math.round(min % 60);
+    return m > 0 ? `${h}h${String(m).padStart(2, '0')}` : `${h}h`;
+  }
+
+  // ─── États du produit ────────────────────────────────────────────────────────
+  const [etatsActifs, setEtatsActifs] = useState<string[]>(() => {
+    if (recipe?.etats_config) return Object.keys(recipe.etats_config);
+    return [];
+  });
+  const [etatsConfig, setEtatsConfig] = useState<EtatsConfig>(() => recipe?.etats_config ?? {});
+  // Unité DLC par état : 'h' (heures) ou 'j' (jours) — stockage toujours en heures
+  const [etatsDlcUnit, setEtatsDlcUnit] = useState<Record<string, 'h' | 'j'>>(() => {
+    const units: Record<string, 'h' | 'j'> = {};
+    if (recipe?.etats_config) {
+      Object.entries(recipe.etats_config).forEach(([etat, cfg]) => {
+        const h = (cfg as EtatConfig).dlc_heures;
+        units[etat] = h && h >= 24 && h % 24 === 0 ? 'j' : 'h';
+      });
+    }
+    return units;
+  });
+
+  // Auto-activer les états (sera initialisé après refArticles — voir useEffect plus bas)
+
+  function toggleEtat(etat: string) {
+    setEtatsActifs(prev =>
+      prev.includes(etat) ? prev.filter(e => e !== etat) : [...prev, etat]
+    );
+  }
+
+  function updateEtatDlc(etat: string, dlc: number | null) {
+    setEtatsConfig(prev => ({
+      ...prev,
+      [etat]: { ...(prev[etat] ?? { dlc_heures: null, overrides: {} }), dlc_heures: dlc },
+    }));
+  }
+
+  function toggleSkip(etat: string, idx: number) {
+    setEtatsConfig(prev => {
+      const cfg = prev[etat] ?? { dlc_heures: null, overrides: {} };
+      const cur = cfg.overrides[idx] ?? {};
+      return {
+        ...prev,
+        [etat]: { ...cfg, overrides: { ...cfg.overrides, [idx]: { ...cur, skip: !cur.skip } } },
+      };
+    });
+  }
+
+  function updateDureeOverride(etat: string, idx: number, duree: number | null) {
+    setEtatsConfig(prev => {
+      const cfg = prev[etat] ?? { dlc_heures: null, overrides: {} };
+      const cur = cfg.overrides[idx] ?? {};
+      return {
+        ...prev,
+        [etat]: { ...cfg, overrides: { ...cfg.overrides, [idx]: { ...cur, duree } } },
+      };
+    });
+  }
+
+  function buildEtatsConfigToSave(): EtatsConfig {
+    const result: EtatsConfig = {};
+    etatsActifs.forEach(etat => {
+      result[etat] = etatsConfig[etat] ?? { dlc_heures: null, overrides: {} };
+    });
+    return result;
+  }
+
   // Gabarits (formats) de la sous-recette en cours d'édition
   const [localGabarits, setLocalGabarits] = useState<Gabarit[]>(() => recipe?.gabarits || []);
   const [newGabNom, setNewGabNom] = useState('');
@@ -742,6 +886,14 @@ function RecipeModal({ recipe, type, stockItems, sousRecettes, productReferences
     const ref = productReferences.find(r => r.id === form.produitId);
     if (ref) setForm(f => ({ ...f, nom: f.nom || ref.name }));
   }, [form.produitId]);
+
+  // Auto-activer les états depuis les articles de la référence
+  useEffect(() => {
+    if (!refArticles.length) return;
+    const statesFromRef = [...new Set(refArticles.map(a => a.product_state).filter(Boolean))] as string[];
+    if (statesFromRef.length === 0) return;
+    setEtatsActifs(prev => [...new Set([...prev, ...statesFromRef])]);
+  }, [refArticles]);
 
   // Fermer le dropdown référence au clic extérieur
   useEffect(() => {
@@ -847,11 +999,11 @@ function RecipeModal({ recipe, type, stockItems, sousRecettes, productReferences
     setForm(f => ({ ...f, allergenes: f.allergenes.includes(a) ? f.allergenes.filter(x => x !== a) : [...f.allergenes, a] }));
   }
 
-  async function handleSave() {
+  // Étape 1 → sauvegarde recette + ingrédients + gabarits, passe à l'étape 2
+  async function handleNext() {
     if (!form.nom.trim()) return;
-    // Alerte marge critique
     if (type === 'recette' && tauxMarge !== null && tauxMarge < 10) {
-      if (!confirm(`Attention : marge de ${tauxMarge.toFixed(0)}% — en dessous du seuil critique (10%). Enregistrer quand même ?`)) return;
+      if (!confirm(`Attention : marge de ${tauxMarge.toFixed(0)}% — en dessous du seuil critique (10%). Continuer quand même ?`)) return;
     }
     setSaving(true);
     const basePayload: Record<string, any> = {
@@ -869,50 +1021,82 @@ function RecipeModal({ recipe, type, stockItems, sousRecettes, productReferences
       dlc_heures: form.dlcHeures > 0 ? form.dlcHeures : null,
       stock_min: form.stockMin > 0 ? form.stockMin : null,
     };
-
-    console.log('[Recette] Saving payload:', JSON.stringify(basePayload));
-
     try {
-      let sheetId = recipe?.id;
+      let sid = sheetId;
       if (isEdit) {
-        const { data, error } = await supabase.from('recipe_sheets').update(basePayload).eq('id', recipe!.id).select('id, product_reference_id').single();
+        const { error } = await supabase.from('recipe_sheets').update(basePayload).eq('id', recipe!.id);
         if (error) throw new Error('Recette: ' + error.message);
-        console.log('[Recette] Updated result:', data);
+        sid = recipe!.id;
       } else {
         const { data, error } = await supabase.from('recipe_sheets').insert({ ...basePayload, type }).select().single();
         if (error) throw new Error('Recette: ' + error.message);
-        sheetId = data?.id;
-        console.log('[Recette] Inserted:', data);
+        sid = data?.id;
       }
-      if (sheetId) {
-        // Sauvegarder les ingrédients
-        await supabase.from('recipe_ingredients').delete().eq('recipe_sheet_id', sheetId);
+      if (sid) {
+        setSheetId(sid);
+        await supabase.from('recipe_ingredients').delete().eq('recipe_sheet_id', sid);
         const valid = form.lignes.filter(l => l.stock_item_id || l.sous_recipe_id);
         if (valid.length > 0) {
           const { error } = await supabase.from('recipe_ingredients').insert(valid.map(l => ({
-            recipe_sheet_id: sheetId, stock_item_id: l.stock_item_id || null,
+            recipe_sheet_id: sid, stock_item_id: l.stock_item_id || null,
             sous_recipe_id: l.sous_recipe_id || null, quantite: l.quantite,
-            gabarit_nom: l.gabarit_nom || null,
-            gabarit_poids_kg: l.gabarit_poids_kg || null,
+            gabarit_nom: l.gabarit_nom || null, gabarit_poids_kg: l.gabarit_poids_kg || null,
           })));
           if (error) throw new Error('Ingrédients: ' + error.message);
         }
-        // Sauvegarder les gabarits (sous-recette uniquement)
         if (type === 'sous_recette') {
-          await supabase.from('recipe_sheet_gabarits').delete().eq('recipe_sheet_id', sheetId);
+          await supabase.from('recipe_sheet_gabarits').delete().eq('recipe_sheet_id', sid);
           if (localGabarits.length > 0) {
             const { error } = await supabase.from('recipe_sheet_gabarits').insert(
-              localGabarits.map(g => ({ recipe_sheet_id: sheetId, nom: g.nom, poids_kg: g.poids_kg }))
+              localGabarits.map(g => ({ recipe_sheet_id: sid, nom: g.nom, poids_kg: g.poids_kg }))
             );
             if (error) throw new Error('Gabarits: ' + error.message);
           }
         }
       }
+      setStep(2);
+    } catch (err: any) {
+      alert('Erreur : ' + (err?.message || String(err)));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Étape 2 → sauvegarde les étapes + états config et ferme
+  async function handleSave() {
+    if (!sheetId) return;
+    setSaving(true);
+    try {
+      await supabase.from('etapes_recette').delete().eq('recipe_sheet_id', sheetId);
+      const validEtapes = etapes.filter(e => e.nom.trim());
+      if (validEtapes.length > 0) {
+        const { error } = await supabase.from('etapes_recette').insert(
+          validEtapes.map((e, i) => ({
+            recipe_sheet_id: sheetId, ordre: i, nom: e.nom.trim(),
+            duree_fixe_min: e.duree_fixe_min || null,
+            duree_par_piece_sec: e.duree_par_piece_sec || null,
+            materiel_id: e.materiel_id || null,
+            mode: e.mode || null,
+            pieces_par_plaque: e.pieces_par_plaque || null,
+            plaques_par_niveau: e.plaques_par_niveau || null,
+            niveaux: e.niveaux || null,
+            notes: e.notes?.trim() || null,
+            poste_id: null, necessite_personnel: false,
+          }))
+        );
+        if (error) throw new Error('Étapes: ' + error.message);
+      }
+      // Sauvegarder les états du produit
+      const { error: etatErr } = await supabase
+        .from('recipe_sheets')
+        .update({ etats_config: buildEtatsConfigToSave() })
+        .eq('id', sheetId);
+      if (etatErr) throw new Error('États: ' + etatErr.message);
+
       await onSaved();
       onClose();
     } catch (err: any) {
-      console.error('[Recette] Save error:', err);
-      alert('Erreur lors de la sauvegarde : ' + (err?.message || String(err)));
+      alert('Erreur : ' + (err?.message || String(err)));
     } finally {
       setSaving(false);
     }
@@ -931,19 +1115,41 @@ function RecipeModal({ recipe, type, stockItems, sousRecettes, productReferences
             <p className="font-black text-gray-900">
               {isEdit ? 'Modifier la recette' : type === 'recette' ? 'Nouvelle recette' : 'Nouvelle sous-recette'}
             </p>
-            {isEdit && <p className="text-xs text-gray-400 mt-0.5">{recipe!.nom}</p>}
+            <div className="flex items-center gap-2 mt-1">
+              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${step === 1 ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-400'}`}>
+                1 Recette
+              </span>
+              <span className="text-gray-200 text-xs">→</span>
+              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${step === 2 ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-400'}`}>
+                2 Procédé
+              </span>
+            </div>
           </div>
-          <div className="flex items-center gap-2 flex-wrap justify-center sm:justify-end">
-            {!isEdit && (
+          <div className="flex items-center gap-2">
+            {step === 1 && !isEdit && (
               <button onClick={() => setForm(emptyState())}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-500 border border-gray-200 rounded-xl hover:bg-gray-50">
                 <RotateCcw size={13} /> <span className="hidden sm:inline">Réinitialiser</span>
               </button>
             )}
-            <button onClick={handleSave} disabled={saving || !form.nom.trim()}
-              className="px-4 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded-xl disabled:opacity-40 hover:bg-blue-700">
-              {saving ? 'Enregistrement…' : 'Enregistrer'}
-            </button>
+            {step === 1 && (
+              <button onClick={handleNext} disabled={saving || !form.nom.trim()}
+                className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded-xl disabled:opacity-40 hover:bg-blue-700">
+                {saving ? 'Enregistrement…' : <>Suivant <ChevronRight size={14} /></>}
+              </button>
+            )}
+            {step === 2 && (
+              <>
+                <button onClick={() => setStep(1)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-500 border border-gray-200 rounded-xl hover:bg-gray-50">
+                  <ChevronLeft size={14} /> Retour
+                </button>
+                <button onClick={handleSave} disabled={saving}
+                  className="px-4 py-1.5 bg-blue-600 text-white text-sm font-semibold rounded-xl disabled:opacity-40 hover:bg-blue-700">
+                  {saving ? 'Enregistrement…' : 'Enregistrer'}
+                </button>
+              </>
+            )}
             <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl">
               <X size={18} />
             </button>
@@ -952,6 +1158,258 @@ function RecipeModal({ recipe, type, stockItems, sousRecettes, productReferences
 
         {/* Corps */}
         <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+
+          {/* ── ÉTAPE 2 : Procédé ── */}
+          {step === 2 && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <p className="text-xs font-black text-gray-400 uppercase tracking-wider">Procédé de fabrication</p>
+                <div className="flex items-center gap-2">
+                  {/* Simulateur quantité */}
+                  {etapes.some(e => e.duree_par_piece_sec) && (
+                    <div className="flex items-center gap-1.5 bg-orange-50 border border-orange-100 rounded-xl px-3 py-1.5">
+                      <span className="text-xs text-orange-500 font-semibold">Qté</span>
+                      <input type="number" min={1} step={1} value={simQty}
+                        onChange={ev => setSimQty(parseInt(ev.target.value) || 1)}
+                        className="w-16 text-xs text-center font-bold text-orange-700 bg-transparent focus:outline-none border-b border-orange-300" />
+                      <span className="text-xs text-orange-400">pièces</span>
+                    </div>
+                  )}
+                  {totalProcMin > 0 && (
+                    <span className="flex items-center gap-1.5 text-sm font-black text-blue-600 bg-blue-50 px-3 py-1.5 rounded-xl">
+                      ⏱ {fmtProcMin(totalProcMin)}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Suggestions depuis sous-recettes */}
+              {Object.entries(srEtapes).map(([srId, sr]) => (
+                <div key={srId} className="flex items-center justify-between gap-2 px-3 py-2.5 bg-indigo-50 border border-indigo-100 rounded-xl">
+                  <span className="text-sm text-indigo-700 font-semibold truncate">{sr.nom}</span>
+                  <span className="text-xs text-indigo-400">{sr.etapes.length} étape{sr.etapes.length > 1 ? 's' : ''}</span>
+                  <button type="button" onClick={() => importerSR(srId)}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 shrink-0">
+                    <Plus size={11} /> Importer
+                  </button>
+                </div>
+              ))}
+
+              {/* Liste étapes */}
+              <div className="space-y-1.5">
+                {etapes.map((e, idx) => (
+                  <div key={idx} className="bg-white border border-gray-100 rounded-xl px-3 py-2.5 group shadow-sm">
+                    {/* Ligne 1 : numéro + nom + mode + poubelle */}
+                    <div className="flex items-center gap-2">
+                      <div className="flex flex-col shrink-0">
+                        <button type="button" onClick={() => moveEtape(idx, -1)} disabled={idx === 0}
+                          className="p-0.5 text-gray-300 hover:text-gray-500 disabled:opacity-20"><ChevronUp size={10} /></button>
+                        <button type="button" onClick={() => moveEtape(idx, 1)} disabled={idx === etapes.length - 1}
+                          className="p-0.5 text-gray-300 hover:text-gray-500 disabled:opacity-20"><ChevronDown size={10} /></button>
+                      </div>
+                      <span className="text-xs font-black text-gray-300 w-4 text-center shrink-0">{idx + 1}</span>
+                      <input type="text" value={e.nom}
+                        onChange={ev => updateEtape(idx, { nom: ev.target.value })}
+                        placeholder={`Étape ${idx + 1}…`}
+                        className="flex-1 text-sm font-semibold text-gray-800 bg-transparent focus:outline-none placeholder:text-gray-300 min-w-0" />
+                      {/* Mode auto/manuel */}
+                      <div className="flex rounded-lg overflow-hidden shrink-0 text-xs font-bold border border-gray-200">
+                        <button type="button"
+                          onClick={() => updateEtape(idx, { mode: e.mode === 'auto' ? null : 'auto' })}
+                          className={`px-2.5 py-1 transition-colors ${e.mode === 'auto' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:text-gray-500 bg-white'}`}>
+                          Auto
+                        </button>
+                        <button type="button"
+                          onClick={() => updateEtape(idx, { mode: e.mode === 'manuel' ? null : 'manuel' })}
+                          className={`px-2.5 py-1 border-l border-gray-200 transition-colors ${e.mode === 'manuel' ? 'bg-amber-500 text-white' : 'text-gray-300 hover:text-gray-500 bg-white'}`}>
+                          Manuel
+                        </button>
+                      </div>
+                      <button type="button" onClick={() => removeEtape(idx)}
+                        className="p-1 text-gray-200 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 shrink-0">
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                    {/* Ligne 2 : durées + matériel + bouton fournée */}
+                    <div className="flex items-center gap-3 mt-1.5 pl-8">
+                      <div className="flex items-center gap-1.5">
+                        <input type="number" min={0} step={1} value={e.duree_fixe_min ?? ''}
+                          onChange={ev => updateEtape(idx, { duree_fixe_min: parseInt(ev.target.value) || null })}
+                          placeholder="—"
+                          className="w-12 text-xs text-center font-bold text-gray-600 border border-gray-200 rounded-lg px-1 py-1 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                        <span className="text-xs text-gray-400">min</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <input type="number" min={0} step={0.5} value={e.duree_par_piece_sec ?? ''}
+                          onChange={ev => updateEtape(idx, { duree_par_piece_sec: parseFloat(ev.target.value) || null })}
+                          placeholder="—"
+                          className="w-12 text-xs text-center font-bold text-orange-500 border border-orange-200 rounded-lg px-1 py-1 focus:outline-none focus:ring-2 focus:ring-orange-300 bg-orange-50" />
+                        <span className="text-xs text-gray-400">s/pce</span>
+                      </div>
+                      <select
+                        value={e.materiel_id ?? ''}
+                        onChange={ev => updateEtape(idx, { materiel_id: ev.target.value || null })}
+                        className="text-xs border border-gray-200 rounded-lg px-2 py-1 text-gray-500 bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 flex-1 min-w-0">
+                        <option value="">— Matériel —</option>
+                        {materiels.map(m => <option key={m.id} value={m.id}>{m.nom}</option>)}
+                      </select>
+                    </div>
+                    {/* Ligne 3 : pièces/plaque si four sélectionné */}
+                    {(() => {
+                      const mat = materiels.find(m => m.id === e.materiel_id);
+                      if (!mat || mat.type !== 'four') return null;
+                      const fc = mat.config as { type_four?: string; nb_niveaux?: number; plaques_par_niveau?: number; soles?: { plaques: number }[]; nb_plaques?: number } | null;
+                      const totalPlaques = !fc ? 0
+                        : fc.type_four === 'ventile' ? (fc.nb_niveaux ?? 0) * (fc.plaques_par_niveau ?? 0)
+                        : fc.type_four === 'sol' ? (fc.soles ?? []).reduce((s: number, sol: { plaques: number }) => s + sol.plaques, 0)
+                        : fc.type_four === 'rotatif' ? (fc.nb_plaques ?? 0)
+                        : 0;
+                      const capacite = (e.pieces_par_plaque ?? 0) * totalPlaques;
+                      return (
+                        <div className="mt-2 ml-8 flex items-center gap-2 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+                          <span className="text-xs text-red-400 font-semibold shrink-0">🔥 Fournée</span>
+                          <input type="number" min={1} step={1} value={e.pieces_par_plaque ?? ''}
+                            onChange={ev => updateEtape(idx, { pieces_par_plaque: parseInt(ev.target.value) || null })}
+                            placeholder="—"
+                            className="w-14 text-xs text-center font-bold text-red-700 border border-red-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-red-300" />
+                          <span className="text-xs text-red-400">pce/plaque</span>
+                          {totalPlaques > 0 && <span className="text-xs text-red-300">× {totalPlaques} plaques</span>}
+                          {capacite > 0 && <span className="ml-auto text-sm font-black text-red-600 shrink-0">= {capacite} pce/fournée</span>}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                ))}
+                <button type="button" onClick={addEtape}
+                  className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-400 hover:text-gray-600 hover:bg-gray-50 border border-dashed border-gray-200 rounded-xl transition-colors">
+                  <Plus size={13} /> Ajouter une étape
+                </button>
+              </div>
+
+              {/* ── États du produit ── */}
+              <div className="space-y-3 pt-2">
+                <p className="text-xs font-black text-gray-400 uppercase tracking-wider">Déclinaisons par état</p>
+
+                {/* Pills toggle */}
+                <div className="flex flex-wrap gap-2">
+                  {PRODUCT_STATES.map(ps => {
+                    const active = etatsActifs.includes(ps.value);
+                    return (
+                      <button key={ps.value} type="button" onClick={() => toggleEtat(ps.value)}
+                        style={active ? { background: ps.bgColor, color: ps.color, borderColor: ps.color } : {}}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold border-2 transition-all ${
+                          active ? '' : 'border-gray-200 text-gray-400 hover:border-gray-300'
+                        }`}>
+                        {ps.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Cartes par état actif */}
+                {etatsActifs.map(etatVal => {
+                  const ps = PRODUCT_STATES.find(p => p.value === etatVal);
+                  if (!ps) return null;
+                  const cfg = etatsConfig[etatVal] ?? { dlc_heures: null, overrides: {} };
+                  return (
+                    <div key={etatVal} className="rounded-2xl overflow-hidden border" style={{ borderColor: ps.color + '55' }}>
+                      {/* Header état */}
+                      <div className="flex items-center justify-between px-4 py-2.5" style={{ background: ps.bgColor }}>
+                        <span className="font-black text-sm" style={{ color: ps.color }}>{ps.label}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-medium" style={{ color: ps.color }}>DLC</span>
+                          <input
+                            type="number" min={0} step={1}
+                            value={(() => {
+                              const h = cfg.dlc_heures;
+                              if (h == null) return '';
+                              return (etatsDlcUnit[etatVal] ?? 'h') === 'j' ? h / 24 : h;
+                            })()}
+                            onChange={e => {
+                              const v = parseFloat(e.target.value);
+                              const unit = etatsDlcUnit[etatVal] ?? 'h';
+                              updateEtatDlc(etatVal, isNaN(v) ? null : unit === 'j' ? Math.round(v * 24) : Math.round(v));
+                            }}
+                            placeholder="—"
+                            className="w-14 text-xs text-center font-bold border border-white/60 rounded-lg px-2 py-1 bg-white/70 focus:outline-none focus:ring-2 focus:ring-white" />
+                          {/* Toggle h / j */}
+                          <div className="flex rounded-lg overflow-hidden border border-white/60 bg-white/40">
+                            {(['h', 'j'] as const).map(unit => (
+                              <button key={unit} type="button"
+                                onClick={() => {
+                                  const prev = etatsDlcUnit[etatVal] ?? 'h';
+                                  if (prev === unit) return;
+                                  // Convertir la valeur affichée
+                                  const h = cfg.dlc_heures;
+                                  if (h != null) {
+                                    updateEtatDlc(etatVal, unit === 'j' ? h : h * 24);
+                                  }
+                                  setEtatsDlcUnit(u => ({ ...u, [etatVal]: unit }));
+                                }}
+                                className={`px-2 py-1 text-xs font-black transition-all ${
+                                  (etatsDlcUnit[etatVal] ?? 'h') === unit
+                                    ? 'bg-white/80 text-gray-800'
+                                    : 'text-gray-500 hover:bg-white/40'
+                                }`}>
+                                {unit}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Étapes avec skip / override */}
+                      {etapes.length === 0 ? (
+                        <p className="text-xs text-gray-400 px-4 py-3 italic">Ajoutez des étapes ci-dessus pour les paramétrer par état.</p>
+                      ) : (
+                        <div className="divide-y divide-gray-50">
+                          {etapes.map((e, idx) => {
+                            const ov = cfg.overrides[idx] ?? {};
+                            const skipped = ov.skip ?? false;
+                            return (
+                              <div key={idx} className={`flex items-center gap-3 px-4 py-2 transition-opacity ${skipped ? 'opacity-40' : ''}`}>
+                                {/* Toggle skip */}
+                                <button type="button" onClick={() => toggleSkip(etatVal, idx)}
+                                  className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition-colors border ${
+                                    skipped
+                                      ? 'bg-gray-100 border-gray-300 text-gray-400'
+                                      : 'bg-green-100 border-green-300 text-green-600'
+                                  }`}>
+                                  {skipped ? <X size={9} /> : <Check size={9} />}
+                                </button>
+                                {/* Nom étape */}
+                                <span className={`text-xs flex-1 font-medium ${skipped ? 'line-through text-gray-400' : 'text-gray-700'}`}>
+                                  {e.nom || `Étape ${idx + 1}`}
+                                </span>
+                                {e.mode && !skipped && (
+                                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md shrink-0 ${
+                                    e.mode === 'auto' ? 'bg-blue-100 text-blue-600' : 'bg-amber-100 text-amber-600'
+                                  }`}>{e.mode === 'auto' ? 'Auto' : 'Manuel'}</span>
+                                )}
+                                {/* Override durée */}
+                                {!skipped && (
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <input type="number" min={0} value={ov.duree ?? ''}
+                                      onChange={ev => updateDureeOverride(etatVal, idx, parseInt(ev.target.value) || null)}
+                                      placeholder={e.duree_fixe_min ? String(e.duree_fixe_min) : '—'}
+                                      className="w-14 text-xs text-center font-bold border border-gray-200 rounded-lg px-1 py-1 bg-gray-50 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                                    <span className="text-[10px] text-gray-400">min</span>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── ÉTAPE 1 : Recette ── */}
+          {step === 1 && <>
 
           {/* BLOC 1 — Informations */}
           <div className="border border-gray-100 rounded-2xl p-4 space-y-3">
@@ -1385,12 +1843,6 @@ function RecipeModal({ recipe, type, stockItems, sousRecettes, productReferences
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-              <label className="flex flex-col gap-1">
-                <span className="text-xs text-gray-400 font-semibold px-1">Procédé de fabrication</span>
-                <textarea value={form.procede} onChange={e => S('procede', e.target.value)}
-                  placeholder="Ex: Chauffer le lait, blanchir les jaunes…" rows={4}
-                  className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </label>
               <div className="flex flex-col gap-1">
                 <span className="text-xs text-gray-400 font-semibold px-1">Allergènes (EU14)</span>
                 <div className="flex flex-wrap gap-1.5 p-2.5 border border-gray-200 rounded-xl min-h-[100px]">
@@ -1628,6 +2080,8 @@ function RecipeModal({ recipe, type, stockItems, sousRecettes, productReferences
               <p className="text-xs text-gray-400 text-center py-1">Coût de revient interne · Non vendue directement</p>
             )}
           </div>
+
+          </> /* fin step 1 */}
         </div>
       </div>
     </div>
@@ -1655,6 +2109,8 @@ export default function RecettesPage() {
   const [filterAtelier, setFilterAtelier] = useState<string | null>(null);
   const [filterCategorie, setFilterCategorie] = useState<string | null>(null);
   const [quickViewRecipe, setQuickViewRecipe] = useState<RecipeSheet | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const recettes = allSheets.filter(s => s.type !== 'sous_recette');
   const sousRecettes = allSheets.filter(s => s.type === 'sous_recette');
@@ -1979,6 +2435,13 @@ export default function RecettesPage() {
             className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50">
             <BookOpen size={15} /> <span className="hidden sm:inline">Catalogue coûté</span><span className="sm:hidden">Catalogue</span>
           </Link>
+          {tab === 'recette' && (
+            <button
+              onClick={() => { setSelectionMode(v => !v); setSelectedIds(new Set()); }}
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium border transition-colors ${selectionMode ? 'bg-green-600 text-white border-green-600 hover:bg-green-700' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}>
+              <FileSpreadsheet size={15} /> {selectionMode ? 'Annuler sélection' : 'Export Excel'}
+            </button>
+          )}
           <button onClick={openNew}
             className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700">
             <Plus size={15} /> Nouvelle
@@ -2192,10 +2655,22 @@ export default function RecettesPage() {
             const marge = pv !== null ? pv - coutUnitaire : null;
             const open = expandedId === recipe.id;
 
+            const isSelected = selectedIds.has(recipe.id);
             return (
-              <div key={recipe.id} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+              <div key={recipe.id} className={`bg-white rounded-2xl border overflow-hidden transition-colors ${selectionMode && isSelected ? 'border-green-400 ring-1 ring-green-300' : 'border-gray-100'}`}>
                 <div className="flex items-center gap-3 px-4 py-3">
-                  <button onClick={() => setExpandedId(open ? null : recipe.id)} className="flex-1 text-left min-w-0">
+                  {selectionMode && (
+                    <button
+                      onClick={() => setSelectedIds(prev => {
+                        const next = new Set(prev);
+                        if (next.has(recipe.id)) next.delete(recipe.id); else next.add(recipe.id);
+                        return next;
+                      })}
+                      className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${isSelected ? 'bg-green-500 border-green-500' : 'border-gray-300 hover:border-green-400'}`}>
+                      {isSelected && <Check size={12} className="text-white" />}
+                    </button>
+                  )}
+                  <button onClick={() => selectionMode ? setSelectedIds(prev => { const next = new Set(prev); if (next.has(recipe.id)) next.delete(recipe.id); else next.add(recipe.id); return next; }) : setExpandedId(open ? null : recipe.id)} className="flex-1 text-left min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-semibold text-gray-900">{recipe.nom}</p>
                       {recipe.atelier && <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full">{recipe.atelier}</span>}
@@ -2366,6 +2841,21 @@ export default function RecettesPage() {
         </div>
       )}
       </div>{/* fin hidden lg:block */}
+
+      {/* ─── Barre flottante export multiple ─────────────────────────────── */}
+      {selectionMode && selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 bg-gray-900 text-white rounded-2xl shadow-2xl">
+          <span className="text-sm font-semibold">{selectedIds.size} recette{selectedIds.size > 1 ? 's' : ''} sélectionnée{selectedIds.size > 1 ? 's' : ''}</span>
+          <button
+            onClick={() => { window.location.href = `/api/recettes/export-excel?ids=${[...selectedIds].join(',')}`; }}
+            className="flex items-center gap-2 px-4 py-1.5 bg-green-500 hover:bg-green-400 text-white rounded-xl text-sm font-semibold transition-colors">
+            <FileSpreadsheet size={15} /> Exporter Excel
+          </button>
+          <button onClick={() => setSelectedIds(new Set())} className="p-1 text-gray-400 hover:text-white rounded-lg transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+      )}
     </>
   );
 }

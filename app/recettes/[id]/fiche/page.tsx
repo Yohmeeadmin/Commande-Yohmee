@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { ArrowLeft, Printer, ChefHat, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Printer, ChefHat, AlertTriangle, ListOrdered, FileSpreadsheet } from 'lucide-react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { supabase } from '@/lib/supabase/client';
@@ -60,13 +60,70 @@ interface IngredientLine {
   sous_recipe: RecipeSheet | null;
 }
 
+interface ProductReference {
+  id: string; name: string; base_unit_price: number;
+  articles?: { prix_pro: number | null; prix_particulier: number | null; custom_price: number | null; quantity: number }[];
+}
+
 interface RecipeSheet {
   id: string; nom: string; type: string;
   rendement: number; perte_pct: number;
   procede: string | null; atelier: string | null; categorie: string | null;
   allergenes: string[] | null; notes: string | null;
   photo_url?: string | null;
+  product_reference_id?: string | null;
+  product_reference?: ProductReference | null;
   ingredients: IngredientLine[];
+}
+
+// ─── Calculs coût (pour export) ──────────────────────────────────────────────
+
+const GRAM_FACTORS_COST: Record<string, number> = {
+  kg: 1000, g: 1, mg: 0.001,
+  l: 1000, litre: 1000, litres: 1000, cl: 10, ml: 1,
+};
+
+function poidsKgIngredient(ing: IngredientLine): number {
+  if (ing.stock_item) {
+    const key = (ing.stock_item.unite || '').toLowerCase().trim();
+    const factor = GRAM_FACTORS_COST[key];
+    if (factor) return ing.quantite * factor / 1000;
+    if (ing.stock_item.poids_unitaire_g) return ing.quantite * ing.stock_item.poids_unitaire_g / 1000;
+    return 0;
+  }
+  if (ing.sous_recipe_id) return ing.quantite; // déjà en kg
+  return 0;
+}
+
+function calcCoutSR(sr: RecipeSheet, allSR: RecipeSheet[]): number {
+  return (sr.ingredients || []).reduce((s, ing) => {
+    if (ing.stock_item) return s + ing.quantite * ing.stock_item.prix_moyen_pondere;
+    if (ing.sous_recipe_id) {
+      const nested = allSR.find(x => x.id === ing.sous_recipe_id);
+      if (nested) return s + ing.quantite * calcCoutSRParKg(nested, allSR);
+    }
+    return s;
+  }, 0) / (sr.rendement || 1);
+}
+
+function calcCoutSRParKg(sr: RecipeSheet, allSR: RecipeSheet[]): number {
+  const cout = calcCoutSR(sr, allSR);
+  const kgTotal = (sr.ingredients || []).reduce((s, i) => s + poidsKgIngredient(i), 0);
+  const perte = (sr.perte_pct || 0) / 100;
+  const kgFini = (kgTotal * (1 - perte)) / (sr.rendement || 1);
+  return kgFini > 0 ? cout / kgFini : cout;
+}
+
+function getPrixVente(ref: ProductReference | null | undefined): number | null {
+  if (!ref) return null;
+  if (ref.base_unit_price > 0) return ref.base_unit_price;
+  if (ref.articles?.length) {
+    for (const a of [...ref.articles].sort((x, y) => x.quantity - y.quantity)) {
+      const p = a.prix_pro ?? a.prix_particulier ?? a.custom_price;
+      if (p && p > 0) return p / a.quantity;
+    }
+  }
+  return null;
 }
 
 // ─── Page ────────────────────────────────────────────────────────────────────
@@ -74,6 +131,7 @@ interface RecipeSheet {
 export default function FicheRecettePage() {
   const { id } = useParams<{ id: string }>();
   const [recipe, setRecipe] = useState<RecipeSheet | null>(null);
+  const [allSR, setAllSR] = useState<RecipeSheet[]>([]);
   const [loading, setLoading] = useState(true);
   const [quantite, setQuantite] = useState(1);
 
@@ -81,7 +139,7 @@ export default function FicheRecettePage() {
     async function load() {
       const [recRes, srRes] = await Promise.all([
         supabase.from('recipe_sheets')
-          .select(`*, ingredients:recipe_ingredients!recipe_sheet_id(
+          .select(`*, product_reference:product_references(id, name, base_unit_price, articles:product_articles(prix_pro, prix_particulier, custom_price, quantity)), ingredients:recipe_ingredients!recipe_sheet_id(
             id, quantite, stock_item_id, sous_recipe_id,
             stock_item:stock_items(id, nom, unite, poids_unitaire_g, prix_moyen_pondere)
           )`)
@@ -94,6 +152,7 @@ export default function FicheRecettePage() {
       if (srRes.error) console.error('SR query error:', srRes.error);
       if (recRes.data) {
         const srRaw = (srRes.data as RecipeSheet[]) || [];
+        setAllSR(srRaw);
         const rec = recRes.data as RecipeSheet;
         setRecipe({
           ...rec,
@@ -108,6 +167,11 @@ export default function FicheRecettePage() {
     }
     load();
   }, [id]);
+
+  function exportExcel() {
+    if (!recipe) return;
+    window.location.href = `/api/recettes/${id}/export-excel?quantite=${quantite}`;
+  }
 
   if (loading) return (
     <div className="flex justify-center items-center min-h-screen">
@@ -160,6 +224,16 @@ export default function FicheRecettePage() {
             />
             <span className="text-sm text-gray-400">u.</span>
           </div>
+          <Link href={`/recettes/${id}/etapes`}
+            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50">
+            <ListOrdered size={15} /> Étapes de prod
+          </Link>
+          <button
+            onClick={exportExcel}
+            className="flex items-center gap-2 px-4 py-2.5 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700"
+          >
+            <FileSpreadsheet size={15} /> Export Excel
+          </button>
           <button
             onClick={() => window.print()}
             className="flex items-center gap-2 px-4 py-2.5 bg-gray-900 text-white rounded-xl text-sm font-medium hover:bg-gray-800"
