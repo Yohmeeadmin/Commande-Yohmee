@@ -2109,8 +2109,11 @@ export default function RecettesPage() {
   const [filterAtelier, setFilterAtelier] = useState<string | null>(null);
   const [filterCategorie, setFilterCategorie] = useState<string | null>(null);
   const [quickViewRecipe, setQuickViewRecipe] = useState<RecipeSheet | null>(null);
-  const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  }
 
   const recettes = allSheets.filter(s => s.type !== 'sous_recette');
   const sousRecettes = allSheets.filter(s => s.type === 'sous_recette');
@@ -2370,41 +2373,52 @@ export default function RecettesPage() {
             displayed.map(recipe => {
               const { coutUnitaire, pv, tauxMarge } = costMap.get(recipe.id) ?? { coutUnitaire: 0, pv: null, tauxMarge: null };
               const atelierStyle = recipe.atelier ? getStyle(recipe.atelier) : null;
+              const isSel = selectedIds.has(recipe.id);
               return (
-                <button key={recipe.id} onClick={() => setQuickViewRecipe(recipe)}
-                  className="w-full bg-white rounded-2xl border border-gray-100 px-4 py-3.5 text-left active:bg-gray-50 transition-colors">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="font-semibold text-gray-900 flex-1 leading-snug">{recipe.nom}</p>
-                    {recipe.type === 'recette' && <MargeBadge pct={tauxMarge} />}
-                    {recipe.type === 'sous_recette' && (() => {
-                      const poidsKg = calcPoidsKg(recipe.ingredients || [], sousRecettes);
-                      const perte = (recipe.perte_pct || 0) / 100;
-                      const kgNet = poidsKg * (1 - perte) / (recipe.rendement || 1);
-                      const prixKg = kgNet > 0 ? coutUnitaire / kgNet : null;
-                      return prixKg !== null ? (
-                        <span className="text-xs font-bold text-blue-600 shrink-0">{prixKg.toFixed(2)}<span className="font-normal text-gray-400">/kg</span></span>
-                      ) : null;
-                    })()}
-                  </div>
-                  <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                    {atelierStyle && (
-                      <span className="text-[11px] px-2 py-0.5 rounded-full font-medium" style={{ color: atelierStyle.color, backgroundColor: atelierStyle.bgColor }}>
-                        {atelierStyle.label}
-                      </span>
-                    )}
-                    {recipe.categorie && (
-                      <span className="text-[11px] px-2 py-0.5 bg-purple-100 text-purple-600 rounded-full font-medium">{recipe.categorie}</span>
-                    )}
-                    {(recipe.allergenes || []).length > 0 && (
-                      <span className="text-[11px] px-2 py-0.5 bg-yellow-50 text-yellow-600 border border-yellow-200 rounded-full">⚠ {recipe.allergenes!.length}</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
-                    <span>Coût <strong className="text-gray-700">{coutUnitaire.toFixed(2)} MAD</strong></span>
-                    {pv !== null && <span>· Vente <strong className="text-gray-700">{pv.toFixed(2)} MAD</strong></span>}
-                    <span>· {recipe.rendement} {recipe.unite || 'u.'}</span>
-                  </div>
-                </button>
+                <div key={recipe.id} className={`flex items-stretch bg-white rounded-2xl border transition-colors ${isSel ? 'border-green-400 ring-1 ring-green-200' : 'border-gray-100'}`}>
+                  {/* Checkbox */}
+                  <button onClick={() => toggleSelect(recipe.id)}
+                    className={`flex-shrink-0 w-10 flex items-center justify-center rounded-l-2xl transition-colors ${isSel ? 'bg-green-50' : 'hover:bg-gray-50'}`}>
+                    <span className={`w-4.5 h-4.5 w-[18px] h-[18px] rounded border-2 flex items-center justify-center transition-colors ${isSel ? 'bg-green-500 border-green-500' : 'border-gray-300'}`}>
+                      {isSel && <Check size={11} className="text-white" />}
+                    </span>
+                  </button>
+                  {/* Contenu */}
+                  <button onClick={() => setQuickViewRecipe(recipe)}
+                    className="flex-1 px-3 py-3.5 text-left active:bg-gray-50 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-semibold text-gray-900 flex-1 leading-snug">{recipe.nom}</p>
+                      {recipe.type === 'recette' && <MargeBadge pct={tauxMarge} />}
+                      {recipe.type === 'sous_recette' && (() => {
+                        const poidsKg = calcPoidsKg(recipe.ingredients || [], sousRecettes);
+                        const perte = (recipe.perte_pct || 0) / 100;
+                        const kgNet = poidsKg * (1 - perte) / (recipe.rendement || 1);
+                        const prixKg = kgNet > 0 ? coutUnitaire / kgNet : null;
+                        return prixKg !== null ? (
+                          <span className="text-xs font-bold text-blue-600 shrink-0">{prixKg.toFixed(2)}<span className="font-normal text-gray-400">/kg</span></span>
+                        ) : null;
+                      })()}
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                      {atelierStyle && (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full font-medium" style={{ color: atelierStyle.color, backgroundColor: atelierStyle.bgColor }}>
+                          {atelierStyle.label}
+                        </span>
+                      )}
+                      {recipe.categorie && (
+                        <span className="text-[11px] px-2 py-0.5 bg-purple-100 text-purple-600 rounded-full font-medium">{recipe.categorie}</span>
+                      )}
+                      {(recipe.allergenes || []).length > 0 && (
+                        <span className="text-[11px] px-2 py-0.5 bg-yellow-50 text-yellow-600 border border-yellow-200 rounded-full">⚠ {recipe.allergenes!.length}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
+                      <span>Coût <strong className="text-gray-700">{coutUnitaire.toFixed(2)} MAD</strong></span>
+                      {pv !== null && <span>· Vente <strong className="text-gray-700">{pv.toFixed(2)} MAD</strong></span>}
+                      <span>· {recipe.rendement} {recipe.unite || 'u.'}</span>
+                    </div>
+                  </button>
+                </div>
               );
             })
           )}
@@ -2435,13 +2449,6 @@ export default function RecettesPage() {
             className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50">
             <BookOpen size={15} /> <span className="hidden sm:inline">Catalogue coûté</span><span className="sm:hidden">Catalogue</span>
           </Link>
-          {tab === 'recette' && (
-            <button
-              onClick={() => { setSelectionMode(v => !v); setSelectedIds(new Set()); }}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium border transition-colors ${selectionMode ? 'bg-green-600 text-white border-green-600 hover:bg-green-700' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}>
-              <FileSpreadsheet size={15} /> {selectionMode ? 'Annuler sélection' : 'Export Excel'}
-            </button>
-          )}
           <button onClick={openNew}
             className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700">
             <Plus size={15} /> Nouvelle
@@ -2657,20 +2664,14 @@ export default function RecettesPage() {
 
             const isSelected = selectedIds.has(recipe.id);
             return (
-              <div key={recipe.id} className={`bg-white rounded-2xl border overflow-hidden transition-colors ${selectionMode && isSelected ? 'border-green-400 ring-1 ring-green-300' : 'border-gray-100'}`}>
+              <div key={recipe.id} className={`bg-white rounded-2xl border overflow-hidden transition-colors ${isSelected ? 'border-green-400 ring-1 ring-green-200' : 'border-gray-100'}`}>
                 <div className="flex items-center gap-3 px-4 py-3">
-                  {selectionMode && (
-                    <button
-                      onClick={() => setSelectedIds(prev => {
-                        const next = new Set(prev);
-                        if (next.has(recipe.id)) next.delete(recipe.id); else next.add(recipe.id);
-                        return next;
-                      })}
-                      className={`flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${isSelected ? 'bg-green-500 border-green-500' : 'border-gray-300 hover:border-green-400'}`}>
-                      {isSelected && <Check size={12} className="text-white" />}
-                    </button>
-                  )}
-                  <button onClick={() => selectionMode ? setSelectedIds(prev => { const next = new Set(prev); if (next.has(recipe.id)) next.delete(recipe.id); else next.add(recipe.id); return next; }) : setExpandedId(open ? null : recipe.id)} className="flex-1 text-left min-w-0">
+                  <button
+                    onClick={() => toggleSelect(recipe.id)}
+                    className={`flex-shrink-0 w-[18px] h-[18px] rounded border-2 flex items-center justify-center transition-colors ${isSelected ? 'bg-green-500 border-green-500' : 'border-gray-300 hover:border-green-400'}`}>
+                    {isSelected && <Check size={11} className="text-white" />}
+                  </button>
+                  <button onClick={() => setExpandedId(open ? null : recipe.id)} className="flex-1 text-left min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-semibold text-gray-900">{recipe.nom}</p>
                       {recipe.atelier && <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full">{recipe.atelier}</span>}
@@ -2843,7 +2844,7 @@ export default function RecettesPage() {
       </div>{/* fin hidden lg:block */}
 
       {/* ─── Barre flottante export multiple ─────────────────────────────── */}
-      {selectionMode && selectedIds.size > 0 && (
+      {selectedIds.size > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 bg-gray-900 text-white rounded-2xl shadow-2xl">
           <span className="text-sm font-semibold">{selectedIds.size} recette{selectedIds.size > 1 ? 's' : ''} sélectionnée{selectedIds.size > 1 ? 's' : ''}</span>
           <button
