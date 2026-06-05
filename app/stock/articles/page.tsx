@@ -246,16 +246,24 @@ export default function ArticlesPage() {
   }, [selectedCompanyId]);
 
   async function loadMp() {
-    const [{ data: it }, { data: sup }, { data: sc }, { data: z }] = await Promise.all([
-      supabase.from('stock_items').select('*, supplier:suppliers(nom), zone:stock_zones(id, nom, couleur)').order('nom'),
+    const [{ data: sup }, { data: sc }] = await Promise.all([
       supabase.from('suppliers').select('id, nom').order('nom'),
       supabase.from('stock_categories').select('id, nom').order('ordre'),
-      supabase.from('stock_zones').select('id, nom, couleur').order('ordre'),
     ]);
-    setItems((it as StockItem[]) || []);
     setSuppliers(sup || []);
     setStockCategories(sc || []);
-    setZones((z as StockZone[]) || []);
+
+    // Jointure zones — gracieuse si la migration n'est pas encore appliquée
+    const { data: it, error: itErr } = await supabase
+      .from('stock_items').select('*, supplier:suppliers(nom), zone:stock_zones(id, nom, couleur)').order('nom');
+    if (itErr) {
+      const { data: itFallback } = await supabase.from('stock_items').select('*, supplier:suppliers(nom)').order('nom');
+      setItems((itFallback as StockItem[]) || []);
+    } else {
+      setItems((it as StockItem[]) || []);
+      const { data: z } = await supabase.from('stock_zones').select('id, nom, couleur').order('ordre');
+      setZones((z as StockZone[]) || []);
+    }
     setLoadingMp(false);
   }
 

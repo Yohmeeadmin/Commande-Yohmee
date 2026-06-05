@@ -188,12 +188,22 @@ export default function StockPage() {
   useEffect(() => { load(); }, []);
 
   async function load() {
-    const [{ data: items }, { data: z }] = await Promise.all([
-      supabase.from('stock_items').select('*, supplier:suppliers(nom), zone:stock_zones(id, nom, couleur, ordre)').order('nom'),
-      supabase.from('stock_zones').select('*').order('ordre'),
-    ]);
-    setMp((items as StockItem[]) || []);
-    setZones((z as StockZone[]) || []);
+    // Essaie d'abord avec la jointure zones (migration appliquée)
+    const { data: items, error: itemsErr } = await supabase
+      .from('stock_items')
+      .select('*, supplier:suppliers(nom), zone:stock_zones(id, nom, couleur, ordre)')
+      .order('nom');
+
+    if (itemsErr) {
+      // Migration pas encore appliquée — on charge sans la jointure zones
+      const { data: itemsFallback } = await supabase
+        .from('stock_items').select('*, supplier:suppliers(nom)').order('nom');
+      setMp((itemsFallback as StockItem[]) || []);
+    } else {
+      setMp((items as StockItem[]) || []);
+      const { data: z } = await supabase.from('stock_zones').select('*').order('ordre');
+      setZones((z as StockZone[]) || []);
+    }
     setLoading(false);
   }
 
