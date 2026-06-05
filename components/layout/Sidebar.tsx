@@ -33,6 +33,8 @@ import {
   Building2,
   ClipboardCheck,
   BarChart2,
+  ArrowLeftRight,
+  Flame,
 } from 'lucide-react';
 import Image from 'next/image';
 import { useUser } from '@/contexts/UserContext';
@@ -95,6 +97,8 @@ const NAV_STRUCTURE: NavEntry[] = [
     { name: 'Commandes',     href: '/stock/bons-commande',    icon: ListOrdered,    module: 'stock' },
     { name: 'Fournisseurs',  href: '/stock/fournisseurs',     icon: Building2,      module: 'stock' },
     { name: 'Factures',      href: '/stock/factures',         icon: Receipt,        module: 'stock' },
+    { name: 'Mouvements',    href: '/stock/mouvements',       icon: ArrowLeftRight, module: 'stock' },
+    { name: 'Pertes',        href: '/stock/pertes',           icon: Flame,          module: 'stock' },
     { name: 'Économat',      href: '/stock/economat',         icon: ClipboardList,  module: 'stock' },
     { name: 'Inventaire',    href: '/stock/inventaire',       icon: ClipboardCheck, module: 'stock' },
     { name: 'Analyses',      href: '/stock/analyses',         icon: BarChart2,      module: 'stock' },
