@@ -1,0 +1,212 @@
+'use client';
+
+import { useEffect, useState, useMemo } from 'react';
+import Link from 'next/link';
+import { ArrowLeft, ChevronLeft, ChevronRight, Save } from 'lucide-react';
+import { supabase } from '@/lib/supabase/client';
+
+interface Employe { id: string; nom: string; poste: string | null; service: string | null; }
+interface Shift { employe_id: string; date: string; heure_debut: string; heure_fin: string; pause_min: number; }
+interface Pointage { employe_id: string; date: string; heure_entree: string | null; heure_sortie: string | null; pause_min: number; note: string | null; }
+
+const JOURS = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+
+function getMondayOf(d: Date): Date {
+  const day = d.getDay(), diff = (day === 0 ? -6 : 1 - day);
+  const m = new Date(d); m.setDate(d.getDate() + diff); m.setHours(0,0,0,0); return m;
+}
+function weekDatesOf(monday: Date): string[] {
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday); d.setDate(monday.getDate() + i); return d.toISOString().split('T')[0];
+  });
+}
+function fmtDay(d: Date) { return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }); }
+function getISOWeek(d: Date): number {
+  const t = new Date(d); t.setHours(0,0,0,0); t.setDate(t.getDate() + 3 - (t.getDay() + 6) % 7);
+  const w = new Date(t.getFullYear(), 0, 4);
+  return 1 + Math.round(((t.getTime() - w.getTime()) / 86400000 - 3 + (w.getDay() + 6) % 7) / 7);
+}
+function fmtMin(m: number): string {
+  const h = Math.floor(m / 60), mn = m % 60;
+  return mn === 0 ? `${h}h` : `${h}h${String(mn).padStart(2,'0')}`;
+}
+function netMin(debut: string, fin: string, pause: number): number {
+  if (!debut || !fin) return 0;
+  const [dh, dm] = debut.split(':').map(Number), [fh, fm] = fin.split(':').map(Number);
+  let diff = (fh * 60 + fm) - (dh * 60 + dm);
+  if (diff < 0) diff += 24 * 60;
+  return Math.max(0, diff - pause);
+}
+function shiftMin(s: Shift): number { return netMin(s.heure_debut, s.heure_fin, s.pause_min); }
+
+export default function PointagesPage() {
+  const [weekMonday, setWeekMonday] = useState<Date>(() => getMondayOf(new Date()));
+  const [employes, setEmployes]     = useState<Employe[]>([]);
+  const [shifts, setShifts]         = useState<Shift[]>([]);
+  const [pointages, setPointages]   = useState<Record<string, Pointage>>({});
+  const [editing, setEditing]       = useState<Record<string, Pointage>>({});
+  const [saving, setSaving]         = useState<string | null>(null);
+  const [loading, setLoading]       = useState(true);
+
+  useEffect(() => {
+    supabase.from('rh_employes').select('id, nom, poste, service').eq('actif', true).order('service').order('nom')
+      .then((res: { data: Employe[] | null }) => setEmployes(res.data ?? []));
+  }, []);
+
+  useEffect(() => { loadWeek(); }, [weekMonday]); // eslint-disable-line
+
+  async function loadWeek() {
+    setLoading(true);
+    const dates = weekDatesOf(weekMonday);
+    const [{ data: sh }, { data: pt }] = await Promise.all([
+      supabase.from('planning_shifts').select('*').in('date', dates),
+      supabase.from('pointages').select('*').in('date', dates),
+    ]);
+    setShifts((sh ?? []) as Shift[]);
+    const ptMap: Record<string, Pointage> = {};
+    ((pt ?? []) as Pointage[]).forEach(p => { ptMap[`${p.employe_id}_${p.date}`] = p; });
+    setPointages(ptMap);
+    setEditing({});
+    setLoading(false);
+  }
+
+  const dates = useMemo(() => weekDatesOf(weekMonday), [weekMonday]);
+
+  function getShift(empId: string, date: string): Shift | undefined {
+    return shifts.find(s => s.employe_id === empId && s.date === date);
+  }
+  function getPointage(empId: string, date: string): Pointage | undefined {
+    const key = `${empId}_${date}`;
+    return editing[key] ?? pointages[key];
+  }
+  function editPointage(empId: string, date: string, patch: Partial<Pointage>) {
+    const key = `${empId}_${date}`;
+    const base = pointages[key] ?? { employe_id: empId, date, heure_entree: null, heure_sortie: null, pause_min: 0, note: null };
+    setEditing(prev => ({ ...prev, [key]: { ...base, ...editing[key], ...patch } }));
+  }
+
+  async function savePointage(empId: string, date: string) {
+    const key = `${empId}_${date}`;
+    const p = editing[key]; if (!p) return;
+    setSaving(key);
+    await supabase.from('pointages').upsert({ ...p, employe_id: empId, date }, { onConflict: 'employe_id,date' });
+    setPointages(prev => ({ ...prev, [key]: p }));
+    setEditing(prev => { const n = { ...prev }; delete n[key]; return n; });
+    setSaving(null);
+  }
+
+  const services = useMemo(() => [...new Set(employes.map(e => e.service ?? 'Autre'))].sort(), [employes]);
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center gap-3 flex-wrap">
+        <Link href="/production/personnel" className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-colors">
+          <ArrowLeft size={18} />
+        </Link>
+        <h1 className="text-xl font-black text-gray-900 flex-1">Pointages</h1>
+        <div className="flex items-center gap-1 bg-gray-100 rounded-xl px-2 py-1.5">
+          <button onClick={() => setWeekMonday(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; })}
+            className="w-7 h-7 flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-200 rounded-lg font-bold transition-colors">‹</button>
+          <span className="px-3 text-sm font-black text-gray-800">S{getISOWeek(weekMonday)} — {fmtDay(weekMonday)}</span>
+          <button onClick={() => setWeekMonday(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; })}
+            className="w-7 h-7 flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-200 rounded-lg font-bold transition-colors">›</button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-16 text-gray-400">Chargement…</div>
+      ) : (
+        <div className="space-y-4">
+          {services.map(service => {
+            const emps = employes.filter(e => (e.service ?? 'Autre') === service);
+            return (
+              <div key={service} className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                <div className="px-4 py-2 bg-gray-50 border-b border-gray-200">
+                  <span className="text-xs font-black uppercase tracking-wider text-gray-500">{service}</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b border-gray-200">
+                      <tr>
+                        <th className="text-left px-4 py-2 font-bold text-gray-600 border-r border-gray-200 w-36">Employé</th>
+                        {dates.map((date, i) => (
+                          <th key={date} className={`text-center px-2 py-2 font-bold text-gray-600 border-r border-gray-100 last:border-r-0 min-w-[130px] ${i >= 5 ? 'bg-gray-50' : ''}`}>
+                            <p>{JOURS[i]}</p>
+                            <p className="text-xs font-normal text-gray-400">{fmtDay(new Date(date))}</p>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {emps.map((emp, eIdx) => (
+                        <tr key={emp.id} className={`border-b ${eIdx === emps.length - 1 ? 'border-b-0' : 'border-gray-100'}`}>
+                          <td className="px-4 py-2 border-r border-gray-200">
+                            <p className="font-semibold text-gray-900 text-sm">{emp.nom}</p>
+                            {emp.poste && <p className="text-xs text-gray-400">{emp.poste}</p>}
+                          </td>
+                          {dates.map((date, di) => {
+                            const shift = getShift(emp.id, date);
+                            const pt = getPointage(emp.id, date);
+                            const key = `${emp.id}_${date}`;
+                            const isDirty = !!editing[key];
+                            const realMin = pt?.heure_entree && pt?.heure_sortie ? netMin(pt.heure_entree, pt.heure_sortie, pt.pause_min ?? 0) : 0;
+                            const plannedMin = shift ? shiftMin(shift) : 0;
+                            const diff = realMin - plannedMin;
+                            return (
+                              <td key={date} className={`px-2 py-1.5 border-r border-gray-100 last:border-r-0 ${di >= 5 ? 'bg-gray-50' : ''}`}>
+                                {shift ? (
+                                  <div className="space-y-1">
+                                    {/* Planifié */}
+                                    <p className="text-[9px] text-gray-400 font-semibold">Planifié : {shift.heure_debut.slice(0,5)}–{shift.heure_fin.slice(0,5)}</p>
+                                    {/* Entrée */}
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-[9px] text-gray-400 w-8">Ent.</span>
+                                      <input type="time" value={pt?.heure_entree ?? ''}
+                                        onChange={e => editPointage(emp.id, date, { heure_entree: e.target.value || null })}
+                                        className="text-[11px] border border-gray-200 rounded-lg px-1 py-0.5 w-full focus:outline-none focus:border-amber-400 bg-white" />
+                                    </div>
+                                    {/* Sortie */}
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-[9px] text-gray-400 w-8">Sort.</span>
+                                      <input type="time" value={pt?.heure_sortie ?? ''}
+                                        onChange={e => editPointage(emp.id, date, { heure_sortie: e.target.value || null })}
+                                        className="text-[11px] border border-gray-200 rounded-lg px-1 py-0.5 w-full focus:outline-none focus:border-amber-400 bg-white" />
+                                    </div>
+                                    {/* Résultat */}
+                                    {realMin > 0 && (
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-[10px] font-bold text-gray-700">{fmtMin(realMin)}</span>
+                                        {Math.abs(diff) > 15 && (
+                                          <span className={`text-[9px] font-bold ${diff > 0 ? 'text-orange-500' : 'text-red-500'}`}>
+                                            {diff > 0 ? '+' : ''}{fmtMin(Math.abs(diff))}
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                    {isDirty && (
+                                      <button onClick={() => savePointage(emp.id, date)}
+                                        disabled={saving === key}
+                                        className="w-full flex items-center justify-center gap-1 text-[9px] font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-lg py-0.5 transition-colors disabled:opacity-50">
+                                        <Save size={8} /> {saving === key ? '…' : 'Sauver'}
+                                      </button>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="text-center text-gray-300 text-xs py-2">—</div>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}

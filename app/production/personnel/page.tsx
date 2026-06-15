@@ -16,6 +16,7 @@ interface Employe {
   shift_fin: string | null;
   shift_pause_min: number | null;
   jours_off: number[] | null;
+  heures_contrat: number | null;
 }
 
 interface Slot {
@@ -537,7 +538,7 @@ export default function ProductionPersonnelPage() {
   async function loadAll() {
     setLoading(true);
     const [{ data: emps }, { data: dispoData }] = await Promise.all([
-      supabase.from('rh_employes').select('id, nom, poste, service, shift_debut, shift_fin, shift_pause_min, jours_off').eq('actif', true).order('service').order('nom'),
+      supabase.from('rh_employes').select('id, nom, poste, service, shift_debut, shift_fin, shift_pause_min, jours_off, heures_contrat').eq('actif', true).order('service').order('nom'),
       supabase.from('disponibilites').select('*'),
     ]);
     setEmployes((emps as Employe[]) ?? []);
@@ -692,6 +693,27 @@ export default function ProductionPersonnelPage() {
     setPlanning(template);
   }
 
+  async function copyPreviousWeek() {
+    const prevMonday = new Date(weekMonday);
+    prevMonday.setDate(prevMonday.getDate() - 7);
+    const dates = weekDatesOf(prevMonday);
+    const { data } = await supabase
+      .from('planning_shifts')
+      .select('employe_id, date, heure_debut, heure_fin, pause_min')
+      .in('date', dates);
+    if (!data || data.length === 0) return;
+    const plan: Record<number, Slot[]> = {};
+    (data as (Slot & { date: string })[]).forEach(s => {
+      const jour = dates.indexOf(s.date);
+      if (jour >= 0) {
+        if (!plan[jour]) plan[jour] = [];
+        plan[jour].push({ employe_id: s.employe_id, heure_debut: s.heure_debut, heure_fin: s.heure_fin, pause_min: s.pause_min ?? 0 });
+      }
+    });
+    userEditedRef.current = true;
+    setPlanning(plan);
+  }
+
   async function saveProfil(empId: string, patch: Partial<Employe>) {
     await supabase.from('rh_employes').update({
       shift_debut: patch.shift_debut, shift_fin: patch.shift_fin,
@@ -727,6 +749,24 @@ export default function ProductionPersonnelPage() {
   }));
   const totalSemaineMin = Array.from(heuresParEmp.values()).reduce((a, b) => a + b, 0);
   const heuresParJour = JOURS.map((_, idx) => (planning[idx] ?? []).reduce((sum, s) => sum + slotNetMin(s), 0));
+
+  // Alertes heures : diff entre heures planifiées et contrat
+  function alerteHeures(emp: Employe): { color: string; label: string } | null {
+    const contrat = (emp.heures_contrat ?? 35) * 60;
+    const planifie = heuresParEmp.get(emp.id) ?? 0;
+    const diff = planifie - contrat;
+    if (Math.abs(diff) < 15) return null; // tolérance 15 min
+    if (diff > 0) return { color: 'text-orange-600', label: `+${fmtMin(diff)}` };
+    return { color: 'text-red-500', label: `-${fmtMin(-diff)}` };
+  }
+
+  // Compteur absences de l'année courante depuis planning_absences (chargé dans absences semaine courante)
+  // On compte les absences de type 'conge' dans le state absences
+  const congesParEmp = new Map<string, number>();
+  Object.entries(absences).forEach(([key, type]) => {
+    const empId = key.split('_')[0];
+    if (type === 'conge') congesParEmp.set(empId, (congesParEmp.get(empId) ?? 0) + 1);
+  });
 
   return (
     <div className="space-y-4">
@@ -778,16 +818,35 @@ export default function ProductionPersonnelPage() {
             </div>
           )}
 
+          <Link href="/production/personnel/recap" className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-600 rounded-xl text-xs font-semibold hover:bg-gray-50 transition-colors">
+            Récap mois
+          </Link>
+          <Link href="/production/personnel/calendrier" className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-600 rounded-xl text-xs font-semibold hover:bg-gray-50 transition-colors">
+            Calendrier
+          </Link>
+          <Link href="/production/personnel/demandes" className="relative flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-600 rounded-xl text-xs font-semibold hover:bg-gray-50 transition-colors">
+            Demandes
+          </Link>
+          <Link href="/production/personnel/pointages" className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-600 rounded-xl text-xs font-semibold hover:bg-gray-50 transition-colors">
+            Pointages
+          </Link>
           <Link href="/charges/rh" className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 transition-colors">
             <ExternalLink size={15} /> Employés
           </Link>
 
           {view === 'admin' && (
-            <button onClick={() => saveAsTemplate(planningRef.current)}
-              className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-600 rounded-xl text-xs font-semibold hover:bg-gray-50 transition-colors"
-              title="Enregistrer ce planning comme modèle récurrent">
-              <Zap size={12} /> Modèle
-            </button>
+            <>
+              <button onClick={copyPreviousWeek}
+                className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-600 rounded-xl text-xs font-semibold hover:bg-gray-50 transition-colors"
+                title="Copier le planning de la semaine précédente">
+                Copier S{getISOWeek(weekMonday) - 1}
+              </button>
+              <button onClick={() => saveAsTemplate(planningRef.current)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-600 rounded-xl text-xs font-semibold hover:bg-gray-50 transition-colors"
+                title="Enregistrer ce planning comme modèle récurrent">
+                <Zap size={12} /> Modèle
+              </button>
+            </>
           )}
 
           {saving ? (
@@ -896,15 +955,32 @@ export default function ProductionPersonnelPage() {
                               <ChevronRight size={12} className="text-gray-300 group-hover:text-blue-400 transition-colors shrink-0" />
                             </button>
                             {emp.poste && <p className="text-xs text-gray-400">{emp.poste}</p>}
-                            <div className="mt-1.5 flex items-center gap-1.5">
-                              <div className="flex-1 h-1 bg-gray-200 rounded-full overflow-hidden">
-                                <div className={`h-full rounded-full ${heures > CIBLE_MIN ? 'bg-red-400' : heures === CIBLE_MIN ? 'bg-emerald-400' : 'bg-blue-400'}`}
-                                  style={{ width: `${pct}%` }} />
-                              </div>
-                              <span className={`text-[10px] font-black shrink-0 ${heures > CIBLE_MIN ? 'text-red-600' : heures === CIBLE_MIN ? 'text-emerald-600' : 'text-gray-500'}`}>
-                                {heures > 0 ? fmtMin(heures) : '—'}
-                              </span>
-                            </div>
+                            {/* Barre heures vs contrat */}
+                            {(() => {
+                              const contratMin = (emp.heures_contrat ?? 35) * 60;
+                              const pctContrat = Math.min(100, (heures / contratMin) * 100);
+                              const alerte = alerteHeures(emp);
+                              const cp = congesParEmp.get(emp.id) ?? 0;
+                              return (
+                                <>
+                                  <div className="mt-1.5 flex items-center gap-1.5">
+                                    <div className="flex-1 h-1 bg-gray-200 rounded-full overflow-hidden">
+                                      <div className={`h-full rounded-full transition-all ${heures > contratMin ? 'bg-orange-400' : heures >= contratMin * 0.95 ? 'bg-emerald-400' : 'bg-blue-400'}`}
+                                        style={{ width: `${pctContrat}%` }} />
+                                    </div>
+                                    <span className={`text-[10px] font-black shrink-0 ${alerte ? alerte.color : 'text-gray-500'}`}>
+                                      {heures > 0 ? fmtMin(heures) : '—'}
+                                    </span>
+                                    {alerte && <span className={`text-[9px] font-bold shrink-0 ${alerte.color}`}>{alerte.label}</span>}
+                                  </div>
+                                  {cp > 0 && (
+                                    <span className="mt-1 inline-block text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                                      {cp}j CP
+                                    </span>
+                                  )}
+                                </>
+                              );
+                            })()}
                           </td>
 
                           {/* Cellules jours */}
