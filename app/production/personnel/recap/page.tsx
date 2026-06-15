@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
@@ -108,8 +108,8 @@ export default function RecapMensuelPage() {
               {services.map(service => {
                 const emps = employes.filter(e => (e.service ?? 'Autre') === service);
                 return (
-                  <>
-                    <tr key={`svc-${service}`} className="bg-gray-50 border-b border-gray-200">
+                  <React.Fragment key={service}>
+                    <tr className="bg-gray-50 border-b border-gray-200">
                       <td colSpan={10} className="px-4 py-2 text-xs font-black uppercase tracking-wider text-gray-500">{service}</td>
                     </tr>
                     {emps.map((emp, i) => {
@@ -156,7 +156,7 @@ export default function RecapMensuelPage() {
                         </tr>
                       );
                     })}
-                  </>
+                  </React.Fragment>
                 );
               })}
             </tbody>
