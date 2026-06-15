@@ -155,6 +155,7 @@ function pColor(service: string | null) {
 }
 
 const ABSENCE_PRINT: Record<AbsenceType, { bg: string; text: string; label: string }> = {
+  off:     { bg: '#fee2e2', text: '#7f1d1d', label: 'OFF' },
   conge:   { bg: '#d1fae5', text: '#065f46', label: 'Congé' },
   recup:   { bg: '#dbeafe', text: '#1e3a8a', label: 'Récup.' },
   maladie: { bg: '#fee2e2', text: '#7f1d1d', label: 'Maladie' },
@@ -497,6 +498,8 @@ export default function ProductionPersonnelPage() {
   const [employes, setEmployes]     = useState<Employe[]>([]);
   const [loading, setLoading]       = useState(true);
   const [planning, setPlanning]     = useState<Record<number, Slot[]>>({});
+  const [template, setTemplate]     = useState<Record<number, Slot[]>>({});
+  const [weekHasData, setWeekHasData] = useState(false);
   const [absences, setAbsences]     = useState<Record<string, AbsenceType>>({});
   const [weekMonday, setWeekMonday] = useState<Date>(() => getMondayOf(new Date()));
   const [drag, setDrag]             = useState<DragSource | null>(null);
@@ -515,10 +518,12 @@ export default function ProductionPersonnelPage() {
 
   useEffect(() => { loadAll(); }, []);
 
-  // Recharge les absences quand la semaine change (pas au premier chargement, déjà fait dans loadAll)
+  // Recharge shifts + absences quand la semaine change
   const isFirstLoad = useRef(true);
   useEffect(() => {
     if (isFirstLoad.current) { isFirstLoad.current = false; return; }
+    userEditedRef.current = false;
+    loadWeekShifts(weekMonday);
     loadAbsences(weekMonday);
   }, [weekMonday]); // eslint-disable-line
 
@@ -536,14 +541,35 @@ export default function ProductionPersonnelPage() {
       supabase.from('disponibilites').select('*'),
     ]);
     setEmployes((emps as Employe[]) ?? []);
-    const plan: Record<number, Slot[]> = {};
+    // Charger le modèle récurrent
+    const tpl: Record<number, Slot[]> = {};
     ((dispoData as (Slot & { jour_semaine: number })[]) ?? []).forEach(d => {
-      if (!plan[d.jour_semaine]) plan[d.jour_semaine] = [];
-      plan[d.jour_semaine].push({ employe_id: d.employe_id, heure_debut: d.heure_debut, heure_fin: d.heure_fin, pause_min: d.pause_min ?? 0 });
+      if (!tpl[d.jour_semaine]) tpl[d.jour_semaine] = [];
+      tpl[d.jour_semaine].push({ employe_id: d.employe_id, heure_debut: d.heure_debut, heure_fin: d.heure_fin, pause_min: d.pause_min ?? 0 });
     });
-    setPlanning(plan);
+    setTemplate(tpl);
+    await loadWeekShifts(weekMondayRef.current);
     await loadAbsences(weekMondayRef.current);
     setLoading(false);
+    userEditedRef.current = false;
+  }
+
+  async function loadWeekShifts(monday: Date) {
+    const dates = weekDatesOf(monday);
+    const { data } = await supabase
+      .from('planning_shifts')
+      .select('employe_id, date, heure_debut, heure_fin, pause_min')
+      .in('date', dates);
+    const plan: Record<number, Slot[]> = {};
+    ((data ?? []) as (Slot & { date: string })[]).forEach(s => {
+      const jour = dates.indexOf(s.date);
+      if (jour >= 0) {
+        if (!plan[jour]) plan[jour] = [];
+        plan[jour].push({ employe_id: s.employe_id, heure_debut: s.heure_debut, heure_fin: s.heure_fin, pause_min: s.pause_min ?? 0 });
+      }
+    });
+    setPlanning(plan);
+    setWeekHasData((data ?? []).length > 0);
     userEditedRef.current = false;
   }
 
@@ -618,6 +644,33 @@ export default function ProductionPersonnelPage() {
   async function savePlanning(plan: Record<number, Slot[]>) {
     setSaving(true);
     setSaveError(null);
+    const dates = weekDatesOf(weekMondayRef.current);
+    // Supprimer les shifts existants pour cette semaine
+    const { error: delErr } = await supabase.from('planning_shifts').delete().in('date', dates);
+    if (delErr) { setSaveError(delErr.message); setSaving(false); return; }
+    const rows: object[] = [];
+    Object.entries(plan).forEach(([jour, slots]) => {
+      slots.forEach(s => rows.push({
+        employe_id: s.employe_id,
+        date: dates[Number(jour)],
+        heure_debut: s.heure_debut,
+        heure_fin: s.heure_fin,
+        pause_min: s.pause_min,
+      }));
+    });
+    if (rows.length > 0) {
+      const { error: insErr } = await supabase.from('planning_shifts').insert(rows);
+      if (insErr) { setSaveError(insErr.message); setSaving(false); return; }
+    }
+    setSaving(false);
+    setSaved(true);
+    setWeekHasData(rows.length > 0);
+    setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function saveAsTemplate(plan: Record<number, Slot[]>) {
+    setSaving(true);
+    setSaveError(null);
     const { error: delErr } = await supabase.from('disponibilites').delete().neq('id', '00000000-0000-0000-0000-000000000000');
     if (delErr) { setSaveError(delErr.message); setSaving(false); return; }
     const rows: object[] = [];
@@ -628,9 +681,15 @@ export default function ProductionPersonnelPage() {
       const { error: insErr } = await supabase.from('disponibilites').insert(rows);
       if (insErr) { setSaveError(insErr.message); setSaving(false); return; }
     }
+    setTemplate(plan);
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  }
+
+  function applyTemplate() {
+    userEditedRef.current = true;
+    setPlanning(template);
   }
 
   async function saveProfil(empId: string, patch: Partial<Employe>) {
@@ -723,6 +782,14 @@ export default function ProductionPersonnelPage() {
             <ExternalLink size={15} /> Employés
           </Link>
 
+          {view === 'admin' && (
+            <button onClick={() => saveAsTemplate(planningRef.current)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-600 rounded-xl text-xs font-semibold hover:bg-gray-50 transition-colors"
+              title="Enregistrer ce planning comme modèle récurrent">
+              <Zap size={12} /> Modèle
+            </button>
+          )}
+
           {saving ? (
             <div className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-400">
               <div className="w-3.5 h-3.5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />Enregistrement…
@@ -746,6 +813,19 @@ export default function ProductionPersonnelPage() {
           <span key={at.key} className={`text-xs font-bold px-2 py-1 rounded-lg ${at.badge}`}>{at.label}</span>
         ))}
       </div>
+
+      {/* Bannière semaine vide */}
+      {view === 'admin' && !weekHasData && (
+        <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+          <span className="text-sm text-amber-700">Aucun planning enregistré pour cette semaine.</span>
+          {Object.keys(template).length > 0 && (
+            <button onClick={applyTemplate}
+              className="text-sm font-bold text-amber-600 hover:text-amber-800 underline underline-offset-2 transition-colors">
+              Copier le modèle →
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Modal profil */}
       {profilEmp && (
