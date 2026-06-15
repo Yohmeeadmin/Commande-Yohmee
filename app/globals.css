@@ -87,7 +87,7 @@ textarea:focus {
     page-break-before: always;
   }
 
-  /* Fiche de production : afficher uniquement le contenu de la modale */
+  /* Afficher uniquement le contenu à imprimer */
   body > * {
     display: none !important;
   }
@@ -99,6 +99,15 @@ textarea:focus {
     width: 100%;
     padding: 20px;
     font-family: system-ui, sans-serif;
+  }
+
+  #print-planning-sheet {
+    display: block !important;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%;
+    font-family: system-ui, sans-serif;
+    background: white;
   }
 }
 

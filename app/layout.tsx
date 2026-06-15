@@ -55,6 +55,8 @@ export default function RootLayout({
             </AppShell>
           </UserProvider>
         </QueryProvider>
+        {/* Portails d'impression — cachés à l'écran, affichés uniquement via @media print */}
+        <div id="print-planning-sheet" style={{ display: 'none' }} />
       </body>
     </html>
   );

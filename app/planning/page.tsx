@@ -137,8 +137,10 @@ export default function PlanningPage() {
       }
 
       setEntries([...orderEntries, ...previewEntries]);
+      return [...orderEntries, ...previewEntries];
     } catch (error) {
       console.error('Erreur:', error);
+      return [];
     }
   }
 

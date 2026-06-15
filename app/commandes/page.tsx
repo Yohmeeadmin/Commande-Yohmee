@@ -9,6 +9,7 @@ import { ORDER_STATUSES, OrderStatus } from '@/types';
 import { formatPrice, localDateStr, debounce } from '@/lib/utils';
 import { usePermissions } from '@/lib/permissions';
 import { OrderListSkeleton } from '@/components/ui/Skeleton';
+import { reserverStockPF } from '@/lib/stock-pf';
 
 interface DeliverySlot {
   id: string;
@@ -251,6 +252,7 @@ export default function CommandesPage() {
       prev?.map(o => o.id === orderId ? { ...o, status: 'confirmee' } : o) ?? []
     );
     await supabase.from('orders').update({ status: 'confirmee' }).eq('id', orderId);
+    await reserverStockPF(orderId);
   }
 
   async function refuserDemande(orderId: string) {
@@ -267,6 +269,7 @@ export default function CommandesPage() {
       prev?.map(o => o.id === orderId ? { ...o, delivery_date: decalerDate, status: 'confirmee' } : o) ?? []
     );
     await supabase.from('orders').update({ delivery_date: decalerDate, status: 'confirmee' }).eq('id', orderId);
+    await reserverStockPF(orderId);
     setDecalerOrderId(null);
     setDecalerDate('');
   }
@@ -278,6 +281,7 @@ export default function CommandesPage() {
       prev?.map(o => o.id === orderId ? { ...o, delivery_slot_id: slotId, delivery_slot: slot as any, status: 'confirmee' } : o) ?? []
     );
     await supabase.from('orders').update({ delivery_slot_id: slotId, status: 'confirmee' }).eq('id', orderId);
+    await reserverStockPF(orderId);
     setCreneauOrderId(null);
     setCreneauSlotId('');
   }

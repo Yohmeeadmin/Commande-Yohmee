@@ -113,11 +113,21 @@ ALTER TABLE public.payments            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.payment_invoices    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.credit_notes        ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Authenticated full access" ON public.devis               FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Authenticated full access" ON public.devis_items         FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Authenticated full access" ON public.invoices            FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Authenticated full access" ON public.invoice_items       FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Authenticated full access" ON public.invoice_bons_livraison FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Authenticated full access" ON public.payments            FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Authenticated full access" ON public.payment_invoices    FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Authenticated full access" ON public.credit_notes        FOR ALL TO authenticated USING (true) WITH CHECK (true);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='devis' AND policyname='Authenticated full access') THEN
+    CREATE POLICY "Authenticated full access" ON public.devis FOR ALL TO authenticated USING (true) WITH CHECK (true); END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='devis_items' AND policyname='Authenticated full access') THEN
+    CREATE POLICY "Authenticated full access" ON public.devis_items FOR ALL TO authenticated USING (true) WITH CHECK (true); END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='invoices' AND policyname='Authenticated full access') THEN
+    CREATE POLICY "Authenticated full access" ON public.invoices FOR ALL TO authenticated USING (true) WITH CHECK (true); END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='invoice_items' AND policyname='Authenticated full access') THEN
+    CREATE POLICY "Authenticated full access" ON public.invoice_items FOR ALL TO authenticated USING (true) WITH CHECK (true); END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='invoice_bons_livraison' AND policyname='Authenticated full access') THEN
+    CREATE POLICY "Authenticated full access" ON public.invoice_bons_livraison FOR ALL TO authenticated USING (true) WITH CHECK (true); END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='payments' AND policyname='Authenticated full access') THEN
+    CREATE POLICY "Authenticated full access" ON public.payments FOR ALL TO authenticated USING (true) WITH CHECK (true); END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='payment_invoices' AND policyname='Authenticated full access') THEN
+    CREATE POLICY "Authenticated full access" ON public.payment_invoices FOR ALL TO authenticated USING (true) WITH CHECK (true); END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='credit_notes' AND policyname='Authenticated full access') THEN
+    CREATE POLICY "Authenticated full access" ON public.credit_notes FOR ALL TO authenticated USING (true) WITH CHECK (true); END IF;
+END $$;

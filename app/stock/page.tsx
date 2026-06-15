@@ -1,13 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { AlertTriangle, Package, Search, LayoutList, Table2, Settings, Plus, Trash2, X, Check } from 'lucide-react';
-import { supabase } from '@/lib/supabase/client';
+import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
+import {
+  Package, TrendingDown, AlertTriangle, Banknote,
+  Receipt, ListOrdered, Flame, ClipboardCheck,
+  ClipboardList, Plus, ChevronRight, Clock,
+  ShoppingBag, ArrowLeftRight, Building2,
+} from 'lucide-react';
+import { supabase } from '@/lib/supabase/client';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
-
-interface StockZone { id: string; nom: string; couleur: string; ordre: number; }
 
 interface StockItem {
   id: string;
@@ -15,462 +18,445 @@ interface StockItem {
   unite: string;
   stock_actuel: number;
   stock_min: number;
-  prix_moyen_pondere: number;
-  categorie: string | null;
-  conditionnement: string | null;
-  zone_id: string | null;
-  zone?: StockZone | null;
-  supplier: { nom: string } | null;
+  prix_unitaire: number | null;
+  item_type?: string;
+  supplier?: { nom: string } | null;
 }
 
-// ─── Helpers UI ───────────────────────────────────────────────────────────────
-
-function StockBadge({ actuel, min }: { actuel: number; min: number }) {
-  if (actuel <= 0) return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Rupture</span>;
-  if (actuel <= min) return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">Alerte</span>;
-  return <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">OK</span>;
+interface Movement {
+  id: string;
+  type: string;
+  quantite: number;
+  date: string;
+  created_at: string;
+  note: string | null;
+  utilisateur: string | null;
+  stock_item?: { nom: string; unite: string } | null;
 }
 
-function StockBar({ actuel, min }: { actuel: number; min: number }) {
-  const max = Math.max(actuel, min * 2, 1);
-  const pct = Math.min((actuel / max) * 100, 100);
-  const color = actuel <= 0 ? 'bg-red-500' : actuel <= min ? 'bg-orange-400' : 'bg-green-500';
-  return (
-    <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-      <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
-    </div>
-  );
-}
+// ─── Config ───────────────────────────────────────────────────────────────────
 
-const COULEURS_PRESET = [
-  '#6366f1','#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6','#F97316','#84CC16',
+const TYPE_CFG: Record<string, { label: string; color: string; bg: string }> = {
+  entree_facture:    { label: 'Facture',     color: 'text-green-700',  bg: 'bg-green-50' },
+  entree_production: { label: 'Production',  color: 'text-indigo-700', bg: 'bg-indigo-50' },
+  sortie_economat:   { label: 'Économat',    color: 'text-orange-700', bg: 'bg-orange-50' },
+  sortie_vente:      { label: 'Vente',       color: 'text-purple-700', bg: 'bg-purple-50' },
+  inventaire:        { label: 'Inventaire',  color: 'text-blue-700',   bg: 'bg-blue-50' },
+  perte:             { label: 'Perte',       color: 'text-red-700',    bg: 'bg-red-50' },
+  reservation:       { label: 'Réservation', color: 'text-yellow-700', bg: 'bg-yellow-50' },
+  production:        { label: 'Production',  color: 'text-indigo-700', bg: 'bg-indigo-50' },
+};
+
+const QUICK_ACTIONS = [
+  { label: 'Facture fournisseur', icon: Receipt,       href: '/stock/factures',     color: 'text-green-600',   bg: 'bg-green-50 hover:bg-green-100',   border: 'border-green-100' },
+  { label: 'Bon de commande',     icon: ListOrdered,   href: '/stock/bons-commande', color: 'text-blue-600',    bg: 'bg-blue-50 hover:bg-blue-100',     border: 'border-blue-100' },
+  { label: 'Demande économat',    icon: ClipboardList, href: '/stock/economat',      color: 'text-orange-600',  bg: 'bg-orange-50 hover:bg-orange-100', border: 'border-orange-100' },
+  { label: 'Déclarer une perte',  icon: Flame,         href: '/stock/pertes',        color: 'text-red-600',     bg: 'bg-red-50 hover:bg-red-100',       border: 'border-red-100' },
+  { label: 'Inventaire',          icon: ClipboardCheck,href: '/stock/inventaire',    color: 'text-indigo-600',  bg: 'bg-indigo-50 hover:bg-indigo-100', border: 'border-indigo-100' },
+  { label: 'Mouvements',          icon: ArrowLeftRight,href: '/stock/mouvements',    color: 'text-gray-600',    bg: 'bg-gray-50 hover:bg-gray-100',     border: 'border-gray-100' },
 ];
 
-// ─── Modal gestion des zones ──────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function ZonesModal({ zones, onClose, onSaved }: {
-  zones: StockZone[];
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [list, setList] = useState<StockZone[]>(zones);
-  const [newNom, setNewNom] = useState('');
-  const [newCouleur, setNewCouleur] = useState(COULEURS_PRESET[0]);
-  const [saving, setSaving] = useState(false);
-
-  async function addZone() {
-    if (!newNom.trim()) return;
-    setSaving(true);
-    const { data } = await supabase.from('stock_zones').insert({ nom: newNom.trim(), couleur: newCouleur, ordre: list.length }).select().single();
-    if (data) setList(l => [...l, data as StockZone]);
-    setNewNom('');
-    setSaving(false);
-  }
-
-  async function deleteZone(id: string) {
-    await supabase.from('stock_zones').delete().eq('id', id);
-    setList(l => l.filter(z => z.id !== id));
-  }
-
-  async function updateNom(id: string, nom: string) {
-    await supabase.from('stock_zones').update({ nom }).eq('id', id);
-    setList(l => l.map(z => z.id === id ? { ...z, nom } : z));
-  }
-
-  async function updateCouleur(id: string, couleur: string) {
-    await supabase.from('stock_zones').update({ couleur }).eq('id', id);
-    setList(l => l.map(z => z.id === id ? { ...z, couleur } : z));
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[85vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h2 className="font-bold text-gray-900">Zones de stock</h2>
-          <button onClick={() => { onSaved(); onClose(); }} className="p-1.5 hover:bg-gray-100 rounded-lg">
-            <X size={18} className="text-gray-500" />
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2">
-          {list.length === 0 && (
-            <p className="text-sm text-gray-400 text-center py-4">Aucune zone — créez-en une ci-dessous</p>
-          )}
-          {list.map(zone => (
-            <ZoneRow key={zone.id} zone={zone} onUpdateNom={updateNom} onUpdateCouleur={updateCouleur} onDelete={deleteZone} />
-          ))}
-        </div>
-
-        {/* Nouvelle zone */}
-        <div className="border-t border-gray-100 px-5 py-4 space-y-3">
-          <p className="text-xs font-semibold text-gray-500 uppercase">Nouvelle zone</p>
-          <div className="flex gap-2">
-            <input
-              value={newNom} onChange={e => setNewNom(e.target.value)}
-              placeholder="Ex : Chambre froide"
-              onKeyDown={e => e.key === 'Enter' && addZone()}
-              className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button onClick={addZone} disabled={saving || !newNom.trim()}
-              className="px-3 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-40">
-              <Plus size={16} />
-            </button>
-          </div>
-          <div className="flex gap-1.5 flex-wrap">
-            {COULEURS_PRESET.map(c => (
-              <button key={c} onClick={() => setNewCouleur(c)}
-                className="w-6 h-6 rounded-full border-2 transition-all"
-                style={{ backgroundColor: c, borderColor: newCouleur === c ? '#111' : 'transparent' }} />
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+function fmtRelativeDate(dateStr: string) {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffH = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffD = Math.floor(diffH / 24);
+  if (diffH < 1) return 'À l\'instant';
+  if (diffH < 24) return `Il y a ${diffH}h`;
+  if (diffD === 1) return 'Hier';
+  if (diffD < 7) return `Il y a ${diffD}j`;
+  return date.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
 }
 
-function ZoneRow({ zone, onUpdateNom, onUpdateCouleur, onDelete }: {
-  zone: StockZone;
-  onUpdateNom: (id: string, nom: string) => void;
-  onUpdateCouleur: (id: string, couleur: string) => void;
-  onDelete: (id: string) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [nom, setNom] = useState(zone.nom);
-
-  function save() {
-    if (nom.trim()) onUpdateNom(zone.id, nom.trim());
-    setEditing(false);
-  }
-
-  return (
-    <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
-      <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: zone.couleur }} />
-      {editing ? (
-        <input value={nom} onChange={e => setNom(e.target.value)}
-          onBlur={save} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }}
-          autoFocus className="flex-1 px-2 py-1 border border-blue-400 rounded-lg text-sm focus:outline-none" />
-      ) : (
-        <button onClick={() => setEditing(true)} className="flex-1 text-left text-sm font-medium text-gray-800 hover:text-blue-600">
-          {zone.nom}
-        </button>
-      )}
-      <div className="flex gap-1">
-        {COULEURS_PRESET.map(c => (
-          <button key={c} onClick={() => onUpdateCouleur(zone.id, c)}
-            className="w-4 h-4 rounded-full border transition-all"
-            style={{ backgroundColor: c, borderColor: zone.couleur === c ? '#111' : 'transparent' }} />
-        ))}
-      </div>
-      <button onClick={() => onDelete(zone.id)} className="p-1 text-gray-300 hover:text-red-500 rounded-lg transition-colors">
-        <Trash2 size={14} />
-      </button>
-    </div>
-  );
+function fmtPrice(n: number) {
+  return n.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' MAD';
 }
 
-// ─── Page principale ──────────────────────────────────────────────────────────
+// ─── Composant ───────────────────────────────────────────────────────────────
 
-export default function StockPage() {
-  const [mp, setMp] = useState<StockItem[]>([]);
-  const [zones, setZones] = useState<StockZone[]>([]);
+export default function StockDashboard() {
+  const [items, setItems] = useState<StockItem[]>([]);
+  const [movements, setMovements] = useState<Movement[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [filterAlert, setFilterAlert] = useState(false);
-  const [filterInStock, setFilterInStock] = useState(false);
-  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
-  const [editingSeuilId, setEditingSeuilId] = useState<string | null>(null);
-  const [editingSeuilVal, setEditingSeuilVal] = useState<number>(0);
-  const [filterCategorie, setFilterCategorie] = useState('');
-  const [filterZoneId, setFilterZoneId] = useState<string | null>(null);
-  const [showZonesModal, setShowZonesModal] = useState(false);
 
-  useEffect(() => { load(); }, []);
-
-  async function load() {
-    // Essaie d'abord avec la jointure zones (migration appliquée)
-    const { data: items, error: itemsErr } = await supabase
-      .from('stock_items')
-      .select('*, supplier:suppliers(nom), zone:stock_zones(id, nom, couleur, ordre)')
-      .order('nom');
-
-    if (itemsErr) {
-      // Migration pas encore appliquée — on charge sans la jointure zones
-      const { data: itemsFallback } = await supabase
-        .from('stock_items').select('*, supplier:suppliers(nom)').order('nom');
-      setMp((itemsFallback as StockItem[]) || []);
-    } else {
-      setMp((items as StockItem[]) || []);
-      const { data: z } = await supabase.from('stock_zones').select('*').order('ordre');
-      setZones((z as StockZone[]) || []);
+  useEffect(() => {
+    async function load() {
+      const [{ data: itemsData }, { data: mvtData }] = await Promise.all([
+        supabase.from('stock_items').select('*, supplier:suppliers(nom)').order('nom'),
+        supabase.from('stock_movements')
+          .select('*, stock_item:stock_items(nom, unite)')
+          .order('created_at', { ascending: false })
+          .limit(12),
+      ]);
+      setItems((itemsData as StockItem[]) || []);
+      setMovements((mvtData as Movement[]) || []);
+      setLoading(false);
     }
-    setLoading(false);
+    load();
+  }, []);
+
+  const mp        = useMemo(() => items.filter(i => !i.item_type || i.item_type === 'mp'), [items]);
+  const pf        = useMemo(() => items.filter(i => i.item_type === 'pf'), [items]);
+  const ruptures  = useMemo(() => mp.filter(i => (i.stock_actuel ?? 0) <= 0), [mp]);
+  const alertes   = useMemo(() => mp.filter(i => (i.stock_actuel ?? 0) > 0 && (i.stock_actuel ?? 0) <= (i.stock_min ?? 0)), [mp]);
+
+  const valeurMp = useMemo(() =>
+    mp.reduce((s, i) => s + (i.stock_actuel ?? 0) * (i.prix_unitaire ?? 0), 0), [mp]);
+
+  const alertItems = useMemo(() => [
+    ...ruptures.map(i => ({ ...i, _status: 'rupture' as const })),
+    ...alertes.map(i => ({ ...i, _status: 'alerte' as const })),
+  ].slice(0, 12), [ruptures, alertes]);
+
+  // ── Skeleton ────────────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="space-y-6 animate-pulse">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map(i => <div key={i} className="h-28 bg-gray-100 rounded-2xl" />)}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 h-64 bg-gray-100 rounded-2xl" />
+          <div className="h-64 bg-gray-100 rounded-2xl" />
+        </div>
+      </div>
+    );
   }
 
-  async function saveSeuil(id: string) {
-    await supabase.from('stock_items').update({ stock_min: editingSeuilVal }).eq('id', id);
-    setMp(p => p.map(i => i.id === id ? { ...i, stock_min: editingSeuilVal } : i));
-    setEditingSeuilId(null);
-  }
-
-  const categories = Array.from(new Set(mp.map(i => i.categorie).filter(Boolean))) as string[];
-
-  const displayed = mp.filter(i => {
-    const matchSearch = i.nom.toLowerCase().includes(search.toLowerCase()) ||
-      (i.supplier?.nom ?? '').toLowerCase().includes(search.toLowerCase());
-    const matchAlert = !filterAlert || i.stock_actuel <= i.stock_min;
-    const matchInStock = !filterInStock || i.stock_actuel > 0;
-    const matchCat = !filterCategorie || i.categorie === filterCategorie;
-    const matchZone = filterZoneId === null ? true : filterZoneId === '__sans' ? !i.zone_id : i.zone_id === filterZoneId;
-    return matchSearch && matchAlert && matchInStock && matchCat && matchZone;
-  });
-
-  const enAlerte = mp.filter(i => i.stock_actuel <= i.stock_min && i.stock_actuel > 0).length;
-  const enRupture = mp.filter(i => i.stock_actuel <= 0).length;
-  const valeurStock = displayed.reduce((s, i) => s + i.stock_actuel * i.prix_moyen_pondere, 0);
+  const totalAlerts = ruptures.length + alertes.length;
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">Stock</h1>
-          <p className="text-sm text-gray-400">{displayed.length} / {mp.length} article{mp.length > 1 ? 's' : ''}</p>
+    <div className="space-y-6">
+
+      {/* ── KPI cards ──────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+
+        {/* Articles MP */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-5 hover:border-gray-200 transition-colors">
+          <div className="flex items-start justify-between mb-3">
+            <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
+              <Package size={20} className="text-blue-600" />
+            </div>
+            <Link href="/stock/articles" className="text-xs text-gray-400 hover:text-blue-600 transition-colors">
+              Voir →
+            </Link>
+          </div>
+          <p className="text-3xl font-black text-gray-900">{mp.length}</p>
+          <p className="text-sm text-gray-500 mt-0.5 font-medium">Articles MP</p>
+          <p className="text-xs text-gray-400 mt-1">{mp.filter(i => (i.stock_actuel ?? 0) > (i.stock_min ?? 0)).length} en stock normal</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setShowZonesModal(true)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50">
-            <Settings size={14} /> Zones
-          </button>
-          <Link href="/stock/articles"
-            className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700">
-            Gérer les articles
-          </Link>
+
+        {/* Ruptures */}
+        <div className={`rounded-2xl border p-5 transition-colors ${ruptures.length > 0 ? 'bg-red-50 border-red-200 hover:border-red-300' : 'bg-white border-gray-100 hover:border-gray-200'}`}>
+          <div className="flex items-start justify-between mb-3">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${ruptures.length > 0 ? 'bg-red-100' : 'bg-gray-100'}`}>
+              <TrendingDown size={20} className={ruptures.length > 0 ? 'text-red-600' : 'text-gray-400'} />
+            </div>
+            {ruptures.length > 0 && (
+              <Link href="/stock/bons-commande" className="text-xs text-red-600 hover:text-red-700 font-semibold transition-colors">
+                Commander →
+              </Link>
+            )}
+          </div>
+          <p className={`text-3xl font-black ${ruptures.length > 0 ? 'text-red-600' : 'text-gray-400'}`}>{ruptures.length}</p>
+          <p className={`text-sm mt-0.5 font-medium ${ruptures.length > 0 ? 'text-red-700' : 'text-gray-500'}`}>Ruptures</p>
+          <p className={`text-xs mt-1 ${ruptures.length > 0 ? 'text-red-400' : 'text-gray-400'}`}>
+            {ruptures.length > 0 ? 'Commande urgente !' : 'Aucune rupture'}
+          </p>
+        </div>
+
+        {/* Alertes */}
+        <div className={`rounded-2xl border p-5 transition-colors ${alertes.length > 0 ? 'bg-orange-50 border-orange-200 hover:border-orange-300' : 'bg-white border-gray-100 hover:border-gray-200'}`}>
+          <div className="flex items-start justify-between mb-3">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${alertes.length > 0 ? 'bg-orange-100' : 'bg-gray-100'}`}>
+              <AlertTriangle size={20} className={alertes.length > 0 ? 'text-orange-600' : 'text-gray-400'} />
+            </div>
+            {alertes.length > 0 && (
+              <Link href="/stock/bons-commande" className="text-xs text-orange-600 hover:text-orange-700 font-semibold transition-colors">
+                Commander →
+              </Link>
+            )}
+          </div>
+          <p className={`text-3xl font-black ${alertes.length > 0 ? 'text-orange-600' : 'text-gray-400'}`}>{alertes.length}</p>
+          <p className={`text-sm mt-0.5 font-medium ${alertes.length > 0 ? 'text-orange-700' : 'text-gray-500'}`}>Alertes stock</p>
+          <p className={`text-xs mt-1 ${alertes.length > 0 ? 'text-orange-400' : 'text-gray-400'}`}>
+            {alertes.length > 0 ? 'Sous le seuil minimum' : 'Niveaux corrects'}
+          </p>
+        </div>
+
+        {/* Valeur stock + PF */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-5 hover:border-gray-200 transition-colors">
+          <div className="flex items-start justify-between mb-3">
+            <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center">
+              <Banknote size={20} className="text-emerald-600" />
+            </div>
+            <Link href="/stock/analyses" className="text-xs text-gray-400 hover:text-emerald-600 transition-colors">
+              Analyses →
+            </Link>
+          </div>
+          <p className="text-2xl font-black text-gray-900">{fmtPrice(valeurMp)}</p>
+          <p className="text-sm text-gray-500 mt-0.5 font-medium">Valeur stock MP</p>
+          <p className="text-xs text-gray-400 mt-1">{pf.length} produit{pf.length !== 1 ? 's' : ''} fini{pf.length !== 1 ? 's' : ''} suivi{pf.length !== 1 ? 's' : ''}</p>
         </div>
       </div>
 
-      {/* Onglets zones */}
-      {zones.length > 0 && (
-        <div className="flex gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
-          <button onClick={() => setFilterZoneId(null)}
-            className={`flex-shrink-0 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${filterZoneId === null ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
-            Toutes
-          </button>
-          {zones.map(z => (
-            <button key={z.id} onClick={() => setFilterZoneId(filterZoneId === z.id ? null : z.id)}
-              className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${filterZoneId === z.id ? 'text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}
-              style={filterZoneId === z.id ? { backgroundColor: z.couleur, borderColor: z.couleur } : {}}>
-              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: filterZoneId === z.id ? 'white' : z.couleur }} />
-              {z.nom}
-            </button>
-          ))}
-          <button onClick={() => setFilterZoneId('__sans')}
-            className={`flex-shrink-0 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${filterZoneId === '__sans' ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-400 hover:bg-gray-50'}`}>
-            Sans zone
-          </button>
-        </div>
-      )}
+      {/* ── Contenu principal ──────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <div className="bg-white rounded-2xl border border-gray-100 px-4 py-3">
-          <p className="text-2xl font-black text-red-600">{enRupture}</p>
-          <p className="text-xs text-gray-400 mt-0.5">Rupture</p>
-        </div>
-        <div className="bg-white rounded-2xl border border-gray-100 px-4 py-3">
-          <p className="text-2xl font-black text-orange-500">{enAlerte}</p>
-          <p className="text-xs text-gray-400 mt-0.5">En alerte</p>
-        </div>
-        <div className="bg-white rounded-2xl border border-gray-100 px-4 py-3">
-          <p className="text-2xl font-black text-gray-900">{valeurStock >= 1000 ? `${(valeurStock / 1000).toFixed(1)}k` : valeurStock.toFixed(0)}</p>
-          <p className="text-xs text-gray-400 mt-0.5">Valeur MAD{filterZoneId !== null ? ' (zone)' : ''}</p>
-        </div>
-      </div>
+        {/* Articles à commander */}
+        <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="font-bold text-gray-900">Articles à commander</h2>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {totalAlerts > 0
+                  ? `${ruptures.length} rupture${ruptures.length > 1 ? 's' : ''} · ${alertes.length} alerte${alertes.length > 1 ? 's' : ''}`
+                  : 'Tous les niveaux sont satisfaisants'}
+              </p>
+            </div>
+            {totalAlerts > 0 && (
+              <Link
+                href="/stock/bons-commande"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-semibold hover:bg-blue-700 transition-colors shrink-0"
+              >
+                <Plus size={12} /> Créer un BC
+              </Link>
+            )}
+          </div>
 
-      {/* Recherche + vue */}
-      <div className="flex gap-2">
-        <div className="relative flex-1">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un article…"
-            className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white" />
+          {alertItems.length === 0 ? (
+            <div className="py-14 text-center">
+              <div className="w-14 h-14 bg-green-50 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                <Package size={24} className="text-green-500" />
+              </div>
+              <p className="font-semibold text-gray-700">Stock en ordre !</p>
+              <p className="text-sm text-gray-400 mt-1">Aucun article en rupture ou sous le seuil minimum</p>
+            </div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-gray-50/80 border-b border-gray-100">
+                      <th className="px-5 py-2.5 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Article</th>
+                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden sm:table-cell">Fournisseur</th>
+                      <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Stock actuel</th>
+                      <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wider hidden md:table-cell">Seuil min.</th>
+                      <th className="px-4 py-2.5 text-center text-[11px] font-semibold text-gray-400 uppercase tracking-wider">État</th>
+                      <th className="px-4 py-2.5 w-10" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {alertItems.map(item => (
+                      <tr key={item.id} className="hover:bg-gray-50/50 transition-colors group">
+                        <td className="px-5 py-3">
+                          <p className="font-semibold text-gray-900 text-sm">{item.nom}</p>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-500 hidden sm:table-cell">
+                          {item.supplier?.nom ?? <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className={`font-bold text-sm tabular-nums ${item._status === 'rupture' ? 'text-red-600' : 'text-orange-600'}`}>
+                            {(item.stock_actuel ?? 0).toFixed(item.unite === 'kg' || item.unite === 'L' ? 1 : 0)} {item.unite}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right hidden md:table-cell">
+                          <span className="text-sm text-gray-400 tabular-nums">
+                            {(item.stock_min ?? 0)} {item.unite}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          {item._status === 'rupture' ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-bold bg-red-100 text-red-700 uppercase tracking-wide">
+                              <TrendingDown size={9} /> Rupture
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-bold bg-orange-100 text-orange-700 uppercase tracking-wide">
+                              <AlertTriangle size={9} /> Alerte
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Link
+                            href="/stock/bons-commande"
+                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 inline-flex"
+                            title="Créer un bon de commande"
+                          >
+                            <Plus size={13} />
+                          </Link>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {totalAlerts > 12 && (
+                <div className="px-5 py-3 border-t border-gray-50 text-center">
+                  <Link href="/stock/articles" className="text-xs text-blue-600 hover:text-blue-700 font-semibold">
+                    + {totalAlerts - 12} autres articles en alerte →
+                  </Link>
+                </div>
+              )}
+            </>
+          )}
         </div>
-        <div className="flex bg-white border border-gray-200 rounded-xl overflow-hidden">
-          <button onClick={() => setViewMode('cards')}
-            className={`px-3 py-2 transition-colors ${viewMode === 'cards' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>
-            <LayoutList size={15} />
-          </button>
-          <button onClick={() => setViewMode('table')}
-            className={`px-3 py-2 transition-colors ${viewMode === 'table' ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>
-            <Table2 size={15} />
-          </button>
-        </div>
-      </div>
 
-      {/* Filtres */}
-      <div className="flex gap-2 flex-wrap">
-        <button onClick={() => { setFilterInStock(!filterInStock); setFilterAlert(false); }}
-          className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${filterInStock ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-600'}`}>
-          En stock
-        </button>
-        {(enAlerte + enRupture) > 0 && (
-          <button onClick={() => { setFilterAlert(!filterAlert); setFilterInStock(false); }}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${filterAlert ? 'bg-orange-600 text-white' : 'bg-orange-50 text-orange-700 border border-orange-200'}`}>
-            <AlertTriangle size={13} />
-            Alertes ({enAlerte + enRupture})
-          </button>
-        )}
-        {categories.map(cat => (
-          <button key={cat} onClick={() => setFilterCategorie(filterCategorie === cat ? '' : cat)}
-            className={`px-3 py-1.5 rounded-xl text-sm font-medium transition-colors ${filterCategorie === cat ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-600'}`}>
-            {cat}
-          </button>
-        ))}
-      </div>
+        {/* Activité récente */}
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden flex flex-col">
+          <div className="px-5 py-4 border-b border-gray-50 flex items-center justify-between shrink-0">
+            <div>
+              <h2 className="font-bold text-gray-900">Activité récente</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Derniers mouvements de stock</p>
+            </div>
+            <Link href="/stock/mouvements" className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-semibold">
+              Tout voir <ChevronRight size={13} />
+            </Link>
+          </div>
 
-      {/* Contenu */}
-      {loading && mp.length === 0 ? (
-        <div className="flex items-center justify-center py-16">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
-        </div>
-      ) : displayed.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
-          <Package className="text-gray-200 mx-auto mb-3" size={40} />
-          <p className="text-gray-400 font-medium">Aucun article</p>
-        </div>
-      ) : viewMode === 'table' ? (
-
-        /* ── Vue tableau ── */
-        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-          <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[300px]">
-            <thead className="border-b border-gray-100 bg-gray-50">
-              <tr className="text-xs text-gray-400 uppercase">
-                <th className="text-left px-4 py-3">Article</th>
-                <th className="text-left px-3 py-3 hidden sm:table-cell">Zone</th>
-                <th className="text-left px-3 py-3 hidden sm:table-cell">Catégorie</th>
-                <th className="text-left px-3 py-3 hidden md:table-cell">Conditionnement</th>
-                <th className="text-left px-3 py-3 hidden sm:table-cell">Fournisseur</th>
-                <th className="text-right px-3 py-3 hidden sm:table-cell">Unité</th>
-                <th className="text-right px-3 py-3">Stock</th>
-                <th className="text-right px-3 py-3 hidden sm:table-cell">Seuil</th>
-                <th className="text-right px-3 py-3 hidden md:table-cell">PMP</th>
-                <th className="text-right px-3 py-3 hidden md:table-cell">Valeur</th>
-                <th className="text-center px-3 py-3">État</th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayed.map(item => {
-                const valeur = item.stock_actuel * item.prix_moyen_pondere;
+          {movements.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center py-10 text-center px-5">
+              <Clock size={28} className="text-gray-200 mb-2" />
+              <p className="text-sm text-gray-400 font-medium">Aucun mouvement</p>
+              <p className="text-xs text-gray-300 mt-1">L'historique apparaîtra ici</p>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto divide-y divide-gray-50">
+              {movements.map(mvt => {
+                const t = TYPE_CFG[mvt.type] ?? { label: mvt.type, color: 'text-gray-600', bg: 'bg-gray-100' };
+                const isPos = (mvt.quantite ?? 0) >= 0;
                 return (
-                  <tr key={item.id} className={`border-t border-gray-50 hover:bg-gray-50 transition-colors ${item.stock_actuel <= 0 ? 'bg-red-50/40' : item.stock_actuel <= item.stock_min ? 'bg-orange-50/40' : ''}`}>
-                    <td className="px-4 py-2.5 font-medium text-gray-900">{item.nom}</td>
-                    <td className="px-3 py-2.5 hidden sm:table-cell">
-                      {item.zone ? (
-                        <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium text-white"
-                          style={{ backgroundColor: item.zone.couleur }}>
-                          {item.zone.nom}
-                        </span>
-                      ) : <span className="text-gray-300 text-xs">—</span>}
-                    </td>
-                    <td className="px-3 py-2.5 text-gray-400 text-xs hidden sm:table-cell">{item.categorie ?? '—'}</td>
-                    <td className="px-3 py-2.5 text-gray-400 text-xs hidden md:table-cell">{item.conditionnement ?? '—'}</td>
-                    <td className="px-3 py-2.5 text-gray-400 text-xs hidden sm:table-cell">{item.supplier?.nom ?? '—'}</td>
-                    <td className="px-3 py-2.5 text-right text-gray-400 text-xs hidden sm:table-cell">{item.unite}</td>
-                    <td className="px-3 py-2.5 text-right">
-                      <p className="font-bold text-gray-800">{item.stock_actuel}</p>
-                    </td>
-                    <td className="px-3 py-2.5 text-right hidden sm:table-cell">
-                      {editingSeuilId === item.id ? (
-                        <input
-                          type="number" min={0} step={0.01}
-                          value={editingSeuilVal}
-                          onChange={e => setEditingSeuilVal(parseFloat(e.target.value) || 0)}
-                          onBlur={() => saveSeuil(item.id)}
-                          onKeyDown={e => { if (e.key === 'Enter') saveSeuil(item.id); if (e.key === 'Escape') setEditingSeuilId(null); }}
-                          autoFocus
-                          className="w-20 px-2 py-1 border border-blue-400 rounded-lg text-sm text-right focus:outline-none"
-                        />
-                      ) : (
-                        <button onClick={() => { setEditingSeuilId(item.id); setEditingSeuilVal(item.stock_min); }}
-                          className="text-gray-700 hover:text-blue-600 hover:underline cursor-pointer min-w-[2rem] text-right block w-full">
-                          {item.stock_min}
-                        </button>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-gray-400 text-xs hidden md:table-cell">
-                      {item.prix_moyen_pondere > 0 ? `${item.prix_moyen_pondere.toFixed(2)}` : '—'}
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-gray-700 font-medium text-xs hidden md:table-cell">
-                      {valeur > 0 ? `${valeur.toFixed(0)} MAD` : '—'}
-                    </td>
-                    <td className="px-3 py-2.5 text-center">
-                      <StockBadge actuel={item.stock_actuel} min={item.stock_min} />
-                    </td>
-                  </tr>
+                  <div key={mvt.id} className="px-5 py-3 flex items-center gap-3 hover:bg-gray-50/50 transition-colors">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 truncate">
+                        {mvt.stock_item?.nom ?? '—'}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-0.5">{fmtRelativeDate(mvt.date || mvt.created_at)}</p>
+                    </div>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold shrink-0 ${t.bg} ${t.color}`}>
+                      {t.label}
+                    </span>
+                    <span className={`text-sm font-bold shrink-0 tabular-nums ${isPos ? 'text-green-600' : 'text-red-500'}`}>
+                      {isPos ? '+' : ''}{mvt.quantite} {mvt.stock_item?.unite ?? ''}
+                    </span>
+                  </div>
                 );
               })}
-            </tbody>
-            <tfoot className="border-t border-gray-200 bg-gray-50">
-              <tr className="text-xs text-gray-500 font-semibold">
-                <td className="px-4 py-2.5" colSpan={9}>Total</td>
-                <td className="px-3 py-2.5 text-right hidden md:table-cell">
-                  {displayed.reduce((s, i) => s + i.stock_actuel * i.prix_moyen_pondere, 0).toFixed(0)} MAD
-                </td>
-                <td />
-              </tr>
-            </tfoot>
-          </table>
-          </div>
-        </div>
-
-      ) : (
-
-        /* ── Vue cards ── */
-        <div className="space-y-2">
-          {displayed.map(item => (
-            <div key={item.id} className={`bg-white rounded-2xl border px-4 py-3 ${item.stock_actuel <= 0 ? 'border-red-100' : item.stock_actuel <= item.stock_min ? 'border-orange-100' : 'border-gray-100'}`}>
-              <div className="flex items-start justify-between gap-3 mb-2">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="font-semibold text-gray-900 truncate">{item.nom}</p>
-                    {item.zone && (
-                      <span className="text-xs px-2 py-0.5 rounded-full font-medium text-white"
-                        style={{ backgroundColor: item.zone.couleur }}>
-                        {item.zone.nom}
-                      </span>
-                    )}
-                    {item.categorie && (
-                      <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full">{item.categorie}</span>
-                    )}
-                  </div>
-                  <p className="text-xs text-gray-400 mt-0.5 flex gap-2 flex-wrap">
-                    <span>{item.supplier?.nom ?? '—'}</span>
-                    {item.conditionnement && <span>· {item.conditionnement}</span>}
-                    {item.prix_moyen_pondere > 0 && <span>· {item.prix_moyen_pondere.toFixed(2)} MAD/{item.unite}</span>}
-                  </p>
-                </div>
-                <StockBadge actuel={item.stock_actuel} min={item.stock_min} />
-              </div>
-              <div className="flex items-center gap-3">
-                <StockBar actuel={item.stock_actuel} min={item.stock_min} />
-                <div className="text-right shrink-0">
-                  <p className="text-sm font-bold text-gray-800">{item.stock_actuel}</p>
-                  <p className="text-xs text-gray-400">{item.unite}</p>
-                </div>
-              </div>
             </div>
-          ))}
+          )}
         </div>
-      )}
+      </div>
 
-      {/* Modal zones */}
-      {showZonesModal && (
-        <ZonesModal
-          zones={zones}
-          onClose={() => setShowZonesModal(false)}
-          onSaved={load}
-        />
-      )}
+      {/* ── Modules du stock ───────────────────────────────────────────────── */}
+      <div>
+        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Accès rapide</h2>
+        <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          {QUICK_ACTIONS.map(a => {
+            const Icon = a.icon;
+            return (
+              <Link
+                key={a.href}
+                href={a.href}
+                className={`flex flex-col items-center gap-2.5 p-4 rounded-2xl border transition-all cursor-pointer ${a.bg} ${a.border}`}
+              >
+                <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm shrink-0">
+                  <Icon size={20} className={a.color} />
+                </div>
+                <span className={`text-xs font-semibold text-center leading-tight ${a.color}`}>{a.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Vue d'ensemble par famille ─────────────────────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+        {/* MP summary */}
+        <Link href="/stock/articles" className="bg-white rounded-2xl border border-gray-100 p-5 hover:border-blue-200 hover:shadow-sm transition-all group">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
+                <Package size={16} className="text-blue-600" />
+              </div>
+              <span className="font-semibold text-gray-900">Matières premières</span>
+            </div>
+            <ChevronRight size={16} className="text-gray-300 group-hover:text-blue-500 transition-colors" />
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div>
+              <p className="text-2xl font-black text-gray-900">{mp.length}</p>
+              <p className="text-xs text-gray-400 mt-0.5">Total</p>
+            </div>
+            <div>
+              <p className={`text-2xl font-black ${ruptures.length > 0 ? 'text-red-600' : 'text-gray-300'}`}>{ruptures.length}</p>
+              <p className="text-xs text-gray-400 mt-0.5">Ruptures</p>
+            </div>
+            <div>
+              <p className={`text-2xl font-black ${alertes.length > 0 ? 'text-orange-500' : 'text-gray-300'}`}>{alertes.length}</p>
+              <p className="text-xs text-gray-400 mt-0.5">Alertes</p>
+            </div>
+          </div>
+        </Link>
+
+        {/* PF summary */}
+        <Link href="/stock/produits-finis" className="bg-white rounded-2xl border border-gray-100 p-5 hover:border-indigo-200 hover:shadow-sm transition-all group">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 bg-indigo-50 rounded-lg flex items-center justify-center">
+                <ShoppingBag size={16} className="text-indigo-600" />
+              </div>
+              <span className="font-semibold text-gray-900">Produits finis</span>
+            </div>
+            <ChevronRight size={16} className="text-gray-300 group-hover:text-indigo-500 transition-colors" />
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div>
+              <p className="text-2xl font-black text-gray-900">{pf.length}</p>
+              <p className="text-xs text-gray-400 mt-0.5">Total</p>
+            </div>
+            <div>
+              <p className={`text-2xl font-black ${pf.filter(i => (i.stock_actuel ?? 0) <= 0).length > 0 ? 'text-red-600' : 'text-gray-300'}`}>
+                {pf.filter(i => (i.stock_actuel ?? 0) <= 0).length}
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5">Ruptures</p>
+            </div>
+            <div>
+              <p className="text-2xl font-black text-blue-500">
+                {pf.reduce((s, i) => s + ((i as any).quantite_reservee ?? 0), 0).toFixed(0)}
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5">Réservés</p>
+            </div>
+          </div>
+        </Link>
+
+        {/* Fournisseurs */}
+        <Link href="/stock/fournisseurs" className="bg-white rounded-2xl border border-gray-100 p-5 hover:border-gray-200 hover:shadow-sm transition-all group">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 bg-gray-50 rounded-lg flex items-center justify-center">
+                <Building2 size={16} className="text-gray-500" />
+              </div>
+              <span className="font-semibold text-gray-900">Fournisseurs</span>
+            </div>
+            <ChevronRight size={16} className="text-gray-300 group-hover:text-gray-500 transition-colors" />
+          </div>
+          <p className="text-xs text-gray-400">
+            Gérez vos fournisseurs et leurs articles. Créez des bons de commande et suivez les réceptions.
+          </p>
+          <div className="flex gap-2 mt-3">
+            <span className="text-[11px] px-2 py-1 bg-blue-50 text-blue-600 rounded-lg font-semibold">
+              Bons de commande
+            </span>
+            <span className="text-[11px] px-2 py-1 bg-gray-50 text-gray-600 rounded-lg font-semibold">
+              Factures
+            </span>
+          </div>
+        </Link>
+      </div>
+
     </div>
   );
 }

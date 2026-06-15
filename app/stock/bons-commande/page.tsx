@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Plus, X, AlertTriangle, ChevronDown, ChevronUp, Truck, FileText, Package } from 'lucide-react';
+import React, { useEffect, useState, useMemo } from 'react';
+import { Plus, X, AlertTriangle, ChevronDown, ChevronUp, Truck, FileText, Package, TrendingDown } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface Supplier { id: string; nom: string; }
 interface StockItem {
@@ -23,30 +25,47 @@ interface BDC {
   supplier?: Supplier; lines?: BDCLine[];
 }
 
-const ST = {
-  en_attente:   { label: 'En attente',   bg: 'bg-orange-100', color: 'text-orange-700' },
-  recu_partiel: { label: 'Reçu partiel', bg: 'bg-blue-100',   color: 'text-blue-700' },
-  recu_complet: { label: 'Reçu complet', bg: 'bg-green-100',  color: 'text-green-700' },
+type TabFilter = 'all' | 'en_attente';
+
+const ST: Record<string, { label: string; bg: string; color: string; dot: string }> = {
+  en_attente:   { label: 'En attente',   bg: 'bg-orange-50',  color: 'text-orange-700', dot: 'bg-orange-400' },
+  recu_partiel: { label: 'Reçu partiel', bg: 'bg-blue-50',    color: 'text-blue-700',   dot: 'bg-blue-400' },
+  recu_complet: { label: 'Reçu complet', bg: 'bg-green-50',   color: 'text-green-700',  dot: 'bg-green-400' },
 };
 
+function fmtDate(d: string) {
+  return new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+}
+function fmtPrice(n: number) {
+  return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' MAD';
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
 export default function BonsCommandePage() {
-  const [bons, setBons] = useState<BDC[]>([]);
+  const [bons, setBons]         = useState<BDC[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-  const [items, setItems] = useState<StockItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [items, setItems]       = useState<StockItem[]>([]);
+  const [loading, setLoading]   = useState(true);
+
+  // Vue détail
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [showForm, setShowForm] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [tabFilter, setTabFilter]   = useState<TabFilter>('all');
+
+  // Bandeau alertes
+  const [alertOpen, setAlertOpen]   = useState(false);
 
   // Formulaire
+  const [showForm, setShowForm]     = useState(false);
+  const [saving, setSaving]         = useState(false);
   const [fSupplierId, setFSupplierId] = useState('');
-  const [fDate, setFDate] = useState(new Date().toISOString().slice(0, 10));
-  const [fNote, setFNote] = useState('');
-  const [fLines, setFLines] = useState<{ stock_item_id: string; quantite_commandee: number; prix_unitaire: number }[]>([]);
+  const [fDate, setFDate]           = useState(new Date().toISOString().slice(0, 10));
+  const [fNote, setFNote]           = useState('');
+  const [fLines, setFLines]         = useState<{ stock_item_id: string; quantite_commandee: number; prix_unitaire: number }[]>([]);
 
-  // Modal réception
-  const [receivingBdc, setReceivingBdc] = useState<BDC | null>(null);
-  const [receivedQtys, setReceivedQtys] = useState<Record<string, number>>({});
+  // Réception
+  const [receivingBdc, setReceivingBdc]   = useState<BDC | null>(null);
+  const [receivedQtys, setReceivedQtys]   = useState<Record<string, number>>({});
 
   useEffect(() => { load(); }, []);
 
@@ -64,17 +83,53 @@ export default function BonsCommandePage() {
     setLoading(false);
   }
 
-  // Articles triés : ceux du fournisseur sélectionné en premier
+  // Articles en alerte
+  const alertItems = useMemo(() => items.filter(i => i.stock_actuel <= i.stock_min), [items]);
+
+  // Alertes groupées par fournisseur
+  const alertBySupplier = useMemo(() => {
+    const map: Record<string, { supplier: Supplier | null; items: StockItem[] }> = {};
+    for (const item of alertItems) {
+      const key = item.supplier_id ?? '__none__';
+      if (!map[key]) {
+        map[key] = {
+          supplier: suppliers.find(s => s.id === item.supplier_id) ?? null,
+          items: [],
+        };
+      }
+      map[key].items.push(item);
+    }
+    return Object.values(map).sort((a, b) => (b.items.length - a.items.length));
+  }, [alertItems, suppliers]);
+
+  // Filtrage BDCs
+  const displayed = useMemo(() => {
+    if (tabFilter === 'en_attente') return bons.filter(b => b.statut === 'en_attente');
+    return bons;
+  }, [bons, tabFilter]);
+
+  const pendingCount = useMemo(() => bons.filter(b => b.statut === 'en_attente').length, [bons]);
+
+  // ── Formulaire ─────────────────────────────────────────────────────────────
+
   const orderedItems = fSupplierId
     ? [...items.filter(i => i.supplier_id === fSupplierId), ...items.filter(i => i.supplier_id !== fSupplierId)]
     : items;
 
-  const alertItems = items.filter(i => i.stock_actuel <= i.stock_min);
-  const supplierAlertItems = fSupplierId ? alertItems.filter(i => i.supplier_id === fSupplierId) : alertItems;
+  function openFormForSupplier(supplierId: string) {
+    setFSupplierId(supplierId);
+    const alerts = items.filter(i => i.supplier_id === supplierId && i.stock_actuel <= i.stock_min);
+    setFLines(alerts.map(i => ({
+      stock_item_id: i.id,
+      quantite_commandee: Math.max(i.stock_min - i.stock_actuel, 1),
+      prix_unitaire: i.prix_moyen_pondere || 0,
+    })));
+    setAlertOpen(false);
+    setShowForm(true);
+  }
 
   function handleSupplierChange(id: string) {
     setFSupplierId(id);
-    // Pré-remplir avec les articles en alerte du fournisseur
     const alerts = items.filter(i => i.supplier_id === id && i.stock_actuel <= i.stock_min);
     setFLines(alerts.map(i => ({
       stock_item_id: i.id,
@@ -85,7 +140,7 @@ export default function BonsCommandePage() {
 
   function handleLineItem(idx: number, itemId: string) {
     const item = items.find(i => i.id === itemId);
-    setFLines(p => p.map((l, i) => i === idx ? { ...l, stock_item_id: itemId, prix_unitaire: item?.prix_moyen_pondere || l.prix_unitaire } : l));
+    setFLines(p => p.map((l, i) => i === idx ? { ...l, stock_item_id: itemId, prix_unitaire: item?.prix_moyen_pondere || 0 } : l));
   }
 
   function updateLine(idx: number, k: string, v: any) {
@@ -103,11 +158,18 @@ export default function BonsCommandePage() {
     }).select().single();
     if (bdc) {
       await supabase.from('purchase_order_lines').insert(fLines.map(l => ({ ...l, order_id: bdc.id })));
-      setShowForm(false); setFSupplierId(''); setFNote(''); setFLines([]);
+      resetForm();
       load();
     }
     setSaving(false);
   }
+
+  function resetForm() {
+    setShowForm(false); setFSupplierId(''); setFNote(''); setFLines([]);
+    setFDate(new Date().toISOString().slice(0, 10));
+  }
+
+  // ── Réception ──────────────────────────────────────────────────────────────
 
   function startReceiving(bdc: BDC) {
     setReceivingBdc(bdc);
@@ -129,8 +191,7 @@ export default function BonsCommandePage() {
         return s + qty * l.prix_unitaire;
       }, 0);
       const { data: inv } = await supabase.from('supplier_invoices').insert({
-        supplier_id: receivingBdc.supplier_id,
-        numero: null,
+        supplier_id: receivingBdc.supplier_id, numero: null,
         date_facture: new Date().toISOString().slice(0, 10),
         statut: 'brouillon', total: invoiceTotal,
       }).select().single();
@@ -144,251 +205,407 @@ export default function BonsCommandePage() {
         );
       }
     }
-    setReceivingBdc(null); setReceivedQtys({}); load(); setSaving(false);
+    setReceivingBdc(null); setReceivedQtys({}); setSaving(false); load();
   }
 
-  const pendingBons = bons.filter(b => b.statut === 'en_attente');
-  const doneBons = bons.filter(b => b.statut !== 'en_attente');
+  // ── Rendu ──────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+
+      {/* ── Header ─────────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Bons de commande</h1>
-          <p className="text-sm text-gray-400">{pendingBons.length} en attente · {alertItems.length} article{alertItems.length > 1 ? 's' : ''} en alerte</p>
+          <h2 className="text-xl font-bold text-gray-900">Bons de commande</h2>
+          <p className="text-sm text-gray-400">
+            {pendingCount > 0
+              ? <span className="text-orange-600 font-medium">{pendingCount} en attente</span>
+              : 'Aucun BDC en attente'}
+            {alertItems.length > 0 && <span className="text-gray-400"> · {alertItems.length} article{alertItems.length > 1 ? 's' : ''} à réapprovisionner</span>}
+          </p>
         </div>
-        <button onClick={() => setShowForm(true)}
-          className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700">
+        <button
+          onClick={() => { resetForm(); setShowForm(true); }}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors"
+        >
           <Plus size={15} /> Nouveau BDC
         </button>
       </div>
 
-      {/* Bandeau alertes stock */}
+      {/* ── Bandeau alertes ─────────────────────────────────────────────── */}
       {alertItems.length > 0 && !showForm && (
-        <div className="bg-orange-50 border border-orange-100 rounded-2xl px-4 py-3 space-y-2">
-          <div className="flex items-center gap-2">
-            <AlertTriangle size={14} className="text-orange-600" />
-            <p className="text-sm font-semibold text-orange-700">{alertItems.length} article{alertItems.length > 1 ? 's' : ''} à réapprovisionner</p>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {alertItems.slice(0, 10).map(i => (
-              <span key={i.id} className="text-xs px-2 py-1 bg-white border border-orange-200 text-orange-700 rounded-lg">
-                {i.nom} <span className="text-orange-400">{i.stock_actuel}/{i.stock_min} {i.unite}</span>
+        <div className="bg-orange-50 border border-orange-200 rounded-2xl overflow-hidden">
+          <button
+            onClick={() => setAlertOpen(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 text-left"
+          >
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={15} className="text-orange-600 shrink-0" />
+              <span className="text-sm font-semibold text-orange-800">
+                {alertItems.length} article{alertItems.length > 1 ? 's' : ''} à réapprovisionner
               </span>
-            ))}
-            {alertItems.length > 10 && <span className="text-xs text-orange-400 self-center">+{alertItems.length - 10} autres</span>}
-          </div>
+              <span className="text-xs text-orange-500">
+                chez {alertBySupplier.length} fournisseur{alertBySupplier.length > 1 ? 's' : ''}
+              </span>
+            </div>
+            {alertOpen
+              ? <ChevronUp size={15} className="text-orange-500 shrink-0" />
+              : <ChevronDown size={15} className="text-orange-500 shrink-0" />
+            }
+          </button>
+
+          {alertOpen && (
+            <div className="border-t border-orange-200 divide-y divide-orange-100">
+              {alertBySupplier.map((group, gi) => (
+                <div key={gi} className="px-4 py-3 flex items-center gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="font-semibold text-sm text-gray-800">
+                        {group.supplier?.nom ?? 'Sans fournisseur'}
+                      </span>
+                      <span className="text-xs px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded-full font-semibold">
+                        {group.items.length} article{group.items.length > 1 ? 's' : ''}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {group.items.slice(0, 6).map(i => (
+                        <span key={i.id} className="text-xs px-2 py-0.5 bg-white border border-orange-200 text-orange-700 rounded-lg">
+                          {i.nom}
+                          {i.stock_actuel <= 0
+                            ? <span className="ml-1 text-red-500 font-bold">0</span>
+                            : <span className="ml-1 text-orange-500">{i.stock_actuel}/{i.stock_min}</span>
+                          }
+                          <span className="text-orange-400"> {i.unite}</span>
+                        </span>
+                      ))}
+                      {group.items.length > 6 && (
+                        <span className="text-xs text-orange-400 self-center">+{group.items.length - 6} autres</span>
+                      )}
+                    </div>
+                  </div>
+                  {group.supplier && (
+                    <button
+                      onClick={() => openFormForSupplier(group.supplier!.id)}
+                      className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 text-white rounded-lg text-xs font-semibold hover:bg-orange-700 transition-colors"
+                    >
+                      <Plus size={11} /> Commander
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Formulaire */}
+      {/* ── Formulaire nouveau BDC ───────────────────────────────────────── */}
       {showForm && (
-        <div className="bg-white rounded-2xl border border-blue-200 p-4 space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="font-semibold text-gray-900">Nouveau bon de commande</p>
-            <button onClick={() => { setShowForm(false); setFSupplierId(''); setFLines([]); }}><X size={18} className="text-gray-400" /></button>
+        <div className="bg-white rounded-2xl border border-blue-200 shadow-sm">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+            <p className="font-bold text-gray-900">Nouveau bon de commande</p>
+            <button onClick={resetForm}><X size={18} className="text-gray-400" /></button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <select value={fSupplierId} onChange={e => handleSupplierChange(e.target.value)}
-              className="sm:col-span-2 px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option value="">— Fournisseur *</option>
-              {suppliers.map(s => <option key={s.id} value={s.id}>{s.nom}</option>)}
-            </select>
-            <input type="date" value={fDate} onChange={e => setFDate(e.target.value)}
-              className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            <input value={fNote} onChange={e => setFNote(e.target.value)} placeholder="Note"
-              className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          </div>
-
-          {fSupplierId && supplierAlertItems.length > 0 && (
-            <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 rounded-xl">
-              <AlertTriangle size={13} className="text-orange-500" />
-              <p className="text-xs text-orange-700 font-medium">{supplierAlertItems.length} article{supplierAlertItems.length > 1 ? 's' : ''} en alerte pré-ajouté{supplierAlertItems.length > 1 ? 's' : ''}</p>
+          <div className="px-5 py-4 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <select value={fSupplierId} onChange={e => handleSupplierChange(e.target.value)}
+                className="sm:col-span-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">— Fournisseur *</option>
+                {suppliers.map(s => <option key={s.id} value={s.id}>{s.nom}</option>)}
+              </select>
+              <input type="date" value={fDate} onChange={e => setFDate(e.target.value)}
+                className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <input value={fNote} onChange={e => setFNote(e.target.value)} placeholder="Note (optionnel)"
+                className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
-          )}
 
-          <div className="space-y-2">
-            <p className="text-xs font-semibold text-gray-500 uppercase">Articles</p>
-            {fLines.map((line, idx) => (
-              <div key={idx} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
-                <select value={line.stock_item_id} onChange={e => handleLineItem(idx, e.target.value)}
-                  className="sm:col-span-5 px-2 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none">
-                  <option value="">— Article</option>
-                  {orderedItems.map(i => (
-                    <option key={i.id} value={i.id}>
-                      {i.supplier_id === fSupplierId ? '★ ' : ''}{i.nom} ({i.unite})
-                    </option>
-                  ))}
-                </select>
-                <input type="number" min={0} step={0.01} value={line.quantite_commandee}
-                  onChange={e => updateLine(idx, 'quantite_commandee', parseFloat(e.target.value) || 0)}
-                  className="sm:col-span-3 px-2 py-2 border border-gray-200 rounded-lg text-sm text-center focus:outline-none" placeholder="Qté" />
-                <input type="number" min={0} step={0.01} value={line.prix_unitaire}
-                  onChange={e => updateLine(idx, 'prix_unitaire', parseFloat(e.target.value) || 0)}
-                  className="sm:col-span-3 px-2 py-2 border border-gray-200 rounded-lg text-sm text-center focus:outline-none" placeholder="Prix" />
-                <button onClick={() => setFLines(p => p.filter((_, i) => i !== idx))} className="sm:col-span-1 flex justify-center text-red-400">
-                  <X size={14} />
+            {fSupplierId && items.filter(i => i.supplier_id === fSupplierId && i.stock_actuel <= i.stock_min).length > 0 && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 border border-orange-100 rounded-xl">
+                <AlertTriangle size={13} className="text-orange-500 shrink-0" />
+                <p className="text-xs text-orange-700 font-medium">
+                  {items.filter(i => i.supplier_id === fSupplierId && i.stock_actuel <= i.stock_min).length} articles en alerte pré-ajoutés
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Articles à commander</p>
+              <div className="bg-gray-50 rounded-xl overflow-hidden">
+                {fLines.length > 0 && (
+                  <div className="grid grid-cols-12 px-3 py-2 text-[11px] font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-100">
+                    <div className="col-span-5">Article</div>
+                    <div className="col-span-3 text-center">Quantité</div>
+                    <div className="col-span-3 text-center">Prix unit. (MAD)</div>
+                    <div className="col-span-1" />
+                  </div>
+                )}
+                {fLines.map((line, idx) => {
+                  const selectedItem = items.find(i => i.id === line.stock_item_id);
+                  return (
+                    <div key={idx} className="grid grid-cols-12 gap-2 px-3 py-2 items-center border-b border-gray-100 last:border-0">
+                      <select value={line.stock_item_id} onChange={e => handleLineItem(idx, e.target.value)}
+                        className="col-span-5 px-2 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-1 focus:ring-blue-500">
+                        <option value="">— Article</option>
+                        {orderedItems.map(i => (
+                          <option key={i.id} value={i.id}>
+                            {i.supplier_id === fSupplierId ? '★ ' : ''}{i.nom} ({i.unite})
+                          </option>
+                        ))}
+                      </select>
+                      <div className="col-span-3 flex items-center gap-1">
+                        <input type="number" min={0} step={0.1} value={line.quantite_commandee}
+                          onChange={e => updateLine(idx, 'quantite_commandee', parseFloat(e.target.value) || 0)}
+                          className="w-full px-2 py-2 border border-gray-200 rounded-lg text-sm text-center focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                        {selectedItem && <span className="text-xs text-gray-400 shrink-0">{selectedItem.unite}</span>}
+                      </div>
+                      <input type="number" min={0} step={0.01} value={line.prix_unitaire}
+                        onChange={e => updateLine(idx, 'prix_unitaire', parseFloat(e.target.value) || 0)}
+                        className="col-span-3 px-2 py-2 border border-gray-200 rounded-lg text-sm text-center focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                      <button onClick={() => setFLines(p => p.filter((_, i) => i !== idx))}
+                        className="col-span-1 flex justify-center p-1.5 text-gray-300 hover:text-red-400 transition-colors">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  );
+                })}
+                <button
+                  onClick={() => setFLines(p => [...p, { stock_item_id: '', quantite_commandee: 1, prix_unitaire: 0 }])}
+                  className="w-full py-2.5 text-xs text-gray-400 hover:text-blue-500 hover:bg-blue-50 flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  <Plus size={12} /> Ajouter un article
                 </button>
               </div>
-            ))}
-            <button onClick={() => setFLines(p => [...p, { stock_item_id: '', quantite_commandee: 1, prix_unitaire: 0 }])}
-              className="w-full py-2 border border-dashed border-gray-200 rounded-xl text-xs text-gray-400 hover:border-blue-300 hover:text-blue-500 flex items-center justify-center gap-1.5">
-              <Plus size={12} /> Ajouter un article
-            </button>
+            </div>
+
+            {fLines.length > 0 && (
+              <div className="flex items-center justify-between px-4 py-3 bg-blue-50 rounded-xl">
+                <span className="text-sm font-semibold text-blue-700">Total estimé</span>
+                <span className="text-lg font-black text-blue-700">{fmtPrice(fTotal)}</span>
+              </div>
+            )}
           </div>
 
-          {fLines.length > 0 && (
-            <div className="flex items-center justify-between py-2 border-t border-gray-100">
-              <span className="text-sm text-gray-500">Total estimé</span>
-              <span className="font-bold text-gray-900">{fTotal.toFixed(2)} MAD</span>
-            </div>
-          )}
-
-          <div className="flex gap-2">
-            <button onClick={() => { setShowForm(false); setFSupplierId(''); setFLines([]); }}
-              className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600">Annuler</button>
+          <div className="flex gap-2 px-5 py-4 border-t border-gray-100">
+            <button onClick={resetForm}
+              className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">Annuler</button>
             <button onClick={saveBDC} disabled={saving || !fSupplierId || !fLines.length || fLines.some(l => !l.stock_item_id)}
-              className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold disabled:opacity-40">
+              className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold disabled:opacity-40 hover:bg-blue-700 transition-colors">
               {saving ? 'Création…' : 'Créer le BDC'}
             </button>
           </div>
         </div>
       )}
 
-      {/* Modal réception */}
+      {/* ── Liste des BDC ─────────────────────────────────────────────────── */}
+      {loading ? (
+        <div className="flex justify-center py-16">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+        </div>
+      ) : bons.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
+          <Package className="text-gray-200 mx-auto mb-3" size={40} />
+          <p className="text-gray-400 font-medium">Aucun bon de commande</p>
+          <p className="text-xs text-gray-300 mt-1">Créez votre premier BDC avec le bouton ci-dessus</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+
+          {/* Filtres */}
+          <div className="px-5 py-3 border-b border-gray-50 flex items-center gap-2">
+            {([['all', `Tous (${bons.length})`], ['en_attente', `En attente (${pendingCount})`]] as [TabFilter, string][]).map(([val, label]) => (
+              <button key={val} onClick={() => setTabFilter(val)}
+                className={`px-3 py-1.5 rounded-xl text-sm font-semibold transition-colors ${
+                  tabFilter === val
+                    ? val === 'en_attente' ? 'bg-orange-500 text-white' : 'bg-gray-900 text-white'
+                    : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
+                }`}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {displayed.length === 0 ? (
+            <div className="py-10 text-center text-gray-400 text-sm">Aucun BDC dans ce filtre</div>
+          ) : (
+            <>
+              {/* Table desktop */}
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50/80 border-b border-gray-100">
+                    <tr>
+                      <th className="px-5 py-2.5 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Fournisseur</th>
+                      <th className="px-4 py-2.5 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Date</th>
+                      <th className="px-4 py-2.5 text-center text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Articles</th>
+                      <th className="px-4 py-2.5 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Total</th>
+                      <th className="px-4 py-2.5 text-center text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Statut</th>
+                      <th className="px-4 py-2.5 w-24" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {displayed.map(bdc => {
+                      const st = ST[bdc.statut];
+                      const open = expandedId === bdc.id;
+                      return (
+                        <React.Fragment key={bdc.id}>
+                          <tr
+                            onClick={() => setExpandedId(open ? null : bdc.id)}
+                            className="hover:bg-gray-50/50 transition-colors cursor-pointer group">
+                            <td className="px-5 py-3">
+                              <p className="font-semibold text-gray-900">{bdc.supplier?.nom}</p>
+                              {bdc.note && <p className="text-xs text-gray-400 italic mt-0.5">"{bdc.note}"</p>}
+                            </td>
+                            <td className="px-4 py-3 text-gray-500 tabular-nums">{fmtDate(bdc.date)}</td>
+                            <td className="px-4 py-3 text-center text-gray-500">
+                              {(bdc.lines || []).length}
+                            </td>
+                            <td className="px-4 py-3 text-right font-bold text-gray-900 tabular-nums">
+                              {fmtPrice(bdc.total)}
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <span className={`inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full font-semibold ${st.bg} ${st.color}`}>
+                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${st.dot}`} />
+                                {st.label}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                              <div className="flex items-center justify-end gap-2">
+                                {bdc.statut === 'en_attente' && (
+                                  <button onClick={() => startReceiving(bdc)}
+                                    className="flex items-center gap-1.5 px-2.5 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold hover:bg-green-700 transition-colors">
+                                    <Truck size={11} /> Réceptionner
+                                  </button>
+                                )}
+                                {open
+                                  ? <ChevronUp size={15} className="text-gray-400" />
+                                  : <ChevronDown size={15} className="text-gray-400" />
+                                }
+                              </div>
+                            </td>
+                          </tr>
+
+                          {open && (
+                            <tr key={`${bdc.id}-detail`}>
+                              <td colSpan={6} className="px-5 pb-4 pt-0">
+                                <div className="bg-gray-50 rounded-xl overflow-hidden">
+                                  <table className="w-full text-sm">
+                                    <thead>
+                                      <tr className="border-b border-gray-100">
+                                        <th className="px-4 py-2 text-left text-[11px] font-semibold text-gray-400 uppercase">Article</th>
+                                        <th className="px-4 py-2 text-right text-[11px] font-semibold text-gray-400 uppercase">Commandé</th>
+                                        {bdc.statut !== 'en_attente' && (
+                                          <th className="px-4 py-2 text-right text-[11px] font-semibold text-gray-400 uppercase">Reçu</th>
+                                        )}
+                                        <th className="px-4 py-2 text-right text-[11px] font-semibold text-gray-400 uppercase">Prix/u</th>
+                                        <th className="px-4 py-2 text-right text-[11px] font-semibold text-gray-400 uppercase">Total</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                      {(bdc.lines || []).map((l, i) => (
+                                        <tr key={i}>
+                                          <td className="px-4 py-2 text-gray-700">{l.stock_item?.nom} <span className="text-gray-400 text-xs">({l.stock_item?.unite})</span></td>
+                                          <td className="px-4 py-2 text-right text-gray-700 tabular-nums">{l.quantite_commandee}</td>
+                                          {bdc.statut !== 'en_attente' && (
+                                            <td className="px-4 py-2 text-right tabular-nums">
+                                              <span className={l.quantite_recue === l.quantite_commandee ? 'text-green-600' : 'text-orange-500'}>
+                                                {l.quantite_recue ?? '—'}
+                                              </span>
+                                            </td>
+                                          )}
+                                          <td className="px-4 py-2 text-right text-gray-400 tabular-nums">{l.prix_unitaire.toFixed(2)}</td>
+                                          <td className="px-4 py-2 text-right font-semibold text-gray-900 tabular-nums">
+                                            {(l.quantite_commandee * l.prix_unitaire).toFixed(2)}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Cartes mobile */}
+              <div className="sm:hidden divide-y divide-gray-50">
+                {displayed.map(bdc => {
+                  const st = ST[bdc.statut];
+                  return (
+                    <div key={bdc.id} className="px-4 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-gray-900 truncate">{bdc.supplier?.nom}</p>
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            {fmtDate(bdc.date)} · {(bdc.lines || []).length} article{(bdc.lines || []).length > 1 ? 's' : ''} · {fmtPrice(bdc.total)}
+                          </p>
+                        </div>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${st.bg} ${st.color}`}>{st.label}</span>
+                        {bdc.statut === 'en_attente' && (
+                          <button onClick={() => startReceiving(bdc)}
+                            className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold">
+                            <Truck size={11} /> Reçu
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── Modal réception ─────────────────────────────────────────────── */}
       {receivingBdc && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-2 sm:p-4 bg-black/40">
-          <div className="bg-white rounded-2xl w-full max-w-md p-4 sm:p-5 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
               <div>
-                <p className="font-bold text-gray-900">Réception</p>
-                <p className="text-sm text-gray-400">{receivingBdc.supplier?.nom} · {new Date(receivingBdc.date).toLocaleDateString('fr-FR')}</p>
+                <p className="font-bold text-gray-900">Réception — {receivingBdc.supplier?.nom}</p>
+                <p className="text-sm text-gray-400">{fmtDate(receivingBdc.date)} · {(receivingBdc.lines || []).length} article{(receivingBdc.lines || []).length > 1 ? 's' : ''}</p>
               </div>
               <button onClick={() => setReceivingBdc(null)}><X size={18} className="text-gray-400" /></button>
             </div>
 
-            <div className="space-y-2 max-h-48 sm:max-h-60 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2">
               {(receivingBdc.lines || []).map((line, i) => (
-                <div key={i} className="flex items-center gap-3 py-1">
+                <div key={i} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800 truncate">{line.stock_item?.nom}</p>
-                    <p className="text-xs text-gray-400">Commandé : {line.quantite_commandee} {line.stock_item?.unite}</p>
+                    <p className="text-sm font-semibold text-gray-800">{line.stock_item?.nom}</p>
+                    <p className="text-xs text-gray-400">Commandé : <span className="font-medium text-gray-600">{line.quantite_commandee} {line.stock_item?.unite}</span></p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs text-gray-400">Reçu</span>
-                    <input type="number" min={0}
+                    <span className="text-xs text-gray-500 font-medium">Reçu</span>
+                    <input
+                      type="number" min={0}
                       value={line.id ? (receivedQtys[line.id] ?? line.quantite_commandee) : line.quantite_commandee}
                       onChange={e => line.id && setReceivedQtys(p => ({ ...p, [line.id!]: parseFloat(e.target.value) || 0 }))}
-                      className="w-20 px-2 py-1.5 border border-gray-200 rounded-lg text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      className="w-20 px-2 py-1.5 border border-gray-200 rounded-lg text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <span className="text-xs text-gray-400">{line.stock_item?.unite}</span>
                   </div>
                 </div>
               ))}
             </div>
 
-            <div className="border-t border-gray-100 pt-3 space-y-2">
-              <p className="text-sm font-semibold text-gray-700">Commande complète ?</p>
+            <div className="px-5 py-4 border-t border-gray-100 space-y-3 shrink-0">
+              <p className="text-sm font-semibold text-gray-700 text-center">La livraison est-elle complète ?</p>
               <div className="flex gap-2">
                 <button onClick={() => confirmReceive(false)} disabled={saving}
-                  className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 font-medium disabled:opacity-40">
+                  className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40">
                   Non — partielle
                 </button>
                 <button onClick={() => confirmReceive(true)} disabled={saving}
-                  className="flex-1 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold disabled:opacity-40 flex items-center justify-center gap-1.5">
-                  <FileText size={14} /> Oui → Créer facture
+                  className="flex-1 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold disabled:opacity-40 hover:bg-green-700 flex items-center justify-center gap-1.5">
+                  <FileText size={14} /> Oui → Créer la facture
                 </button>
               </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Liste */}
-      {loading && bons.length === 0 ? (
-        <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" /></div>
-      ) : bons.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
-          <Package className="text-gray-200 mx-auto mb-3" size={40} />
-          <p className="text-gray-400 font-medium">Aucun bon de commande</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {pendingBons.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-gray-400 uppercase px-1">En attente ({pendingBons.length})</p>
-              {pendingBons.map(bdc => (
-                <BDCCard key={bdc.id} bdc={bdc} expandedId={expandedId} setExpandedId={setExpandedId}
-                  onReceive={() => startReceiving(bdc)} />
-              ))}
-            </div>
-          )}
-          {doneBons.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-gray-400 uppercase px-1">Terminés ({doneBons.length})</p>
-              {doneBons.map(bdc => (
-                <BDCCard key={bdc.id} bdc={bdc} expandedId={expandedId} setExpandedId={setExpandedId} />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function BDCCard({ bdc, expandedId, setExpandedId, onReceive }: {
-  bdc: BDC; expandedId: string | null;
-  setExpandedId: (id: string | null) => void;
-  onReceive?: () => void;
-}) {
-  const open = expandedId === bdc.id;
-  const st = ST[bdc.statut];
-  return (
-    <div className={`bg-white rounded-2xl border overflow-hidden ${bdc.statut === 'en_attente' ? 'border-orange-200' : 'border-gray-100'}`}>
-      <div className="flex items-start gap-3 px-4 py-3">
-        <button onClick={() => setExpandedId(open ? null : bdc.id)} className="flex-1 text-left">
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="font-semibold text-gray-900">{bdc.supplier?.nom}</p>
-            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${st.bg} ${st.color}`}>{st.label}</span>
-          </div>
-          <p className="text-xs text-gray-400 mt-0.5">
-            {new Date(bdc.date).toLocaleDateString('fr-FR')} · {(bdc.lines || []).length} article{(bdc.lines || []).length > 1 ? 's' : ''} · {bdc.total.toFixed(2)} MAD
-          </p>
-          {bdc.note && <p className="text-xs text-gray-400 italic mt-0.5">"{bdc.note}"</p>}
-        </button>
-        <div className="flex items-center gap-2 shrink-0">
-          {bdc.statut === 'en_attente' && onReceive && (
-            <button onClick={onReceive}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold hover:bg-green-700">
-              <Truck size={12} /> Reçu
-            </button>
-          )}
-          {open ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
-        </div>
-      </div>
-      {open && (bdc.lines || []).length > 0 && (
-        <div className="border-t border-gray-50 px-4 pb-3">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm mt-2 min-w-[320px]">
-              <thead>
-                <tr className="text-xs text-gray-400">
-                  <th className="text-left pb-1">Article</th>
-                  <th className="text-right pb-1">Commandé</th>
-                  {bdc.statut !== 'en_attente' && <th className="text-right pb-1">Reçu</th>}
-                  <th className="text-right pb-1">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(bdc.lines || []).map((l, i) => (
-                  <tr key={i} className="border-t border-gray-50">
-                    <td className="py-1.5 text-gray-700">{l.stock_item?.nom} <span className="text-gray-400">({l.stock_item?.unite})</span></td>
-                    <td className="text-right text-gray-700">{l.quantite_commandee}</td>
-                    {bdc.statut !== 'en_attente' && <td className="text-right text-gray-700">{l.quantite_recue ?? '—'}</td>}
-                    <td className="text-right font-semibold text-gray-900">{(l.quantite_commandee * l.prix_unitaire).toFixed(2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           </div>
         </div>
       )}

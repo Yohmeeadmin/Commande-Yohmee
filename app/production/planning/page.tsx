@@ -107,6 +107,15 @@ interface ManualTask {
   note: string;
 }
 
+interface PlacedMep {
+  id: string;
+  srId: string;
+  srNom: string;
+  atelier: string | null;
+  date: string;       // YYYY-MM-DD
+  quantiteKg: number;
+}
+
 // ─── Types engine ─────────────────────────────────────────────────────────────
 
 interface PrepTask {
@@ -410,7 +419,7 @@ function buildPlan(
 
 // ─── TaskCard ─────────────────────────────────────────────────────────────────
 
-interface MaterielLight { id: string; nom: string; capacite_kg: number; atelier: string | null; }
+interface MaterielLight { id: string; nom: string; capacite_kg: number; ateliers: string[]; }
 
 function TaskCard({ task, stockPreps, onStockClick, onDoubleClick, completed, materiels }: {
   task: PrepTask;
@@ -421,7 +430,7 @@ function TaskCard({ task, stockPreps, onStockClick, onDoubleClick, completed, ma
   materiels?: MaterielLight[];
 }) {
   const stockSR = stockPreps.find(s => s.recipe_sheet_id === task.srId);
-  const hasEquipment = materiels?.some(m => task.atelier ? m.atelier === task.atelier : !m.atelier) ?? false;
+  const hasEquipment = materiels?.some(m => (m.ateliers || []).includes(task.atelier ?? '')) ?? false;
 
   return (
     <div onDoubleClick={onDoubleClick}
@@ -672,6 +681,19 @@ export default function PlanningPage() {
   });
   const [showClosedDaysModal, setShowClosedDaysModal] = useState(false);
 
+  // ── Mode plan (proposition / manuel) ────────────────────────────────────────
+  const [planMode, setPlanMode] = useState<'proposition' | 'manuel'>('proposition');
+  const [placedMeps, setPlacedMeps] = useState<PlacedMep[]>(() => {
+    try { return JSON.parse(localStorage.getItem('placed_meps') || '[]'); }
+    catch { return []; }
+  });
+  const [planifModal, setPlanifModal] = useState<{ srId?: string; date?: string } | null>(null);
+  const [planifForm, setPlanifForm] = useState<{ srId: string; date: string; qty: string }>({ srId: '', date: '', qty: '' });
+  const [editingMepId, setEditingMepId] = useState<string | null>(null);
+  const [editingMepQty, setEditingMepQty] = useState('');
+  const [draggingSrId, setDraggingSrId] = useState<string | null>(null);
+  const [dragOverManuelDay, setDragOverManuelDay] = useState<string | null>(null);
+
   function saveClosedDays(config: ClosedDaysConfig) {
     setClosedDaysConfig(config);
     localStorage.setItem('closed_days_config', JSON.stringify(config));
@@ -704,6 +726,31 @@ export default function PlanningPage() {
 
   function removeSpecificDate(date: string) {
     saveClosedDays({ ...closedDaysConfig, specificDates: closedDaysConfig.specificDates.filter(d => d !== date) });
+  }
+
+  // ── MEPs planifiées manuellement ─────────────────────────────────────────────
+  function addPlacedMep(srId: string, srNom: string, atelier: string | null, date: string, quantiteKg: number) {
+    setPlacedMeps(prev => {
+      const next = [...prev, { id: crypto.randomUUID(), srId, srNom, atelier, date, quantiteKg }];
+      localStorage.setItem('placed_meps', JSON.stringify(next));
+      return next;
+    });
+  }
+
+  function deletePlacedMep(id: string) {
+    setPlacedMeps(prev => {
+      const next = prev.filter(m => m.id !== id);
+      localStorage.setItem('placed_meps', JSON.stringify(next));
+      return next;
+    });
+  }
+
+  function updatePlacedMepQty(id: string, qty: number) {
+    setPlacedMeps(prev => {
+      const next = prev.map(m => m.id === id ? { ...m, quantiteKg: qty } : m);
+      localStorage.setItem('placed_meps', JSON.stringify(next));
+      return next;
+    });
   }
 
   // Stock modals
@@ -790,7 +837,7 @@ export default function PlanningPage() {
         fetchStockProd(),
         fetchStockPrep(),
         supabase.from('stock_items').select('id, nom, unite'),
-        supabase.from('materiel').select('id, nom, capacite_kg, atelier').order('nom'),
+        supabase.from('materiel').select('id, nom, capacite_kg, ateliers').order('nom'),
       ]);
 
       setProductRefs((refsRes.data || []) as ProductRef[]);
@@ -881,6 +928,60 @@ export default function PlanningPage() {
 
     return m;
   }, [previsions, orders, articlePrevisions, articleMap]);
+
+  // ── Kg de SR nécessaires cette semaine (mode manuel) ─────────────────────────
+  // On ignore les jours passés : les MEPs correspondantes sont déjà faites (ou hors scope)
+  const srNeededKg = useMemo(() => {
+    const m = new Map<string, number>();
+    const futureDays = weekDays.filter(d => d >= todayStr);
+    for (const day of futureDays) {
+      const dm = demandMap.get(day);
+      if (!dm) continue;
+      for (const [refId, qty] of dm) {
+        const recette = recettesByRef.get(refId);
+        if (!recette) continue;
+        for (const ing of recette.ingredients || []) {
+          if (!ing.sous_recipe_id) continue;
+          const kg = calcKgSRForRecipe(recette, ing.sous_recipe_id, qty, sousRecettes);
+          if (kg > 0) m.set(ing.sous_recipe_id, (m.get(ing.sous_recipe_id) || 0) + kg);
+        }
+      }
+    }
+    return m;
+  }, [weekDays, todayStr, demandMap, recettesByRef, sousRecettes]);
+
+  // ── Kg planifiés cette semaine par SR (mode manuel) ───────────────────────────
+  const srPlannedKg = useMemo(() => {
+    const m = new Map<string, number>();
+    const weekSet = new Set(weekDays);
+    for (const mep of placedMeps) {
+      if (weekSet.has(mep.date)) {
+        m.set(mep.srId, (m.get(mep.srId) || 0) + mep.quantiteKg);
+      }
+    }
+    return m;
+  }, [placedMeps, weekDays]);
+
+  // ── Jours de demande par SR cette semaine (jours futurs uniquement) ───────────
+  const srDemandDays = useMemo(() => {
+    const m = new Map<string, string[]>(); // srId → jours triés
+    const futureDays = weekDays.filter(d => d >= todayStr);
+    for (const day of futureDays) {
+      const dm = demandMap.get(day);
+      if (!dm) continue;
+      for (const [refId] of dm) {
+        const recette = recettesByRef.get(refId);
+        if (!recette) continue;
+        for (const ing of recette.ingredients || []) {
+          if (!ing.sous_recipe_id) continue;
+          if (!m.has(ing.sous_recipe_id)) m.set(ing.sous_recipe_id, []);
+          if (!m.get(ing.sous_recipe_id)!.includes(day)) m.get(ing.sous_recipe_id)!.push(day);
+        }
+      }
+    }
+    for (const [srId, days] of m) m.set(srId, days.sort());
+    return m;
+  }, [weekDays, todayStr, demandMap, recettesByRef]);
 
   // Helper : DLC en jours pour un article (override ou défaut par état)
   function getArticleDlcDays(article: ProductArticle): number {
@@ -1192,6 +1293,67 @@ export default function PlanningPage() {
     return allPrepDates.filter(d => d === selectedDate);
   }, [allPrepDates, planView, todayStr]);
 
+  function getMepStatus(srId: string): 'ok' | 'low' | 'high' {
+    const needed = srNeededKg.get(srId) || 0;
+    const planned = srPlannedKg.get(srId) || 0;
+    if (needed === 0) return 'ok';
+    if (planned === 0) return 'low';
+    const ratio = planned / needed;
+    if (ratio >= 0.9 && ratio <= 1.15) return 'ok';
+    return ratio < 0.9 ? 'low' : 'high';
+  }
+
+  /**
+   * Fenêtre effective MEP → vente = SR DLC + recette produit fini DLC.
+   * Ex : pâte 48h + pain frais 24h = 3j → MEP lundi couvre jusqu'à jeudi.
+   * On prend le max DLC recette parmi les recettes qui utilisent cette SR ce jour-là.
+   */
+  function effectiveWindowDays(srId: string, demandDay: string): number {
+    const sr = srMap.get(srId);
+    const srDlcDays = sr?.dlc_heures ? Math.ceil(sr.dlc_heures / 24) : 0;
+
+    // DLC recette(s) produit fini qui utilisent cette SR le jour demandé
+    let maxRecetteDlcDays = 0;
+    const dm = demandMap.get(demandDay);
+    if (dm) {
+      for (const [refId] of dm) {
+        const recette = recettesByRef.get(refId);
+        if (!recette?.dlc_heures) continue;
+        const usesThisSR = (recette.ingredients || []).some(i => i.sous_recipe_id === srId);
+        if (usesThisSR) maxRecetteDlcDays = Math.max(maxRecetteDlcDays, Math.ceil(recette.dlc_heures / 24));
+      }
+    }
+    return srDlcDays + maxRecetteDlcDays;
+  }
+
+  /** Retourne les jours de demande non couverts par la DLC de cette MEP placée */
+  function getPlacedMepDlcWarning(mep: PlacedMep): string[] {
+    const sr = srMap.get(mep.srId);
+    if (!sr?.dlc_heures) return []; // SR sans DLC → pas d'alerte
+    const demandDays = srDemandDays.get(mep.srId) || [];
+    return demandDays.filter(demandDay => {
+      const window = effectiveWindowDays(mep.srId, demandDay);
+      return daysBetween(mep.date, demandDay) > window;
+    });
+  }
+
+  /** Retourne les jours de demande non couverts par AUCUNE MEP valide pour cette SR */
+  function getSrUncoveredDays(srId: string): string[] {
+    const sr = srMap.get(srId);
+    if (!sr?.dlc_heures) return []; // SR sans DLC → pas d'alerte
+    const demandDays = srDemandDays.get(srId) || [];
+    const weekSet = new Set(weekDays);
+    return demandDays.filter(demandDay => {
+      const window = effectiveWindowDays(srId, demandDay);
+      return !placedMeps.some(mep =>
+        mep.srId === srId &&
+        weekSet.has(mep.date) &&
+        mep.date <= demandDay &&
+        daysBetween(mep.date, demandDay) <= window
+      );
+    });
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -1389,7 +1551,9 @@ export default function PlanningPage() {
           const unite = (si?.unite || 'kg').toLowerCase().trim();
           return sum + qty * (UNIT_TO_KG[unite] ?? 1);
         }, 0) ?? task.kgSR;
-        const eq = materiels.find(m => task.atelier ? m.atelier === task.atelier : !m.atelier);
+        const eq = materiels
+          .filter(m => (m.ateliers || []).includes(task.atelier ?? ''))
+          .sort((a, b) => b.capacite_kg - a.capacite_kg)[0] ?? null;
         const nbFournees = eq ? Math.ceil(totalDoughKg / eq.capacite_kg) : null;
         const kgPateParFournee = nbFournees ? totalDoughKg / nbFournees : null;
         return (
@@ -1751,12 +1915,123 @@ export default function PlanningPage() {
         />
       )}
 
+      {/* Modal planification (mode manuel) */}
+      {planifModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onMouseDown={() => setPlanifModal(null)}>
+          <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl p-5 space-y-4" onMouseDown={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-black text-gray-900">
+                  {planifModal.srId ? (srMap.get(planifModal.srId)?.nom || 'MEP') : 'Planifier une MEP'}
+                </p>
+                {planifModal.date && (
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {new Date(planifModal.date + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                  </p>
+                )}
+              </div>
+              <button onClick={() => setPlanifModal(null)}><X size={16} className="text-gray-400" /></button>
+            </div>
+            {!planifModal.srId && (
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-gray-500">Mise en place</span>
+                <select value={planifForm.srId}
+                  onChange={e => setPlanifForm(f => ({ ...f, srId: e.target.value }))}
+                  className="px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
+                  <option value="">— Sélectionner…</option>
+                  {[...srNeededKg.keys()]
+                    .sort((a, b) => (srMap.get(a)?.nom || '').localeCompare(srMap.get(b)?.nom || ''))
+                    .map(srId => {
+                      const sr = srMap.get(srId);
+                      if (!sr) return null;
+                      return <option key={srId} value={srId}>{sr.nom}{sr.atelier ? ` (${sr.atelier})` : ''}</option>;
+                    })}
+                  {srNeededKg.size === 0 && sousRecettes.sort((a, b) => a.nom.localeCompare(b.nom)).map(sr => (
+                    <option key={sr.id} value={sr.id}>{sr.nom}{sr.atelier ? ` (${sr.atelier})` : ''}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {!planifModal.date && (
+              <label className="flex flex-col gap-1">
+                <span className="text-xs font-semibold text-gray-500">Jour</span>
+                <div className="grid grid-cols-7 gap-1">
+                  {weekDays.map(day => {
+                    const isSelected = planifForm.date === day;
+                    const dayNum = new Date(day + 'T00:00:00').getDate();
+                    const dayName = new Date(day + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'short' }).slice(0, 2);
+                    return (
+                      <button key={day} type="button"
+                        onClick={() => setPlanifForm(f => ({ ...f, date: day }))}
+                        className={`flex flex-col items-center py-2 rounded-xl text-xs font-bold transition-colors ${isSelected ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-blue-50'}`}>
+                        <span className="uppercase text-[9px]">{dayName}</span>
+                        <span className="text-base font-black">{dayNum}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </label>
+            )}
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-semibold text-gray-500">Quantité (kg)</span>
+              <input autoFocus type="number" min={0} step={0.1}
+                value={planifForm.qty}
+                onChange={e => setPlanifForm(f => ({ ...f, qty: e.target.value }))}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    const srId = planifModal.srId || planifForm.srId;
+                    const date = planifModal.date || planifForm.date;
+                    const qty = parseFloat(planifForm.qty);
+                    if (!srId || !date || isNaN(qty) || qty <= 0) return;
+                    const sr = srMap.get(srId) || sousRecettes.find(s => s.id === srId);
+                    addPlacedMep(srId, sr?.nom || srId, sr?.atelier ?? null, date, qty);
+                    setPlanifModal(null);
+                  }
+                }}
+                placeholder="ex: 12.5"
+                className="px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              {(planifModal.srId || planifForm.srId) && (() => {
+                const srId = planifModal.srId || planifForm.srId;
+                const needed = srNeededKg.get(srId) || 0;
+                const planned = srPlannedKg.get(srId) || 0;
+                return needed > 0 ? (
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Besoin semaine : <span className="font-bold text-gray-600">{needed.toFixed(2)} kg</span>
+                    {planned > 0 && <> · déjà planifié : <span className="font-bold">{planned.toFixed(2)} kg</span></>}
+                  </p>
+                ) : null;
+              })()}
+            </label>
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => setPlanifModal(null)}
+                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50">
+                Annuler
+              </button>
+              <button
+                onClick={() => {
+                  const srId = planifModal.srId || planifForm.srId;
+                  const date = planifModal.date || planifForm.date;
+                  const qty = parseFloat(planifForm.qty);
+                  if (!srId || !date || isNaN(qty) || qty <= 0) return;
+                  const sr = srMap.get(srId) || sousRecettes.find(s => s.id === srId);
+                  addPlacedMep(srId, sr?.nom || srId, sr?.atelier ?? null, date, qty);
+                  setPlanifModal(null);
+                }}
+                disabled={!((planifModal.srId || planifForm.srId) && (planifModal.date || planifForm.date) && parseFloat(planifForm.qty) > 0)}
+                className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-40">
+                Planifier
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Rétro-planning de production</h1>
+          <h1 className="text-xl font-bold text-gray-900">Planning de production</h1>
           <p className="text-sm text-gray-400">
-            {plan.length} tâche{plan.length > 1 ? 's' : ''} de préparation sur 21 jours
+            {planMode === 'proposition' ? `${plan.length} tâche${plan.length > 1 ? 's' : ''} calculée${plan.length > 1 ? 's' : ''} sur 21 jours` : `${placedMeps.length} MEP${placedMeps.length > 1 ? 's' : ''} planifiée${placedMeps.length > 1 ? 's' : ''} manuellement`}
           </p>
         </div>
         <div className="flex gap-2">
@@ -1778,7 +2053,7 @@ export default function PlanningPage() {
       <div className="flex gap-1 p-1 bg-gray-100 rounded-xl w-fit">
         <button onClick={() => setTab('planning')}
           className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${tab === 'planning' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'}`}>
-          Planning calculé
+          Planning
         </button>
         <button onClick={() => setTab('previsions')}
           className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${tab === 'previsions' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'}`}>
@@ -1789,6 +2064,250 @@ export default function PlanningPage() {
       {/* ── TAB PLANNING ── */}
       {tab === 'planning' && (
         <div className="space-y-4">
+          {/* Toggle Proposition / Manuel */}
+          <div className="flex gap-1 p-1 bg-gray-100 rounded-xl w-fit">
+            <button onClick={() => setPlanMode('proposition')}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 ${planMode === 'proposition' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>
+              ✨ Proposition automatique
+            </button>
+            <button onClick={() => setPlanMode('manuel')}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 ${planMode === 'manuel' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>
+              ✏️ Planification manuelle
+            </button>
+          </div>
+
+          {/* ── MODE MANUEL ── */}
+          {planMode === 'manuel' && (
+            <div className="space-y-4">
+              {/* Navigation semaine */}
+              <div className="flex items-center gap-3">
+                <button onClick={() => setWeekOffset(w => w - 1)} className="p-2 rounded-xl bg-white border border-gray-200 hover:bg-gray-50">
+                  <ChevronLeft size={16} />
+                </button>
+                <div className="flex-1 text-center">
+                  <p className="text-sm font-semibold text-gray-900">{formatShortDate(weekDays[0])} — {formatShortDate(weekDays[6])}</p>
+                  {weekOffset === 0 && <p className="text-xs text-gray-400">Cette semaine</p>}
+                  {weekOffset === 1 && <p className="text-xs text-gray-400">Semaine prochaine</p>}
+                  {weekOffset < 0 && <p className="text-xs text-gray-400">Semaine passée</p>}
+                </div>
+                <button onClick={() => setWeekOffset(w => w + 1)} className="p-2 rounded-xl bg-white border border-gray-200 hover:bg-gray-50">
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+
+              <div className="flex gap-4 items-start">
+                {/* Sidebar : mises en place à planifier */}
+                <div className="w-56 shrink-0 space-y-2">
+                  <p className="text-xs font-black text-gray-400 uppercase tracking-wider px-1">À planifier cette semaine</p>
+                  {srNeededKg.size === 0 ? (
+                    <div className="bg-white border border-gray-100 rounded-2xl p-4 text-center">
+                      <p className="text-xs text-gray-400">Aucune prévision pour cette semaine</p>
+                      <p className="text-[10px] text-gray-300 mt-1">Renseignez les prévisions de vente pour voir les MEPs nécessaires</p>
+                    </div>
+                  ) : (
+                    [...srNeededKg.entries()]
+                      .sort((a, b) => (srMap.get(a[0])?.nom || '').localeCompare(srMap.get(b[0])?.nom || ''))
+                      .map(([srId, needed]) => {
+                        const sr = srMap.get(srId);
+                        if (!sr) return null;
+                        const planned = srPlannedKg.get(srId) || 0;
+                        const status = getMepStatus(srId);
+                        const pct = needed > 0 ? Math.min(100, Math.round((planned / needed) * 100)) : 100;
+                        const statusBg = { ok: 'border-green-200 bg-green-50', low: 'border-red-200 bg-red-50', high: 'border-orange-200 bg-orange-50' }[status];
+                        const dotColor = { ok: 'bg-green-500', low: 'bg-red-500', high: 'bg-orange-400' }[status];
+                        const barColor = { ok: 'bg-green-500', low: 'bg-red-400', high: 'bg-orange-400' }[status];
+                        const textColor = { ok: 'text-green-700', low: 'text-red-600', high: 'text-orange-600' }[status];
+                        return (
+                          <div key={srId}
+                            draggable
+                            onDragStart={e => { setDraggingSrId(srId); e.dataTransfer.effectAllowed = 'copy'; }}
+                            onDragEnd={() => setDraggingSrId(null)}
+                            className={`rounded-xl border p-3 space-y-2 cursor-grab active:cursor-grabbing select-none transition-opacity ${statusBg} ${draggingSrId === srId ? 'opacity-50' : ''}`}>
+                            <div className="flex items-start justify-between gap-1">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5">
+                                  <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
+                                  <p className="font-bold text-gray-900 text-sm leading-tight truncate">{sr.nom}</p>
+                                </div>
+                                {sr.atelier && (
+                                  <p className="text-[9px] text-gray-400 uppercase tracking-wide mt-0.5 pl-3.5">{sr.atelier}</p>
+                                )}
+                                <p className="text-[9px] text-gray-400 mt-1 pl-3.5">↔ glisser sur un jour</p>
+                              </div>
+                              <button
+                                onClick={() => {
+                                  setPlanifForm({ srId, date: weekDays[0], qty: '' });
+                                  setPlanifModal({ srId });
+                                }}
+                                className="shrink-0 w-6 h-6 rounded-lg bg-white border border-gray-200 flex items-center justify-center text-gray-500 hover:text-blue-600 hover:border-blue-300 transition-colors">
+                                <Plus size={12} />
+                              </button>
+                            </div>
+                            <div className="space-y-1">
+                              <div className="h-1.5 bg-white/70 rounded-full overflow-hidden">
+                                <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
+                              </div>
+                              <p className={`text-xs font-bold ${textColor}`}>
+                                {planned > 0 ? `${planned.toFixed(1)} / ` : ''}{needed.toFixed(1)} kg
+                                {status === 'ok' && <span className="ml-1 font-semibold">✓</span>}
+                                {status === 'high' && <span className="ml-1 text-[10px] font-semibold">(+{Math.round((planned / needed - 1) * 100)}%)</span>}
+                                {status === 'low' && planned > 0 && <span className="ml-1 text-[10px] font-semibold">({Math.round((1 - planned / needed) * 100)}% restant)</span>}
+                              </p>
+                            </div>
+                            {(() => {
+                              const uncoveredDays = getSrUncoveredDays(srId);
+                              if (uncoveredDays.length === 0) return null;
+                              const sr2 = srMap.get(srId);
+                              const dlcH = sr2?.dlc_heures;
+                              return (
+                                <div className="flex items-start gap-1 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+                                  <span className="text-amber-500 text-xs shrink-0">⚠</span>
+                                  <div>
+                                    <p className="text-[10px] text-amber-800 font-bold leading-tight">MEP trop tôt</p>
+                                    <p className="text-[9px] text-amber-600 mt-0.5">
+                                      {uncoveredDays.map(d => {
+                                        const w = effectiveWindowDays(srId, d);
+                                        const label = new Date(d + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' });
+                                        return `${label} (fenêtre ${w}j)`;
+                                      }).join(', ')}
+                                    </p>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        );
+                      })
+                  )}
+                  {/* Ajouter une SR hors prévisionnel */}
+                  <button
+                    onClick={() => { setPlanifForm({ srId: '', date: weekDays[0], qty: '' }); setPlanifModal({}); }}
+                    className="w-full flex items-center justify-center gap-1 py-2 rounded-xl border-2 border-dashed border-gray-200 text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors text-xs font-semibold">
+                    <Plus size={13} /> Autre mise en place
+                  </button>
+                </div>
+
+                {/* Kanban semaine */}
+                <div className="flex-1 min-w-0">
+                  <div className="grid grid-cols-7 gap-2">
+                    {weekDays.map(day => {
+                      const isToday = day === todayStr;
+                      const isPast = day < todayStr;
+                      const dayMeps = placedMeps.filter(m => m.date === day);
+                      return (
+                        <div key={day}
+                          className={`flex flex-col rounded-2xl transition-colors ${
+                            dragOverManuelDay === day ? 'ring-2 ring-blue-400 bg-blue-50' :
+                            isToday ? 'ring-2 ring-blue-300 bg-blue-50' : 'bg-gray-50'
+                          }`}
+                          onDragOver={e => { if (draggingSrId) { e.preventDefault(); setDragOverManuelDay(day); } }}
+                          onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverManuelDay(null); }}
+                          onDrop={e => {
+                            e.preventDefault();
+                            setDragOverManuelDay(null);
+                            if (draggingSrId) {
+                              setPlanifForm({ srId: draggingSrId, date: day, qty: '' });
+                              setPlanifModal({ srId: draggingSrId, date: day });
+                              setDraggingSrId(null);
+                            }
+                          }}>
+                          {/* En-tête jour */}
+                          <div className={`px-3 pt-3 pb-2 rounded-t-2xl ${dragOverManuelDay === day ? 'bg-blue-500' : isToday ? 'bg-blue-600' : isPast ? 'bg-red-100/60' : ''}`}>
+                            <p className={`text-xs font-black uppercase tracking-wider ${dragOverManuelDay === day || isToday ? 'text-blue-100' : isPast ? 'text-red-400' : 'text-gray-400'}`}>
+                              {new Date(day + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'long' })}
+                            </p>
+                            <p className={`text-base font-black leading-tight ${dragOverManuelDay === day || isToday ? 'text-white' : isPast ? 'text-red-500' : 'text-gray-900'}`}>
+                              {new Date(day + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                            </p>
+                          </div>
+
+                          {/* MEPs */}
+                          <div className="flex flex-col gap-2 p-2 flex-1">
+                            {dayMeps.map(mep => {
+                              const status = getMepStatus(mep.srId);
+                              const isEditing = editingMepId === mep.id;
+                              const atelierColor = mep.atelier === 'boulangerie' ? 'border-l-amber-400' :
+                                mep.atelier === 'patisserie' ? 'border-l-pink-400' :
+                                mep.atelier === 'viennoiserie' ? 'border-l-orange-400' : 'border-l-gray-300';
+                              const qtyColor = { ok: 'text-green-600', low: 'text-red-500', high: 'text-orange-500' }[status];
+                              return (
+                                <div key={mep.id} className={`bg-white rounded-xl border-l-4 ${atelierColor} shadow-sm p-2.5`}>
+                                  <div className="flex items-start justify-between gap-1">
+                                    <p className="font-bold text-gray-900 text-xs leading-tight flex-1 truncate">{mep.srNom}</p>
+                                    <button onClick={() => deletePlacedMep(mep.id)} className="text-gray-200 hover:text-red-400 shrink-0">
+                                      <X size={11} />
+                                    </button>
+                                  </div>
+                                  {isEditing ? (
+                                    <div className="flex gap-1 mt-1.5 items-center">
+                                      <input autoFocus type="number" min={0} step={0.1}
+                                        value={editingMepQty}
+                                        onChange={e => setEditingMepQty(e.target.value)}
+                                        onKeyDown={e => {
+                                          if (e.key === 'Enter') { const q = parseFloat(editingMepQty); if (!isNaN(q) && q > 0) updatePlacedMepQty(mep.id, q); setEditingMepId(null); }
+                                          if (e.key === 'Escape') setEditingMepId(null);
+                                        }}
+                                        onBlur={() => { const q = parseFloat(editingMepQty); if (!isNaN(q) && q > 0) updatePlacedMepQty(mep.id, q); setEditingMepId(null); }}
+                                        className="flex-1 min-w-0 px-1.5 py-1 border border-blue-300 rounded-lg text-xs focus:outline-none" />
+                                      <span className="text-[10px] text-gray-400">kg</span>
+                                    </div>
+                                  ) : (
+                                    <button onClick={() => { setEditingMepId(mep.id); setEditingMepQty(String(mep.quantiteKg)); }}
+                                      className={`mt-1 text-sm font-black tabular-nums hover:underline ${qtyColor}`}>
+                                      {mep.quantiteKg >= 1 ? `${mep.quantiteKg.toFixed(1)} kg` : `${Math.round(mep.quantiteKg * 1000)} g`}
+                                    </button>
+                                  )}
+                                  {mep.atelier && <p className="text-[9px] text-gray-400 uppercase tracking-wide mt-0.5">{mep.atelier}</p>}
+                                  {(() => {
+                                    const uncovered = getPlacedMepDlcWarning(mep);
+                                    if (uncovered.length === 0) return null;
+                                    const sr2 = srMap.get(mep.srId);
+                                    const srDlcH = sr2?.dlc_heures ?? 0;
+                                    // Fenêtre max parmi les jours non couverts
+                                    const maxWindow = Math.max(...uncovered.map(d => effectiveWindowDays(mep.srId, d)));
+                                    return (
+                                      <div className="mt-1.5 flex items-start gap-1 bg-amber-50 border border-amber-200 rounded-lg px-1.5 py-1">
+                                        <span className="text-amber-500 text-[10px] shrink-0 leading-none mt-px">⚠</span>
+                                        <div>
+                                          <p className="text-[9px] text-amber-700 font-semibold leading-tight">
+                                            Trop tôt pour {uncovered.map(d => new Date(d + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })).join(', ')}
+                                          </p>
+                                          <p className="text-[8px] text-amber-500 mt-0.5">
+                                            Fenêtre max : {maxWindow}j
+                                            {srDlcH > 0 && maxWindow > Math.ceil(srDlcH / 24) && ` (SR ${Math.ceil(srDlcH/24)}j + produit fini)`}
+                                          </p>
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                              );
+                            })}
+
+                            {dayMeps.length === 0 && (
+                              <div className="flex-1 min-h-12 rounded-xl border-2 border-dashed border-gray-200 flex items-center justify-center">
+                                <p className="text-[10px] text-gray-300">Vide</p>
+                              </div>
+                            )}
+
+                            <button
+                              onClick={() => { setPlanifForm({ srId: '', date: day, qty: '' }); setPlanifModal({ date: day }); }}
+                              className="w-full flex items-center justify-center gap-1 py-2 rounded-xl border-2 border-dashed border-gray-200 text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors text-xs font-semibold">
+                              <Plus size={13} /> Ajouter
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── MODE PROPOSITION ── */}
+          {planMode === 'proposition' && (
+          <div className="space-y-4">
           {/* Diagnostic — toujours visible si pas de tâches ou si des produits sont bloqués */}
           {(() => {
             type DiagItem = { refId: string; nom: string; status: 'no_recipe' | 'no_sr'; recette: Recette | null };
@@ -2138,6 +2657,8 @@ export default function PlanningPage() {
                 </div>
               );
             })()
+          )}
+          </div>
           )}
         </div>
       )}

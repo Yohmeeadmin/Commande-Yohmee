@@ -10,5 +10,11 @@ CREATE TABLE IF NOT EXISTS public.materiel (
 
 ALTER TABLE public.materiel ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Authenticated full access" ON public.materiel
-  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'materiel' AND policyname = 'Authenticated full access'
+  ) THEN
+    CREATE POLICY "Authenticated full access" ON public.materiel
+      FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+END $$;

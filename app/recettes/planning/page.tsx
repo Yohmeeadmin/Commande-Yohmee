@@ -410,7 +410,7 @@ function buildPlan(
 
 // ─── TaskCard ─────────────────────────────────────────────────────────────────
 
-interface MaterielLight { id: string; nom: string; capacite_kg: number; atelier: string | null; }
+interface MaterielLight { id: string; nom: string; capacite_kg: number; ateliers: string[]; }
 
 function TaskCard({ task, stockPreps, onStockClick, onDoubleClick, completed, materiels }: {
   task: PrepTask;
@@ -421,7 +421,7 @@ function TaskCard({ task, stockPreps, onStockClick, onDoubleClick, completed, ma
   materiels?: MaterielLight[];
 }) {
   const stockSR = stockPreps.find(s => s.recipe_sheet_id === task.srId);
-  const hasEquipment = materiels?.some(m => task.atelier ? m.atelier === task.atelier : !m.atelier) ?? false;
+  const hasEquipment = materiels?.some(m => (m.ateliers || []).includes(task.atelier ?? '')) ?? false;
 
   return (
     <div onDoubleClick={onDoubleClick}
@@ -790,7 +790,7 @@ export default function PlanningPage() {
         fetchStockProd(),
         fetchStockPrep(),
         supabase.from('stock_items').select('id, nom, unite'),
-        supabase.from('materiel').select('id, nom, capacite_kg, atelier').order('nom'),
+        supabase.from('materiel').select('id, nom, capacite_kg, ateliers').order('nom'),
       ]);
 
       setProductRefs((refsRes.data || []) as ProductRef[]);
@@ -1389,7 +1389,9 @@ export default function PlanningPage() {
           const unite = (si?.unite || 'kg').toLowerCase().trim();
           return sum + qty * (UNIT_TO_KG[unite] ?? 1);
         }, 0) ?? task.kgSR;
-        const eq = materiels.find(m => task.atelier ? m.atelier === task.atelier : !m.atelier);
+        const eq = materiels
+          .filter(m => (m.ateliers || []).includes(task.atelier ?? ''))
+          .sort((a, b) => b.capacite_kg - a.capacite_kg)[0] ?? null;
         const nbFournees = eq ? Math.ceil(totalDoughKg / eq.capacite_kg) : null;
         const kgPateParFournee = nbFournees ? totalDoughKg / nbFournees : null;
         return (
