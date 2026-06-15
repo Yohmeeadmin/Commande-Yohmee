@@ -20,7 +20,7 @@ const UserContext = createContext<UserContextType>({
   refreshProfile: async () => {},
 });
 
-const PUBLIC_PATHS = ['/login', '/changer-mot-de-passe', '/accueil', '/portail'];
+const PUBLIC_PATHS = ['/login', '/changer-mot-de-passe', '/accueil', '/portail', '/mon-planning'];
 
 // Cache module-level : le profil survit aux re-renders sans requête DB
 let profileCache: UserProfile | null = null;
@@ -121,6 +121,12 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
           // Chauffeur lié → rediriger vers sa vue tournée
           if (prof.role === 'livraison' && prof.driver_id && !pathnameRef.current.startsWith('/chauffeur')) {
             router.push(`/chauffeur/${prof.driver_id}`);
+            return;
+          }
+
+          // Employé lié → rediriger vers son planning personnel
+          if (prof.employe_id && !['admin', 'direction'].includes(prof.role) && !pathnameRef.current.startsWith('/mon-planning')) {
+            router.push('/mon-planning');
             return;
           }
 

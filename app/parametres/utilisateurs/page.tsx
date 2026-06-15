@@ -39,6 +39,13 @@ interface Driver {
   last_name: string;
 }
 
+interface Employe {
+  id: string;
+  nom: string;
+  poste: string | null;
+  service: string | null;
+}
+
 interface UserForm {
   first_name: string;
   last_name: string;
@@ -47,6 +54,7 @@ interface UserForm {
   modules: AppModule[];
   ateliers: string[];
   driver_id: string;
+  employe_id: string;
 }
 
 const emptyForm = (): UserForm => ({
@@ -57,6 +65,7 @@ const emptyForm = (): UserForm => ({
   modules: [],
   ateliers: [],
   driver_id: '',
+  employe_id: '',
 });
 
 // ─── Page ────────────────────────────────────────────────────────────────────
@@ -65,6 +74,7 @@ export default function UtilisateursPage() {
   const { profile: currentProfile } = useUser();
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [employes, setEmployes] = useState<Employe[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortKey, setSortKey] = useState<string>('nom');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -75,7 +85,7 @@ export default function UtilisateursPage() {
   const [tempPassword, setTempPassword] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => { loadUsers(); loadDrivers(); }, []);
+  useEffect(() => { loadUsers(); loadDrivers(); loadEmployes(); }, []);
 
   async function loadUsers() {
     const token = await getToken();
@@ -93,6 +103,15 @@ export default function UtilisateursPage() {
       .eq('is_active', true)
       .order('first_name');
     setDrivers((data as Driver[]) || []);
+  }
+
+  async function loadEmployes() {
+    const { data } = await supabase
+      .from('rh_employes')
+      .select('id, nom, poste, service')
+      .eq('actif', true)
+      .order('nom');
+    setEmployes((data as Employe[]) || []);
   }
 
   async function handleCreate(form: UserForm) {
@@ -293,6 +312,7 @@ export default function UtilisateursPage() {
           title="Ajouter un utilisateur"
           initialForm={emptyForm()}
           drivers={drivers}
+          employes={employes}
           onSubmit={handleCreate}
           onClose={() => setShowCreate(false)}
           submitLabel="Créer l'utilisateur"
@@ -311,8 +331,10 @@ export default function UtilisateursPage() {
             modules: editingUser.modules,
             ateliers: editingUser.ateliers,
             driver_id: editingUser.driver_id || '',
+            employe_id: editingUser.employe_id || '',
           }}
           drivers={drivers}
+          employes={employes}
           onSubmit={handleEdit}
           onClose={() => setEditingUser(null)}
           submitLabel="Enregistrer"
@@ -343,6 +365,7 @@ function UserFormModal({
   title,
   initialForm,
   drivers,
+  employes,
   onSubmit,
   onClose,
   submitLabel,
@@ -351,6 +374,7 @@ function UserFormModal({
   title: string;
   initialForm: UserForm;
   drivers: Driver[];
+  employes: Employe[];
   onSubmit: (form: UserForm) => Promise<void>;
   onClose: () => void;
   submitLabel: string;
@@ -479,6 +503,30 @@ function UserFormModal({
                 {form.driver_id
                   ? 'Ce compte sera automatiquement redirigé vers la vue tournée de ce livreur à la connexion.'
                   : 'Sans livreur associé, ce compte verra la vue livraisons standard.'}
+              </p>
+            </div>
+          )}
+
+          {/* Lien employé */}
+          {employes.length > 0 && (
+            <div className="bg-amber-50 border border-amber-100 rounded-xl p-4">
+              <label className="block text-sm font-semibold text-amber-900 mb-2">
+                Employé associé (planning)
+              </label>
+              <select
+                value={form.employe_id}
+                onChange={e => setForm(f => ({ ...f, employe_id: e.target.value }))}
+                className="w-full px-4 py-2.5 border border-amber-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white text-sm"
+              >
+                <option value="">— Aucun employé associé —</option>
+                {employes.map(e => (
+                  <option key={e.id} value={e.id}>{e.nom}{e.poste ? ` — ${e.poste}` : ''}{e.service ? ` (${e.service})` : ''}</option>
+                ))}
+              </select>
+              <p className="text-xs text-amber-700 mt-2">
+                {form.employe_id
+                  ? 'Cet utilisateur pourra soumettre ses demandes d\'absence et voir son planning personnel.'
+                  : 'Sans lien, l\'utilisateur ne peut pas soumettre de demandes d\'absence en son nom.'}
               </p>
             </div>
           )}

@@ -20,6 +20,7 @@ export interface UserProfile {
   modules: AppModule[];
   ateliers: string[]; // [] = tous les ateliers
   driver_id: string | null;
+  employe_id: string | null;
   created_at: string;
 }
 
