@@ -791,7 +791,7 @@ export default function ProductionPersonnelPage() {
   });
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 min-w-0 w-full overflow-x-hidden">
       {/* Header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3">
@@ -924,14 +924,14 @@ export default function ProductionPersonnelPage() {
         <VueEquipe employes={employes} planning={planning} absences={absences} weekMonday={weekMonday} />
       ) : (
         <div className="overflow-x-auto rounded-2xl border-2 border-gray-300 bg-white">
-          <table className="w-full border-collapse" style={{ minWidth: '1180px' }}>
+          <table className="w-full border-collapse" style={{ minWidth: '980px' }}>
             <thead>
               <tr className="border-b-2 border-gray-300 bg-gray-100">
-                <th className="text-left px-4 py-3 text-xs font-black text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-100 z-10 w-44 border-r-2 border-gray-300">
+                <th className="text-left px-3 py-3 text-xs font-black text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-100 z-10 w-36 border-r-2 border-gray-300">
                   Employé
                 </th>
                 {JOURS.map((j, i) => (
-                  <th key={i} className={`text-center px-2 py-3 text-xs font-black uppercase tracking-wider border-r border-gray-300 ${i >= 5 ? 'text-gray-400 bg-gray-200' : 'text-gray-600'}`}>
+                  <th key={i} className={`text-center px-1 py-3 text-xs font-black uppercase tracking-wider border-r border-gray-300 ${i >= 5 ? 'text-gray-400 bg-gray-200' : 'text-gray-600'}`}>
                     <div>{j.slice(0, 3)}</div>
                     <div className="text-[10px] font-semibold text-gray-400 mt-0.5 normal-case tracking-normal">
                       {fmtDay(dayDate(weekMonday, i))}
@@ -971,7 +971,7 @@ export default function ProductionPersonnelPage() {
                       return (
                         <tr key={emp.id} className={`${isLastEmp ? 'border-b-2 border-gray-300' : 'border-b border-gray-200'} ${empSt.row} transition-colors`}>
                           {/* Cellule employé */}
-                          <td className="px-4 py-2 sticky left-0 bg-white z-10 border-r-2 border-gray-300">
+                          <td className="px-3 py-2 sticky left-0 bg-white z-10 border-r-2 border-gray-300 w-36">
                             <button onClick={() => setProfilEmp(emp)} className="flex items-center gap-1 group text-left w-full">
                               <p className="text-sm font-bold text-gray-900 leading-tight group-hover:text-blue-600 transition-colors">{emp.nom}</p>
                               <ChevronRight size={12} className="text-gray-300 group-hover:text-blue-400 transition-colors shrink-0" />
@@ -1017,7 +1017,7 @@ export default function ProductionPersonnelPage() {
                             return (
                               <td
                                 key={jour}
-                                className={`px-1.5 py-1.5 align-top border-r border-gray-200 ${isWeekend ? 'bg-gray-50' : ''}`}
+                                className={`px-1 py-1.5 align-top border-r border-gray-200 ${isWeekend ? 'bg-gray-50' : ''}`}
                                 onDragOver={e => { if (canDrop) { e.preventDefault(); setDragOver({ empId: emp.id, jour }); } }}
                                 onDragLeave={() => setDragOver(null)}
                                 onDrop={() => onDrop(emp.id, jour)}
@@ -1051,12 +1051,12 @@ export default function ProductionPersonnelPage() {
                                       <input type="time" value={slot.heure_debut}
                                         onChange={e => updateSlot(emp.id, jour, { heure_debut: e.target.value })}
                                         onDragStart={e => e.stopPropagation()}
-                                        className="text-[11px] font-bold bg-transparent border-none outline-none w-[3.8rem] text-gray-800 cursor-text" />
+                                        className="text-[11px] font-bold bg-transparent border-none outline-none w-[3.2rem] text-gray-800 cursor-text" />
                                       <span className="text-gray-300 text-[9px] font-bold leading-none">→</span>
                                       <input type="time" value={slot.heure_fin}
                                         onChange={e => updateSlot(emp.id, jour, { heure_fin: e.target.value })}
                                         onDragStart={e => e.stopPropagation()}
-                                        className="text-[11px] font-bold bg-transparent border-none outline-none w-[3.8rem] text-gray-800 cursor-text" />
+                                        className="text-[11px] font-bold bg-transparent border-none outline-none w-[3.2rem] text-gray-800 cursor-text" />
                                     </div>
                                     {/* Pause + total */}
                                     <div className="flex items-center gap-1">
