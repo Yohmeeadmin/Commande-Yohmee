@@ -375,10 +375,11 @@ function ProfilModal({ emp, onClose, onSave, onApply }: {
   onApply: (empId: string, shift: { debut: string; fin: string; pause: number }, joursOff: number[]) => void;
 }) {
   const st = sStyle(emp.service);
-  const [debut, setDebut]   = useState(emp.shift_debut ?? '04:00');
-  const [fin, setFin]       = useState(emp.shift_fin ?? '12:00');
-  const [pause, setPause]   = useState(emp.shift_pause_min ?? 0);
-  const [joursOff, setJoursOff] = useState<number[]>(emp.jours_off ?? []);
+  const [debut, setDebut]         = useState(emp.shift_debut ?? '04:00');
+  const [fin, setFin]             = useState(emp.shift_fin ?? '12:00');
+  const [pause, setPause]         = useState(emp.shift_pause_min ?? 0);
+  const [joursOff, setJoursOff]   = useState<number[]>(emp.jours_off ?? []);
+  const [heuresContrat, setHeuresContrat] = useState(emp.heures_contrat ?? 35);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved]   = useState(false);
 
@@ -396,7 +397,7 @@ function ProfilModal({ emp, onClose, onSave, onApply }: {
 
   async function handleSave() {
     setSaving(true);
-    await onSave({ shift_debut: debut, shift_fin: fin, shift_pause_min: pause, jours_off: joursOff });
+    await onSave({ shift_debut: debut, shift_fin: fin, shift_pause_min: pause, jours_off: joursOff, heures_contrat: heuresContrat });
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
@@ -467,6 +468,26 @@ function ProfilModal({ emp, onClose, onSave, onApply }: {
             <p className="text-xs text-gray-400 mt-2">
               {joursOff.length === 0 ? 'Aucun jour de repos défini' : `${joursOff.length} jour${joursOff.length > 1 ? 's' : ''} de repos`}
             </p>
+          </div>
+
+          <div>
+            <p className="text-xs font-black text-gray-400 uppercase tracking-wider mb-3">Contrat de travail</p>
+            <div className="flex items-center gap-3">
+              <div className="flex gap-2 flex-wrap">
+                {[20, 25, 30, 35, 39].map(h => (
+                  <button key={h} type="button" onClick={() => setHeuresContrat(h)}
+                    className={`px-3 py-2 rounded-xl text-sm font-bold border-2 transition-all ${heuresContrat === h ? 'bg-gray-900 border-gray-900 text-white' : 'border-gray-200 text-gray-600 hover:border-gray-400'}`}>
+                    {h}h
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-1.5 ml-auto">
+                <input type="number" min={1} max={48} value={heuresContrat}
+                  onChange={e => setHeuresContrat(parseInt(e.target.value) || 35)}
+                  className="w-16 px-3 py-2 border-2 border-gray-200 rounded-xl text-sm font-bold text-center focus:outline-none focus:border-amber-400" />
+                <span className="text-sm text-gray-400">h/sem</span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -718,6 +739,7 @@ export default function ProductionPersonnelPage() {
     await supabase.from('rh_employes').update({
       shift_debut: patch.shift_debut, shift_fin: patch.shift_fin,
       shift_pause_min: patch.shift_pause_min, jours_off: patch.jours_off,
+      heures_contrat: patch.heures_contrat,
     }).eq('id', empId);
     setEmployes(prev => prev.map(e => e.id === empId ? { ...e, ...patch } : e));
     if (profilEmp?.id === empId) setProfilEmp(p => p ? { ...p, ...patch } : p);
@@ -902,7 +924,7 @@ export default function ProductionPersonnelPage() {
         <VueEquipe employes={employes} planning={planning} absences={absences} weekMonday={weekMonday} />
       ) : (
         <div className="overflow-x-auto rounded-2xl border-2 border-gray-300 bg-white">
-          <table className="w-full border-collapse" style={{ minWidth: '900px' }}>
+          <table className="w-full border-collapse" style={{ minWidth: '1180px' }}>
             <thead>
               <tr className="border-b-2 border-gray-300 bg-gray-100">
                 <th className="text-left px-4 py-3 text-xs font-black text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-100 z-10 w-44 border-r-2 border-gray-300">
