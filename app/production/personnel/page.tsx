@@ -868,28 +868,28 @@ export default function ProductionPersonnelPage() {
                                       className="absolute top-1 right-1 p-0.5 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity rounded">
                                       <X size={10} />
                                     </button>
-                                    <div className="flex items-center gap-0.5 mb-1">
-                                      <Clock size={8} className="text-gray-400 shrink-0" />
+                                    {/* Heures */}
+                                    <div className="flex items-center gap-0.5 mb-1.5">
                                       <input type="time" value={slot.heure_debut}
                                         onChange={e => updateSlot(emp.id, jour, { heure_debut: e.target.value })}
                                         onDragStart={e => e.stopPropagation()}
-                                        className="text-xs bg-transparent border-none outline-none w-12 text-gray-700 font-semibold cursor-text" />
-                                      <span className="text-gray-300 text-[10px]">-</span>
+                                        className="text-[11px] font-bold bg-transparent border-none outline-none w-[3.8rem] text-gray-800 cursor-text" />
+                                      <span className="text-gray-300 text-[9px] font-bold leading-none">→</span>
                                       <input type="time" value={slot.heure_fin}
                                         onChange={e => updateSlot(emp.id, jour, { heure_fin: e.target.value })}
                                         onDragStart={e => e.stopPropagation()}
-                                        className="text-xs bg-transparent border-none outline-none w-12 text-gray-700 font-semibold cursor-text" />
+                                        className="text-[11px] font-bold bg-transparent border-none outline-none w-[3.8rem] text-gray-800 cursor-text" />
                                     </div>
+                                    {/* Pause + total */}
                                     <div className="flex items-center gap-1">
-                                      <Coffee size={8} className="text-gray-400 shrink-0" />
-                                      <input type="number" min={0} max={120} step={5}
-                                        value={slot.pause_min || ''}
-                                        onChange={e => updateSlot(emp.id, jour, { pause_min: parseInt(e.target.value) || 0 })}
+                                      <select value={slot.pause_min}
+                                        onChange={e => updateSlot(emp.id, jour, { pause_min: parseInt(e.target.value) })}
                                         onDragStart={e => e.stopPropagation()}
-                                        placeholder="0"
-                                        className="text-xs bg-transparent border-none outline-none w-6 text-gray-500 cursor-text text-center" />
-                                      <span className="text-[9px] text-gray-400">min</span>
-                                      <span className={`ml-auto text-[10px] font-black ${empSt.text}`}>{fmtMin(slotNetMin(slot))}</span>
+                                        className="text-[9px] bg-white border border-gray-200 rounded-md px-1 py-0.5 text-gray-500 cursor-pointer focus:outline-none focus:border-gray-400 leading-tight">
+                                        <option value={0}>— pause</option>
+                                        {[15,30,45,60,90].map(m => <option key={m} value={m}>{m}&apos;</option>)}
+                                      </select>
+                                      <span className={`ml-auto text-[11px] font-black ${empSt.text}`}>{fmtMin(slotNetMin(slot))}</span>
                                     </div>
                                   </div>
                                 ) : (
