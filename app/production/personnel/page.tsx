@@ -25,7 +25,7 @@ interface Slot {
   pause_min: number;
 }
 
-type AbsenceType = 'conge' | 'recup' | 'maladie' | 'autre';
+type AbsenceType = 'conge' | 'recup' | 'maladie' | 'autre' | 'off';
 
 interface AbsenceRow {
   employe_id: string;
@@ -45,6 +45,7 @@ const ABSENCE_TYPES: {
   key: AbsenceType; short: string; label: string;
   cell: string; badge: string; pill: string; text: string;
 }[] = [
+  { key: 'off',     short: 'OFF', label: 'Jour off',       cell: 'bg-slate-50 border-slate-400',     badge: 'bg-slate-800 text-white',         pill: 'bg-slate-700 text-white hover:bg-slate-900',            text: 'text-slate-700'   },
   { key: 'conge',   short: 'CP',  label: 'Congé payé',    cell: 'bg-emerald-50 border-emerald-300', badge: 'bg-emerald-100 text-emerald-800', pill: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200', text: 'text-emerald-700' },
   { key: 'recup',   short: 'REC', label: 'Récupération',  cell: 'bg-blue-50 border-blue-300',       badge: 'bg-blue-100 text-blue-800',       pill: 'bg-blue-100 text-blue-700 hover:bg-blue-200',           text: 'text-blue-700'    },
   { key: 'maladie', short: 'MAL', label: 'Maladie',       cell: 'bg-red-50 border-red-300',         badge: 'bg-red-100 text-red-800',         pill: 'bg-red-100 text-red-700 hover:bg-red-200',              text: 'text-red-700'     },
