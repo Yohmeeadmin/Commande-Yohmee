@@ -2445,10 +2445,6 @@ export default function RecettesPage() {
             className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50">
             <FileText size={15} /> <span className="hidden sm:inline">Fiches de Prod</span><span className="sm:hidden">FP</span>
           </Link>
-          <Link href="/recettes/catalogue"
-            className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50">
-            <BookOpen size={15} /> <span className="hidden sm:inline">Catalogue coûté</span><span className="sm:hidden">Catalogue</span>
-          </Link>
           <button onClick={openNew}
             className="flex items-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700">
             <Plus size={15} /> Nouvelle
@@ -2685,6 +2681,22 @@ export default function RecettesPage() {
                     </div>
                     <div className="flex items-center gap-3 mt-1 text-xs text-gray-400 flex-wrap">
                       <span>Coût/unité : <strong className="text-gray-700">{coutUnitaire.toFixed(2)} MAD</strong></span>
+                      {coutUnitaire > 0 && recipe.type === 'recette' && (() => {
+                        let poidsParPieceKg: number | null = null;
+                        if (recipe.poids_portion_g && recipe.poids_portion_g > 0) {
+                          poidsParPieceKg = recipe.poids_portion_g / 1000;
+                        } else {
+                          const poidsKgBrut = calcPoidsKg(recipe.ingredients || [], sousRecettes);
+                          if (poidsKgBrut > 0) {
+                            const perte = (recipe.perte_pct || 0) / 100;
+                            poidsParPieceKg = poidsKgBrut * (1 - perte) / (recipe.rendement || 1);
+                          }
+                        }
+                        const prixKg = poidsParPieceKg && poidsParPieceKg > 0 ? coutUnitaire / poidsParPieceKg : null;
+                        return prixKg !== null ? (
+                          <span>Prix/kg : <strong className="text-blue-600">{prixKg.toFixed(2)} MAD</strong></span>
+                        ) : null;
+                      })()}
                       {pv !== null && <span>Vente : <strong className="text-gray-700">{pv.toFixed(2)} MAD</strong></span>}
                       {marge !== null && <span className={`font-semibold ${margeColor(tauxMarge)}`}>+{marge.toFixed(2)} MAD</span>}
                       <span>
@@ -2762,7 +2774,7 @@ export default function RecettesPage() {
                       <p className="text-xs text-gray-400 text-center py-2">Aucun ingrédient — cliquez sur Modifier</p>
                     )}
                     {/* Mini récap */}
-                    <div className={`grid gap-2 pt-1 ${recipe.type === 'sous_recette' ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2 sm:grid-cols-3'}`}>
+                    <div className="grid gap-2 pt-1 grid-cols-2 sm:grid-cols-4">
                       <div className="bg-gray-50 rounded-xl px-3 py-2 text-center">
                         <p className="text-xs text-gray-400">Coût total</p>
                         <p className="text-sm font-bold text-gray-800">{coutAvecPerte.toFixed(2)} MAD</p>
@@ -2771,6 +2783,30 @@ export default function RecettesPage() {
                         <p className="text-xs text-gray-400">Par unité</p>
                         <p className="text-sm font-bold text-gray-800">{coutUnitaire.toFixed(2)} MAD</p>
                       </div>
+                      {recipe.type === 'recette' && (() => {
+                        let poidsParPieceKg: number | null = null;
+                        if (recipe.poids_portion_g && recipe.poids_portion_g > 0) {
+                          poidsParPieceKg = recipe.poids_portion_g / 1000;
+                        } else {
+                          const poidsKgBrut = calcPoidsKg(recipe.ingredients || [], sousRecettes);
+                          if (poidsKgBrut > 0) {
+                            const perte = (recipe.perte_pct || 0) / 100;
+                            const poidsKgNet = poidsKgBrut * (1 - perte);
+                            poidsParPieceKg = poidsKgNet / (recipe.rendement || 1);
+                          }
+                        }
+                        const prixKg = poidsParPieceKg && poidsParPieceKg > 0 && coutUnitaire > 0
+                          ? coutUnitaire / poidsParPieceKg
+                          : null;
+                        return (
+                          <div className="bg-blue-50 rounded-xl px-3 py-2 text-center">
+                            <p className="text-xs text-gray-400">Prix/kg</p>
+                            <p className="text-sm font-bold text-blue-700">
+                              {prixKg !== null ? `${prixKg.toFixed(2)} MAD` : '—'}
+                            </p>
+                          </div>
+                        );
+                      })()}
                       {recipe.type === 'sous_recette' ? (() => {
                         const poidsKgBrut = calcPoidsKg(recipe.ingredients || [], sousRecettes);
                         const perte = (recipe.perte_pct || 0) / 100;
