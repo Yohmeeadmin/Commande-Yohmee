@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { ArrowLeft, Check, ExternalLink, X, Clock, Coffee, Users, Settings, Printer, Plus, ChevronRight, Zap } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 interface Employe {
   id: string;
   nom: string;
@@ -23,10 +25,35 @@ interface Slot {
   pause_min: number;
 }
 
+type AbsenceType = 'conge' | 'recup' | 'maladie' | 'autre';
+
+interface AbsenceRow {
+  employe_id: string;
+  date: string;
+  type: AbsenceType;
+  note?: string | null;
+}
+
 type DragSource = { empId: string; slot: Slot; fromJour: number };
+
+// ─── Constantes ───────────────────────────────────────────────────────────────
 
 const JOURS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
 const CIBLE_MIN = 44 * 60;
+
+const ABSENCE_TYPES: {
+  key: AbsenceType; short: string; label: string;
+  cell: string; badge: string; pill: string; text: string;
+}[] = [
+  { key: 'conge',   short: 'CP',  label: 'Congé payé',    cell: 'bg-emerald-50 border-emerald-300', badge: 'bg-emerald-100 text-emerald-800', pill: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200', text: 'text-emerald-700' },
+  { key: 'recup',   short: 'REC', label: 'Récupération',  cell: 'bg-blue-50 border-blue-300',       badge: 'bg-blue-100 text-blue-800',       pill: 'bg-blue-100 text-blue-700 hover:bg-blue-200',           text: 'text-blue-700'    },
+  { key: 'maladie', short: 'MAL', label: 'Maladie',       cell: 'bg-red-50 border-red-300',         badge: 'bg-red-100 text-red-800',         pill: 'bg-red-100 text-red-700 hover:bg-red-200',              text: 'text-red-700'     },
+  { key: 'autre',   short: 'ABS', label: 'Autre absence', cell: 'bg-gray-50 border-gray-300',       badge: 'bg-gray-100 text-gray-700',       pill: 'bg-gray-100 text-gray-600 hover:bg-gray-200',           text: 'text-gray-600'    },
+];
+
+function absenceConfig(type: AbsenceType) {
+  return ABSENCE_TYPES.find(a => a.key === type)!;
+}
 
 const SERVICE_COLORS: Record<string, { header: string; row: string; badge: string; dot: string; cell: string; text: string }> = {
   Boulangerie:  { header: 'bg-amber-50 border-amber-200',  row: 'hover:bg-amber-50/30', badge: 'bg-amber-100 text-amber-800',  dot: 'bg-amber-400',  cell: 'bg-amber-50',  text: 'text-amber-800' },
@@ -37,12 +64,12 @@ const SERVICE_COLORS: Record<string, { header: string; row: string; badge: strin
   Livraison:    { header: 'bg-indigo-50 border-indigo-200',row: 'hover:bg-indigo-50/30', badge: 'bg-indigo-100 text-indigo-800',dot: 'bg-indigo-400', cell: 'bg-indigo-50', text: 'text-indigo-800' },
   Traiteur:     { header: 'bg-teal-50 border-teal-200',    row: 'hover:bg-teal-50/30',   badge: 'bg-teal-100 text-teal-800',    dot: 'bg-teal-400',   cell: 'bg-teal-50',   text: 'text-teal-800' },
 };
-
 const DEFAULT_STYLE = { header: 'bg-gray-50 border-gray-200', row: 'hover:bg-gray-50/30', badge: 'bg-gray-100 text-gray-700', dot: 'bg-gray-400', cell: 'bg-gray-50', text: 'text-gray-700' };
-
 function sStyle(service: string | null) {
   return (service && SERVICE_COLORS[service]) ? SERVICE_COLORS[service] : DEFAULT_STYLE;
 }
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function slotNetMin(slot: Slot): number {
   const [dh, dm] = slot.heure_debut.split(':').map(Number);
@@ -59,19 +86,15 @@ function fmtMin(min: number): string {
   return m > 0 ? `${h}h${String(m).padStart(2, '0')}` : `${h}h`;
 }
 
-// ─── Helpers semaine ─────────────────────────────────────────────────────────
-
-/** Retourne le lundi de la semaine contenant `date` */
 function getMondayOf(date: Date): Date {
   const d = new Date(date);
-  const day = d.getDay(); // 0=dim, 1=lun...
+  const day = d.getDay();
   const diff = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + diff);
   d.setHours(0, 0, 0, 0);
   return d;
 }
 
-/** Numéro de semaine ISO */
 function getISOWeek(date: Date): number {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
   const dayNum = d.getUTCDay() || 7;
@@ -80,39 +103,41 @@ function getISOWeek(date: Date): number {
   return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
 }
 
-/** Date du jour i (0=lundi) à partir du lundi */
 function dayDate(monday: Date, i: number): Date {
   const d = new Date(monday);
   d.setDate(d.getDate() + i);
   return d;
 }
 
-/** Format "10 mai" */
 function fmtDay(date: Date): string {
   return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
 }
 
-/** Format YYYY-MM-DD pour input type=week */
 function toWeekInputValue(monday: Date): string {
   const year = monday.getFullYear();
   const week = String(getISOWeek(monday)).padStart(2, '0');
   return `${year}-W${week}`;
 }
 
-/** Parse input type=week value → monday Date */
 function parseWeekInput(val: string): Date {
-  // val = "2026-W20"
   const [yearStr, wStr] = val.split('-W');
   const year = parseInt(yearStr);
   const week = parseInt(wStr);
-  // ISO week 1 = semaine contenant le 4 janv
   const jan4 = new Date(year, 0, 4);
   const monday = getMondayOf(jan4);
   monday.setDate(monday.getDate() + (week - 1) * 7);
   return monday;
 }
 
-// ─── Couleurs impression (hex pour inline styles) ────────────────────────────
+function weekDatesOf(monday: Date): string[] {
+  return JOURS.map((_, i) => {
+    const d = new Date(monday);
+    d.setDate(d.getDate() + i);
+    return d.toISOString().split('T')[0];
+  });
+}
+
+// ─── Print ────────────────────────────────────────────────────────────────────
 
 const PRINT_COLORS: Record<string, { bg: string; border: string; text: string; cellBg: string }> = {
   Boulangerie:  { bg: '#fffbeb', border: '#f59e0b', text: '#92400e', cellBg: '#fef3c7' },
@@ -128,40 +153,45 @@ function pColor(service: string | null) {
   return (service && PRINT_COLORS[service]) ? PRINT_COLORS[service] : DEFAULT_PRINT;
 }
 
-// ─── Génération HTML impression (nouvelle fenêtre) ────────────────────────────
+const ABSENCE_PRINT: Record<AbsenceType, { bg: string; text: string; label: string }> = {
+  conge:   { bg: '#d1fae5', text: '#065f46', label: 'Congé' },
+  recup:   { bg: '#dbeafe', text: '#1e3a8a', label: 'Récup.' },
+  maladie: { bg: '#fee2e2', text: '#7f1d1d', label: 'Maladie' },
+  autre:   { bg: '#f3f4f6', text: '#374151', label: 'Absent' },
+};
 
-function buildPrintHtml(employes: Employe[], planning: Record<number, Slot[]>, monday: Date): string {
+function buildPrintHtml(
+  employes: Employe[],
+  planning: Record<number, Slot[]>,
+  absences: Record<string, AbsenceType>,
+  monday: Date
+): string {
   const services = [...new Set(employes.map(e => e.service ?? 'Autre'))].sort();
   const byService = new Map<string, Employe[]>();
   services.forEach(s => byService.set(s, employes.filter(e => (e.service ?? 'Autre') === s)));
-
-  function getSlot(empId: string, jour: number): Slot | undefined {
-    return (planning[jour] ?? []).find(s => s.employe_id === empId);
-  }
-  const dateStr = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const weekDates = weekDatesOf(monday);
   const weekNum = getISOWeek(monday);
   const dayDates = JOURS.map((_, i) => dayDate(monday, i));
+  const dateStr = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
-  // En-têtes colonnes (une seule fois)
   const jourHeaders = JOURS.map((j, i) => {
     const wkColor = i >= 5 ? '#d1d5db' : '#6b7280';
     const wkBg = i >= 5 ? 'background:#f9fafb;' : '';
     const dateLabel = dayDates[i].toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
-    return `<th style="text-align:center;padding:7px 4px;font-size:10px;font-weight:700;color:${wkColor};text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #e5e7eb;${wkBg}">
+    return `<th style="text-align:center;padding:7px 4px;font-size:10px;font-weight:700;color:${wkColor};text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #d1d5db;border-right:1px solid #e5e7eb;${wkBg}">
       <div>${j.slice(0,3)}</div>
-      <div style="font-size:9px;font-weight:500;color:#9ca3af;margin-top:1px;text-transform:none;letter-spacing:0;">${dateLabel}</div>
+      <div style="font-size:9px;font-weight:500;color:#9ca3af;margin-top:1px;text-transform:none;">${dateLabel}</div>
     </th>`;
   }).join('');
 
-  // Lignes par service
   const allRows = services.map(service => {
     const emps = byService.get(service) ?? [];
     const pc = pColor(emps[0]?.service ?? null);
 
     const separator = `<tr>
-      <td colspan="8" style="padding:12px 14px 4px;">
+      <td colspan="9" style="padding:12px 14px 4px;">
         <div style="display:flex;align-items:center;gap:8px;">
-          <div style="width:8px;height:8px;border-radius:50%;background:${pc.border};flex-shrink:0;"></div>
+          <div style="width:8px;height:8px;border-radius:50%;background:${pc.border};"></div>
           <span style="font-size:10px;font-weight:900;color:${pc.text};text-transform:uppercase;letter-spacing:0.8px;">${service}</span>
           <div style="flex:1;height:1px;background:#e5e7eb;"></div>
         </div>
@@ -171,17 +201,27 @@ function buildPrintHtml(employes: Employe[], planning: Record<number, Slot[]>, m
     const rows = emps.map((emp, eIdx) => {
       const isLast = eIdx === emps.length - 1;
       const cells = JOURS.map((_, i) => {
-        const slot = getSlot(emp.id, i);
+        const absKey = `${emp.id}_${i}`;
+        const absence = absences[absKey];
+        const slot = (planning[i] ?? []).find(s => s.employe_id === emp.id);
         const wkBg = i >= 5 ? 'background:#f9fafb;' : '';
-        if (!slot) return `<td style="text-align:center;padding:5px 3px;${wkBg}border-bottom:${isLast ? '1px solid #f3f4f6' : '1px solid #f3f4f6'};color:#e5e7eb;font-size:12px;">—</td>`;
-        return `<td style="text-align:center;padding:4px 3px;${wkBg}border-bottom:1px solid #f3f4f6;vertical-align:middle;">
+        const cellBorder = `border-bottom:${isLast ? '1px solid #e5e7eb' : '1px solid #e5e7eb'};border-right:1px solid #e5e7eb;`;
+
+        if (absence) {
+          const ap = ABSENCE_PRINT[absence];
+          return `<td style="text-align:center;padding:4px 3px;${wkBg}${cellBorder}vertical-align:middle;">
+            <div style="background:${ap.bg};color:${ap.text};border-radius:6px;padding:4px 6px;font-size:10px;font-weight:800;display:inline-block;">${ap.label}</div>
+          </td>`;
+        }
+        if (!slot) return `<td style="text-align:center;padding:5px 3px;${wkBg}${cellBorder}color:#e5e7eb;font-size:12px;">—</td>`;
+        return `<td style="text-align:center;padding:4px 3px;${wkBg}${cellBorder}vertical-align:middle;">
           <div style="font-size:11px;font-weight:800;color:#1f2937;">${slot.heure_debut.slice(0,5)}–${slot.heure_fin.slice(0,5)}</div>
           ${slot.pause_min > 0 ? `<div style="font-size:9px;color:#9ca3af;">${slot.pause_min}'</div>` : ''}
           <div style="font-size:10px;font-weight:700;color:${pc.text};">${fmtMin(slotNetMin(slot))}</div>
         </td>`;
       }).join('');
       return `<tr>
-        <td style="padding:6px 14px;border-bottom:1px solid #f3f4f6;">
+        <td style="padding:6px 14px;border-bottom:1px solid #e5e7eb;border-right:1px solid #e5e7eb;">
           <div style="font-size:12px;font-weight:700;color:#111827;">${emp.nom}</div>
           ${emp.poste ? `<div style="font-size:10px;color:#9ca3af;">${emp.poste}</div>` : ''}
         </td>
@@ -192,47 +232,39 @@ function buildPrintHtml(employes: Employe[], planning: Record<number, Slot[]>, m
     return separator + rows;
   }).join('');
 
-  return `<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8">
+  return `<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8">
   <title>Planning équipe — S${weekNum}</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: system-ui, -apple-system, sans-serif; background: white; color: #111827; padding: 20px; }
-    @media print {
-      body { padding: 0; }
-      @page { margin: 8mm; size: A4 landscape; }
-    }
-  </style>
-</head>
-<body>
+  <style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:system-ui,-apple-system,sans-serif;background:white;color:#111827;padding:20px;}@media print{body{padding:0;}@page{margin:8mm;size:A4 landscape;}}</style>
+  </head><body>
   <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:16px;padding-bottom:12px;border-bottom:3px solid #111827;">
     <div>
-      <div style="font-size:20px;font-weight:900;color:#111827;letter-spacing:-0.5px;margin-bottom:2px;">Planning équipe — Semaine ${weekNum}</div>
+      <div style="font-size:20px;font-weight:900;letter-spacing:-0.5px;margin-bottom:2px;">Planning équipe — Semaine ${weekNum}</div>
       <div style="font-size:12px;color:#374151;font-weight:600;">${fmtDay(dayDates[0])} – ${fmtDay(dayDates[6])}</div>
     </div>
     <div style="font-size:10px;color:#9ca3af;">Édité le ${dateStr}</div>
   </div>
-  <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+  <table style="width:100%;border-collapse:collapse;border:2px solid #d1d5db;border-radius:8px;overflow:hidden;">
     <thead>
-      <tr style="background:#f9fafb;">
-        <th style="text-align:left;padding:7px 14px;font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #e5e7eb;width:140px;">Employé</th>
+      <tr style="background:#f3f4f6;">
+        <th style="text-align:left;padding:7px 14px;font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;border-bottom:2px solid #d1d5db;border-right:1px solid #e5e7eb;width:140px;">Employé</th>
         ${jourHeaders}
+        <th style="text-align:center;padding:7px 10px;font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;border-bottom:2px solid #d1d5db;">Total</th>
       </tr>
     </thead>
-    <tbody>
-      ${allRows}
-    </tbody>
+    <tbody>${allRows}</tbody>
   </table>
-  <div style="margin-top:12px;font-size:9px;color:#d1d5db;text-align:right;">BDK Commandes</div>
+  <div style="margin-top:12px;display:flex;gap:16px;align-items:center;font-size:10px;color:#6b7280;">
+    <span>Légende :</span>
+    <span style="background:#d1fae5;color:#065f46;padding:2px 6px;border-radius:4px;font-weight:700;">CP = Congé payé</span>
+    <span style="background:#dbeafe;color:#1e3a8a;padding:2px 6px;border-radius:4px;font-weight:700;">REC = Récupération</span>
+    <span style="background:#fee2e2;color:#7f1d1d;padding:2px 6px;border-radius:4px;font-weight:700;">MAL = Maladie</span>
+    <span style="background:#f3f4f6;color:#374151;padding:2px 6px;border-radius:4px;font-weight:700;">ABS = Autre absence</span>
   </div>
-</body>
-</html>`;
+  </body></html>`;
 }
 
-function printWindow(employes: Employe[], planning: Record<number, Slot[]>, monday: Date) {
-  const html = buildPrintHtml(employes, planning, monday);
+function printWindow(employes: Employe[], planning: Record<number, Slot[]>, absences: Record<string, AbsenceType>, monday: Date) {
+  const html = buildPrintHtml(employes, planning, absences, monday);
   const win = window.open('', '_blank', 'width=1200,height=800');
   if (!win) return;
   win.document.write(html);
@@ -241,179 +273,37 @@ function printWindow(employes: Employe[], planning: Record<number, Slot[]>, mond
   setTimeout(() => { win.print(); }, 400);
 }
 
-// ─── Composant PrintPlanning (rendu dans #print-planning-sheet) ───────────────
+// ─── Vue Équipe ───────────────────────────────────────────────────────────────
 
-function PrintPlanning({ employes, planning }: { employes: Employe[]; planning: Record<number, Slot[]> }) {
+function VueEquipe({ employes, planning, absences, weekMonday }: {
+  employes: Employe[];
+  planning: Record<number, Slot[]>;
+  absences: Record<string, AbsenceType>;
+  weekMonday: Date;
+}) {
   const services = [...new Set(employes.map(e => e.service ?? 'Autre'))].sort();
   const byService = new Map<string, Employe[]>();
   services.forEach(s => byService.set(s, employes.filter(e => (e.service ?? 'Autre') === s)));
 
-  function getSlot(empId: string, jour: number): Slot | undefined {
-    return (planning[jour] ?? []).find(s => s.employe_id === empId);
-  }
-
-  const totalGlobal = employes.reduce((sum, emp) => {
-    return sum + JOURS.reduce((s, _, i) => { const sl = getSlot(emp.id, i); return s + (sl ? slotNetMin(sl) : 0); }, 0);
-  }, 0);
-
-  const now = new Date();
-  const dateStr = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-
-  const s: React.CSSProperties & Record<string, string | number> = {};
-
   return (
-    <div style={{ padding: '24px', fontFamily: 'system-ui, sans-serif', background: 'white', minHeight: '100vh' }}>
-
-      {/* En-tête */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '28px', paddingBottom: '20px', borderBottom: '3px solid #111827' }}>
-        <div>
-          <div style={{ fontSize: '22px', fontWeight: 900, color: '#111827', letterSpacing: '-0.5px', marginBottom: '4px' }}>
-            Planning de la semaine
-          </div>
-          <div style={{ fontSize: '13px', color: '#6b7280', fontWeight: 500 }}>Édité le {dateStr}</div>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: '12px', color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '4px' }}>
-            {employes.length} employés · {services.length} services
-          </div>
-          <div style={{ fontSize: '18px', fontWeight: 900, color: '#111827' }}>
-            {fmtMin(totalGlobal)}
-            <span style={{ fontSize: '12px', fontWeight: 500, color: '#9ca3af', marginLeft: '6px' }}>
-              / {fmtMin(employes.length * CIBLE_MIN)} cible
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Sections par service */}
-      {services.map((service, sIdx) => {
-        const emps = byService.get(service) ?? [];
-        const pc = pColor(emps[0]?.service ?? null);
-        const totalService = emps.reduce((sum, emp) =>
-          sum + JOURS.reduce((s, _, i) => { const sl = getSlot(emp.id, i); return s + (sl ? slotNetMin(sl) : 0); }, 0), 0);
-        const heuresParJour = JOURS.map((_, j) => emps.reduce((sum, emp) => {
-          const sl = getSlot(emp.id, j); return sum + (sl ? slotNetMin(sl) : 0);
-        }, 0));
-
-        return (
-          <div key={service} style={{ marginBottom: sIdx < services.length - 1 ? '24px' : 0, pageBreakInside: 'avoid' }}>
-            {/* Header service */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: pc.bg, border: `1px solid ${pc.border}`, borderRadius: '10px 10px 0 0', padding: '10px 16px' }}>
-              <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: pc.border, flexShrink: 0 }} />
-              <div style={{ fontSize: '13px', fontWeight: 900, color: pc.text, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{service}</div>
-              <div style={{ fontSize: '11px', fontWeight: 600, color: pc.text, background: 'rgba(0,0,0,0.08)', borderRadius: '6px', padding: '2px 8px' }}>{emps.length} pers.</div>
-              <div style={{ marginLeft: 'auto', fontSize: '13px', fontWeight: 900, color: pc.text }}>{fmtMin(totalService)}</div>
-            </div>
-
-            {/* Tableau */}
-            <table style={{ width: '100%', borderCollapse: 'collapse', border: `1px solid ${pc.border}`, borderTop: 'none', borderRadius: '0 0 10px 10px', overflow: 'hidden' }}>
-              <thead>
-                <tr style={{ background: '#f9fafb' }}>
-                  <th style={{ textAlign: 'left', padding: '8px 14px', fontSize: '10px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', width: '140px', borderBottom: '1px solid #e5e7eb' }}>Employé</th>
-                  {JOURS.map((j, i) => (
-                    <th key={i} style={{ textAlign: 'center', padding: '8px 6px', fontSize: '10px', fontWeight: 700, color: i >= 5 ? '#d1d5db' : '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e5e7eb', background: i >= 5 ? '#f9fafb' : undefined }}>
-                      <div>{j}</div>
-                      {heuresParJour[i] > 0 && <div style={{ fontSize: '9px', fontWeight: 600, color: '#9ca3af', marginTop: '2px' }}>{fmtMin(heuresParJour[i])}</div>}
-                    </th>
-                  ))}
-                  <th style={{ textAlign: 'center', padding: '8px 14px', fontSize: '10px', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e5e7eb' }}>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {emps.map((emp, eIdx) => {
-                  const total = JOURS.reduce((s, _, i) => { const sl = getSlot(emp.id, i); return s + (sl ? slotNetMin(sl) : 0); }, 0);
-                  const isLast = eIdx === emps.length - 1;
-                  return (
-                    <tr key={emp.id} style={{ background: eIdx % 2 === 0 ? 'white' : '#fafafa' }}>
-                      <td style={{ padding: '9px 14px', borderBottom: isLast ? 'none' : '1px solid #f3f4f6', borderRight: '1px solid #f3f4f6' }}>
-                        <div style={{ fontSize: '12px', fontWeight: 700, color: '#111827' }}>{emp.nom}</div>
-                        {emp.poste && <div style={{ fontSize: '10px', color: '#9ca3af', marginTop: '1px' }}>{emp.poste}</div>}
-                      </td>
-                      {JOURS.map((_, i) => {
-                        const slot = getSlot(emp.id, i);
-                        return (
-                          <td key={i} style={{ textAlign: 'center', padding: '6px', borderBottom: isLast ? 'none' : '1px solid #f3f4f6', borderRight: '1px solid #f3f4f6', background: i >= 5 ? '#f9fafb' : undefined, verticalAlign: 'middle' }}>
-                            {slot ? (
-                              <div style={{ background: pc.cellBg, borderRadius: '6px', padding: '5px 4px', display: 'inline-block', minWidth: '80px' }}>
-                                <div style={{ fontSize: '11px', fontWeight: 800, color: '#1f2937' }}>
-                                  {slot.heure_debut.slice(0,5)} – {slot.heure_fin.slice(0,5)}
-                                </div>
-                                {slot.pause_min > 0 && (
-                                  <div style={{ fontSize: '9px', color: '#9ca3af', marginTop: '1px' }}>{slot.pause_min}' pause</div>
-                                )}
-                                <div style={{ fontSize: '11px', fontWeight: 700, color: pc.text, marginTop: '2px' }}>{fmtMin(slotNetMin(slot))}</div>
-                              </div>
-                            ) : (
-                              <span style={{ color: '#e5e7eb', fontSize: '12px' }}>—</span>
-                            )}
-                          </td>
-                        );
-                      })}
-                      <td style={{ textAlign: 'center', padding: '9px 14px', borderBottom: isLast ? 'none' : '1px solid #f3f4f6' }}>
-                        <div style={{ fontSize: '13px', fontWeight: 900, color: total > CIBLE_MIN ? '#dc2626' : total === CIBLE_MIN ? '#16a34a' : total > 0 ? '#111827' : '#d1d5db' }}>
-                          {total > 0 ? fmtMin(total) : '—'}
-                        </div>
-                        {total > 0 && total !== CIBLE_MIN && (
-                          <div style={{ fontSize: '9px', color: total > CIBLE_MIN ? '#dc2626' : '#6b7280', marginTop: '1px' }}>
-                            {total > CIBLE_MIN ? `+${fmtMin(total - CIBLE_MIN)}` : `-${fmtMin(CIBLE_MIN - total)}`}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        );
-      })}
-
-      {/* Footer */}
-      <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ fontSize: '10px', color: '#9ca3af' }}>Cible hebdomadaire : 44h / employé</div>
-        <div style={{ display: 'flex', gap: '16px' }}>
-          <span style={{ fontSize: '10px', color: '#16a34a', fontWeight: 600 }}>■ Objectif atteint</span>
-          <span style={{ fontSize: '10px', color: '#dc2626', fontWeight: 600 }}>■ Dépassement</span>
-          <span style={{ fontSize: '10px', color: '#6b7280', fontWeight: 600 }}>■ En dessous</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Vue Équipe partageable (écran) ──────────────────────────────────────────
-
-function VueEquipe({ employes, planning, weekMonday }: { employes: Employe[]; planning: Record<number, Slot[]>; weekMonday: Date }) {
-  const services = [...new Set(employes.map(e => e.service ?? 'Autre'))].sort();
-  const byService = new Map<string, Employe[]>();
-  services.forEach(s => byService.set(s, employes.filter(e => (e.service ?? 'Autre') === s)));
-
-  function getSlot(empId: string, jour: number): Slot | undefined {
-    return (planning[jour] ?? []).find(s => s.employe_id === empId);
-  }
-
-  return (
-    <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+    <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
         <div className="text-sm font-semibold text-gray-500">
           Semaine <span className="font-black text-gray-900">{getISOWeek(weekMonday)}</span>
           <span className="text-gray-400 ml-2 font-normal text-xs">{fmtDay(weekMonday)} – {fmtDay(dayDate(weekMonday, 6))}</span>
         </div>
-        <button onClick={() => printWindow(employes, planning, weekMonday)}
+        <button onClick={() => printWindow(employes, planning, absences, weekMonday)}
           className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-sm font-semibold hover:bg-gray-800">
           <Printer size={14} /> Imprimer / PDF
         </button>
       </div>
-
-      {/* En-têtes colonnes — une seule fois */}
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm border-collapse">
           <thead>
-            <tr className="border-b border-gray-100 bg-gray-50">
-              <th className="text-left px-4 py-2 text-xs font-black text-gray-400 uppercase tracking-wider w-44">Employé</th>
+            <tr className="border-b-2 border-gray-300 bg-gray-100">
+              <th className="text-left px-4 py-2.5 text-xs font-black text-gray-500 uppercase tracking-wider w-44 border-r border-gray-300">Employé</th>
               {JOURS.map((j, i) => (
-                <th key={i} className={`text-center px-2 py-2 text-xs font-black uppercase tracking-wider ${i >= 5 ? 'text-gray-300' : 'text-gray-500'}`}>
+                <th key={i} className={`text-center px-2 py-2.5 text-xs font-black uppercase tracking-wider border-r border-gray-200 ${i >= 5 ? 'text-gray-400 bg-gray-50' : 'text-gray-600'}`}>
                   <div>{j.slice(0, 3)}</div>
                   <div className="text-[10px] font-medium normal-case tracking-normal text-gray-400">{fmtDay(dayDate(weekMonday, i))}</div>
                 </th>
@@ -426,33 +316,36 @@ function VueEquipe({ employes, planning, weekMonday }: { employes: Employe[]; pl
               const st = sStyle(emps[0]?.service ?? null);
               return (
                 <React.Fragment key={service}>
-                  {/* Séparateur service */}
                   <tr>
-                    <td colSpan={8} className="px-4 pt-4 pb-1">
+                    <td colSpan={8} className={`px-4 pt-3 pb-1 border-y border-gray-200 ${st.header}`}>
                       <div className="flex items-center gap-2">
                         <div className={`w-2 h-2 rounded-full ${st.dot}`} />
                         <span className={`text-xs font-black uppercase tracking-wider ${st.text}`}>{service}</span>
-                        <div className="flex-1 h-px bg-gray-100" />
                       </div>
                     </td>
                   </tr>
                   {emps.map((emp, eIdx) => (
-                    <tr key={emp.id} className={`${eIdx === emps.length - 1 ? 'border-b border-gray-100' : ''}`}>
-                      <td className="px-4 py-2.5">
+                    <tr key={emp.id} className={`border-b border-gray-200 ${eIdx === emps.length - 1 ? 'border-b-2 border-gray-300' : ''}`}>
+                      <td className="px-4 py-2.5 border-r border-gray-300">
                         <p className="font-semibold text-gray-900 text-sm">{emp.nom}</p>
                         {emp.poste && <p className="text-xs text-gray-400">{emp.poste}</p>}
                       </td>
                       {JOURS.map((_, i) => {
-                        const slot = getSlot(emp.id, i);
+                        const absKey = `${emp.id}_${i}`;
+                        const absence = absences[absKey];
+                        const slot = (planning[i] ?? []).find(s => s.employe_id === emp.id);
+                        const ac = absence ? absenceConfig(absence) : null;
                         return (
-                          <td key={i} className={`text-center px-1 py-2 ${i >= 5 ? 'bg-gray-50/50' : ''}`}>
-                            {slot ? (
+                          <td key={i} className={`text-center px-1 py-2 border-r border-gray-200 ${i >= 5 ? 'bg-gray-50' : ''}`}>
+                            {absence && ac ? (
+                              <span className={`inline-block text-xs font-black px-2 py-1 rounded-lg ${ac.badge}`}>{ac.label}</span>
+                            ) : slot ? (
                               <div>
                                 <p className="text-xs font-black text-gray-800">{slot.heure_debut.slice(0,5)}–{slot.heure_fin.slice(0,5)}</p>
                                 {slot.pause_min > 0 && <p className="text-[10px] text-gray-400">{slot.pause_min}'</p>}
                                 <p className={`text-[10px] font-bold ${st.text}`}>{fmtMin(slotNetMin(slot))}</p>
                               </div>
-                            ) : <span className="text-gray-200 text-xs">—</span>}
+                            ) : <span className="text-gray-300 text-xs">—</span>}
                           </td>
                         );
                       })}
@@ -468,7 +361,7 @@ function VueEquipe({ employes, planning, weekMonday }: { employes: Employe[]; pl
   );
 }
 
-// ─── Modal profil employé ────────────────────────────────────────────────────
+// ─── Modal profil employé ──────────────────────────────────────────────────────
 
 const JOURS_SHORT = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 
@@ -506,16 +399,9 @@ function ProfilModal({ emp, onClose, onSave, onApply }: {
     setTimeout(() => setSaved(false), 1500);
   }
 
-  function handleApply() {
-    onApply(emp.id, { debut, fin, pause }, joursOff);
-    onClose();
-  }
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl" onClick={e => e.stopPropagation()}>
-
-        {/* Header */}
         <div className={`flex items-center gap-3 px-6 py-4 rounded-t-2xl border-b ${st.header}`}>
           <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm ${st.badge}`}>
             {emp.nom.charAt(0)}
@@ -530,8 +416,6 @@ function ProfilModal({ emp, onClose, onSave, onApply }: {
         </div>
 
         <div className="p-6 space-y-6">
-
-          {/* Shift habituel */}
           <div>
             <p className="text-xs font-black text-gray-400 uppercase tracking-wider mb-3">Shift habituel</p>
             <div className="bg-gray-50 rounded-xl p-4 space-y-3">
@@ -559,7 +443,6 @@ function ProfilModal({ emp, onClose, onSave, onApply }: {
             </div>
           </div>
 
-          {/* Jours de repos */}
           <div>
             <p className="text-xs font-black text-gray-400 uppercase tracking-wider mb-3">Jours de repos habituels</p>
             <div className="flex gap-2">
@@ -569,10 +452,8 @@ function ProfilModal({ emp, onClose, onSave, onApply }: {
                 return (
                   <button key={idx} type="button" onClick={() => toggleJourOff(idx)}
                     className={`flex-1 py-2 rounded-xl text-xs font-black transition-all border-2 ${
-                      isOff
-                        ? 'bg-gray-900 border-gray-900 text-white'
-                        : isWeekend
-                        ? 'bg-gray-100 border-gray-100 text-gray-400 hover:border-gray-300'
+                      isOff ? 'bg-gray-900 border-gray-900 text-white'
+                        : isWeekend ? 'bg-gray-100 border-gray-100 text-gray-400 hover:border-gray-300'
                         : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
                     }`}>
                     {j}
@@ -586,10 +467,8 @@ function ProfilModal({ emp, onClose, onSave, onApply }: {
           </div>
         </div>
 
-        {/* Footer */}
         <div className="px-6 pb-6 space-y-2">
-          {/* Appliquer sur la semaine */}
-          <button onClick={handleApply}
+          <button onClick={() => { onApply(emp.id, { debut, fin, pause }, joursOff); onClose(); }}
             className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
             <Zap size={15} /> Appliquer ce shift sur la semaine
           </button>
@@ -614,32 +493,42 @@ function ProfilModal({ emp, onClose, onSave, onApply }: {
 // ─── Page principale ──────────────────────────────────────────────────────────
 
 export default function ProductionPersonnelPage() {
-  const [employes, setEmployes] = useState<Employe[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [planning, setPlanning] = useState<Record<number, Slot[]>>({});
+  const [employes, setEmployes]     = useState<Employe[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [planning, setPlanning]     = useState<Record<number, Slot[]>>({});
+  const [absences, setAbsences]     = useState<Record<string, AbsenceType>>({});
   const [weekMonday, setWeekMonday] = useState<Date>(() => getMondayOf(new Date()));
-  const [drag, setDrag]         = useState<DragSource | null>(null);
-  const [dragOver, setDragOver] = useState<{ empId: string; jour: number } | null>(null);
-  const [saving, setSaving]     = useState(false);
-  const [saved, setSaved]       = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [view, setView]       = useState<'admin' | 'equipe'>('admin');
-  const [profilEmp, setProfilEmp] = useState<Employe | null>(null);
-  const planningRef           = useRef(planning);
-  planningRef.current         = planning;
-  // Vrai uniquement quand l'utilisateur a fait une modification (pas au chargement)
-  const userEditedRef         = useRef(false);
+  const [drag, setDrag]             = useState<DragSource | null>(null);
+  const [dragOver, setDragOver]     = useState<{ empId: string; jour: number } | null>(null);
+  const [saving, setSaving]         = useState(false);
+  const [saved, setSaved]           = useState(false);
+  const [saveError, setSaveError]   = useState<string | null>(null);
+  const [view, setView]             = useState<'admin' | 'equipe'>('admin');
+  const [profilEmp, setProfilEmp]   = useState<Employe | null>(null);
 
-  useEffect(() => { load(); }, []);
+  const planningRef     = useRef(planning);
+  planningRef.current   = planning;
+  const userEditedRef   = useRef(false);
+  const weekMondayRef   = useRef(weekMonday);
+  weekMondayRef.current = weekMonday;
 
-  // Auto-save 1.5s après une vraie modification utilisateur
+  useEffect(() => { loadAll(); }, []);
+
+  // Recharge les absences quand la semaine change (pas au premier chargement, déjà fait dans loadAll)
+  const isFirstLoad = useRef(true);
+  useEffect(() => {
+    if (isFirstLoad.current) { isFirstLoad.current = false; return; }
+    loadAbsences(weekMonday);
+  }, [weekMonday]); // eslint-disable-line
+
+  // Auto-save planning 1.5s après modification
   useEffect(() => {
     if (!userEditedRef.current) return;
-    const t = setTimeout(() => { save(planningRef.current); }, 1500);
+    const t = setTimeout(() => { savePlanning(planningRef.current); }, 1500);
     return () => clearTimeout(t);
   }, [planning]); // eslint-disable-line
 
-  async function load() {
+  async function loadAll() {
     setLoading(true);
     const [{ data: emps }, { data: dispoData }] = await Promise.all([
       supabase.from('rh_employes').select('id, nom, poste, service, shift_debut, shift_fin, shift_pause_min, jours_off').eq('actif', true).order('service').order('nom'),
@@ -652,8 +541,44 @@ export default function ProductionPersonnelPage() {
       plan[d.jour_semaine].push({ employe_id: d.employe_id, heure_debut: d.heure_debut, heure_fin: d.heure_fin, pause_min: d.pause_min ?? 0 });
     });
     setPlanning(plan);
+    await loadAbsences(weekMondayRef.current);
     setLoading(false);
-    userEditedRef.current = false; // reset : le chargement n'est pas une modif utilisateur
+    userEditedRef.current = false;
+  }
+
+  async function loadAbsences(monday: Date) {
+    const dates = weekDatesOf(monday);
+    const { data } = await supabase
+      .from('planning_absences')
+      .select('employe_id, date, type')
+      .in('date', dates);
+    if (!data) return;
+    const map: Record<string, AbsenceType> = {};
+    (data as AbsenceRow[]).forEach(a => {
+      const jour = dates.indexOf(a.date);
+      if (jour >= 0) map[`${a.employe_id}_${jour}`] = a.type as AbsenceType;
+    });
+    setAbsences(map);
+  }
+
+  async function setAbsenceForDay(empId: string, jour: number, type: AbsenceType | null) {
+    const d = new Date(weekMondayRef.current);
+    d.setDate(d.getDate() + jour);
+    const date = d.toISOString().split('T')[0];
+    const key = `${empId}_${jour}`;
+
+    if (type === null) {
+      await supabase.from('planning_absences').delete().eq('employe_id', empId).eq('date', date);
+      setAbsences(prev => { const n = { ...prev }; delete n[key]; return n; });
+    } else {
+      // Retirer le slot si existant
+      removeSlot(empId, jour);
+      await supabase.from('planning_absences').upsert(
+        { employe_id: empId, date, type },
+        { onConflict: 'employe_id,date' }
+      );
+      setAbsences(prev => ({ ...prev, [key]: type }));
+    }
   }
 
   function getSlot(empId: string, jour: number): Slot | undefined {
@@ -662,6 +587,9 @@ export default function ProductionPersonnelPage() {
 
   function addSlot(empId: string, jour: number) {
     if (getSlot(empId, jour)) return;
+    // Supprimer l'absence si elle existe
+    const absKey = `${empId}_${jour}`;
+    if (absences[absKey]) setAbsenceForDay(empId, jour, null);
     userEditedRef.current = true;
     setPlanning(p => ({ ...p, [jour]: [...(p[jour] ?? []), { employe_id: empId, heure_debut: '04:00', heure_fin: '12:00', pause_min: 0 }] }));
   }
@@ -686,37 +614,19 @@ export default function ProductionPersonnelPage() {
     setDragOver(null);
   }
 
-  async function save(plan: Record<number, Slot[]>) {
+  async function savePlanning(plan: Record<number, Slot[]>) {
     setSaving(true);
     setSaveError(null);
-
-    const { error: delErr } = await supabase
-      .from('disponibilites')
-      .delete()
-      .neq('id', '00000000-0000-0000-0000-000000000000');
-
-    if (delErr) {
-      console.error('[save] delete error:', delErr);
-      setSaveError(delErr.message);
-      setSaving(false);
-      return;
-    }
-
+    const { error: delErr } = await supabase.from('disponibilites').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    if (delErr) { setSaveError(delErr.message); setSaving(false); return; }
     const rows: object[] = [];
     Object.entries(plan).forEach(([jour, slots]) => {
       slots.forEach(s => rows.push({ employe_id: s.employe_id, jour_semaine: Number(jour), heure_debut: s.heure_debut, heure_fin: s.heure_fin, pause_min: s.pause_min }));
     });
-
     if (rows.length > 0) {
       const { error: insErr } = await supabase.from('disponibilites').insert(rows);
-      if (insErr) {
-        console.error('[save] insert error:', insErr);
-        setSaveError(insErr.message);
-        setSaving(false);
-        return;
-      }
+      if (insErr) { setSaveError(insErr.message); setSaving(false); return; }
     }
-
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -724,12 +634,9 @@ export default function ProductionPersonnelPage() {
 
   async function saveProfil(empId: string, patch: Partial<Employe>) {
     await supabase.from('rh_employes').update({
-      shift_debut:     patch.shift_debut,
-      shift_fin:       patch.shift_fin,
-      shift_pause_min: patch.shift_pause_min,
-      jours_off:       patch.jours_off,
+      shift_debut: patch.shift_debut, shift_fin: patch.shift_fin,
+      shift_pause_min: patch.shift_pause_min, jours_off: patch.jours_off,
     }).eq('id', empId);
-    // Mettre à jour localement
     setEmployes(prev => prev.map(e => e.id === empId ? { ...e, ...patch } : e));
     if (profilEmp?.id === empId) setProfilEmp(p => p ? { ...p, ...patch } : p);
   }
@@ -740,10 +647,8 @@ export default function ProductionPersonnelPage() {
       const next = { ...p };
       JOURS.forEach((_, jour) => {
         if (joursOff.includes(jour)) {
-          // Jour off → retirer le slot existant
           next[jour] = (next[jour] ?? []).filter(s => s.employe_id !== empId);
         } else {
-          // Jour travaillé → ajouter ou remplacer
           const existing = (next[jour] ?? []).filter(s => s.employe_id !== empId);
           next[jour] = [...existing, { employe_id: empId, heure_debut: shift.debut, heure_fin: shift.fin, pause_min: shift.pause }];
         }
@@ -752,12 +657,10 @@ export default function ProductionPersonnelPage() {
     });
   }
 
-  // Grouper par service
   const services = [...new Set(employes.map(e => e.service ?? 'Autre'))].sort();
   const byService = new Map<string, Employe[]>();
   services.forEach(s => byService.set(s, employes.filter(e => (e.service ?? 'Autre') === s)));
 
-  // Totaux
   const heuresParEmp = new Map<string, number>();
   Object.values(planning).forEach(slots => slots.forEach(s => {
     heuresParEmp.set(s.employe_id, (heuresParEmp.get(s.employe_id) ?? 0) + slotNetMin(s));
@@ -776,7 +679,7 @@ export default function ProductionPersonnelPage() {
           <div>
             <h1 className="text-2xl font-black text-gray-900">Planning équipe</h1>
             <p className="text-sm text-gray-400">
-              {view === 'admin' ? 'Cliquez + pour ajouter · glissez un shift pour le copier' : 'Vue partageable par service'}
+              {view === 'admin' ? 'Cliquez + pour ajouter un shift · glissez pour copier' : 'Vue partageable par service'}
             </p>
           </div>
         </div>
@@ -789,6 +692,7 @@ export default function ProductionPersonnelPage() {
               <Users size={13} /> Équipe
             </button>
           </div>
+
           {/* Sélecteur de semaine */}
           <div className="flex items-center gap-1 bg-gray-100 rounded-xl px-2 py-1.5">
             <button type="button" onClick={() => setWeekMonday(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; })}
@@ -803,6 +707,7 @@ export default function ProductionPersonnelPage() {
             <button type="button" onClick={() => setWeekMonday(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n; })}
               className="w-7 h-7 flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-200 rounded-lg font-bold text-base transition-colors">›</button>
           </div>
+
           {employes.length > 0 && (
             <div className="bg-gray-100 rounded-xl px-4 py-2 text-sm flex items-center gap-2">
               <span className="text-gray-500">Semaine</span>
@@ -812,17 +717,18 @@ export default function ProductionPersonnelPage() {
               <span className="text-gray-400 text-xs">/ {fmtMin(employes.length * CIBLE_MIN)}</span>
             </div>
           )}
+
           <Link href="/charges/rh" className="flex items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-50 transition-colors">
             <ExternalLink size={15} /> Employés
           </Link>
+
           {saving ? (
             <div className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-400">
-              <div className="w-3.5 h-3.5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
-              Enregistrement…
+              <div className="w-3.5 h-3.5 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />Enregistrement…
             </div>
           ) : saveError ? (
-            <div className="flex items-center gap-2 px-4 py-2.5 text-sm text-red-600 font-semibold max-w-xs" title={saveError}>
-              <X size={14} /> Erreur — {saveError.length > 40 ? saveError.slice(0, 40) + '…' : saveError}
+            <div className="flex items-center gap-2 px-4 py-2.5 text-sm text-red-600 font-semibold" title={saveError}>
+              <X size={14} /> Erreur
             </div>
           ) : saved ? (
             <div className="flex items-center gap-2 px-4 py-2.5 text-sm text-emerald-600 font-semibold">
@@ -832,7 +738,15 @@ export default function ProductionPersonnelPage() {
         </div>
       </div>
 
-      {/* Modal profil employé */}
+      {/* Légende absences */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs text-gray-400 font-semibold">Absences :</span>
+        {ABSENCE_TYPES.map(at => (
+          <span key={at.key} className={`text-xs font-bold px-2 py-1 rounded-lg ${at.badge}`}>{at.label}</span>
+        ))}
+      </div>
+
+      {/* Modal profil */}
       {profilEmp && (
         <ProfilModal
           emp={profilEmp}
@@ -845,28 +759,27 @@ export default function ProductionPersonnelPage() {
       {loading ? (
         <div className="flex justify-center py-20"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-300" /></div>
       ) : view === 'equipe' ? (
-        <VueEquipe employes={employes} planning={planning} weekMonday={weekMonday} />
+        <VueEquipe employes={employes} planning={planning} absences={absences} weekMonday={weekMonday} />
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-gray-100 bg-white">
+        <div className="overflow-x-auto rounded-2xl border-2 border-gray-300 bg-white">
           <table className="w-full border-collapse" style={{ minWidth: '900px' }}>
             <thead>
-              <tr className="border-b border-gray-100">
-                {/* Colonne employé */}
-                <th className="text-left px-4 py-3 text-xs font-black text-gray-400 uppercase tracking-wider sticky left-0 bg-white z-10 w-44">
+              <tr className="border-b-2 border-gray-300 bg-gray-100">
+                <th className="text-left px-4 py-3 text-xs font-black text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-100 z-10 w-44 border-r-2 border-gray-300">
                   Employé
                 </th>
                 {JOURS.map((j, i) => (
-                  <th key={i} className={`text-center px-2 py-3 text-xs font-black uppercase tracking-wider ${i >= 5 ? 'text-gray-300 bg-gray-50/50' : 'text-gray-500'}`}>
+                  <th key={i} className={`text-center px-2 py-3 text-xs font-black uppercase tracking-wider border-r border-gray-300 ${i >= 5 ? 'text-gray-400 bg-gray-200' : 'text-gray-600'}`}>
                     <div>{j.slice(0, 3)}</div>
                     <div className="text-[10px] font-semibold text-gray-400 mt-0.5 normal-case tracking-normal">
                       {fmtDay(dayDate(weekMonday, i))}
                     </div>
                     {heuresParJour[i] > 0 && (
-                      <div className="text-[10px] font-semibold text-gray-400 mt-0.5 normal-case">{fmtMin(heuresParJour[i])}</div>
+                      <div className="text-[10px] font-semibold text-blue-500 mt-0.5 normal-case">{fmtMin(heuresParJour[i])}</div>
                     )}
                   </th>
                 ))}
-                <th className="text-center px-4 py-3 text-xs font-black text-gray-400 uppercase tracking-wider w-28">Total</th>
+                <th className="text-center px-4 py-3 text-xs font-black text-gray-500 uppercase tracking-wider w-28">Total</th>
               </tr>
             </thead>
 
@@ -876,8 +789,8 @@ export default function ProductionPersonnelPage() {
                 const st = sStyle(emps[0]?.service ?? null);
                 return (
                   <React.Fragment key={service}>
-                    {/* Ligne de groupe service */}
-                    <tr className={`border-y border-gray-100`}>
+                    {/* Ligne groupe service */}
+                    <tr className="border-y-2 border-gray-300">
                       <td colSpan={10} className={`px-4 py-2 ${st.header}`}>
                         <div className="flex items-center gap-2">
                           <div className={`w-2 h-2 rounded-full ${st.dot}`} />
@@ -887,24 +800,23 @@ export default function ProductionPersonnelPage() {
                       </td>
                     </tr>
 
-                    {emps.map(emp => {
+                    {emps.map((emp, empIdx) => {
                       const heures = heuresParEmp.get(emp.id) ?? 0;
                       const pct = Math.min(100, (heures / CIBLE_MIN) * 100);
-                      const st = sStyle(emp.service);
+                      const empSt = sStyle(emp.service);
+                      const isLastEmp = empIdx === emps.length - 1;
+
                       return (
-                        <tr key={emp.id} className={`border-b border-gray-50 ${st.row} transition-colors`}>
+                        <tr key={emp.id} className={`${isLastEmp ? 'border-b-2 border-gray-300' : 'border-b border-gray-200'} ${empSt.row} transition-colors`}>
                           {/* Cellule employé */}
-                          <td className="px-4 py-2 sticky left-0 bg-white z-10">
-                            <button
-                              onClick={() => setProfilEmp(emp)}
-                              className="flex items-center gap-1 group text-left w-full"
-                            >
+                          <td className="px-4 py-2 sticky left-0 bg-white z-10 border-r-2 border-gray-300">
+                            <button onClick={() => setProfilEmp(emp)} className="flex items-center gap-1 group text-left w-full">
                               <p className="text-sm font-bold text-gray-900 leading-tight group-hover:text-blue-600 transition-colors">{emp.nom}</p>
                               <ChevronRight size={12} className="text-gray-300 group-hover:text-blue-400 transition-colors shrink-0" />
                             </button>
                             {emp.poste && <p className="text-xs text-gray-400">{emp.poste}</p>}
                             <div className="mt-1.5 flex items-center gap-1.5">
-                              <div className="flex-1 h-1 bg-gray-100 rounded-full overflow-hidden">
+                              <div className="flex-1 h-1 bg-gray-200 rounded-full overflow-hidden">
                                 <div className={`h-full rounded-full ${heures > CIBLE_MIN ? 'bg-red-400' : heures === CIBLE_MIN ? 'bg-emerald-400' : 'bg-blue-400'}`}
                                   style={{ width: `${pct}%` }} />
                               </div>
@@ -917,32 +829,44 @@ export default function ProductionPersonnelPage() {
                           {/* Cellules jours */}
                           {JOURS.map((_, jour) => {
                             const slot = getSlot(emp.id, jour);
+                            const absKey = `${emp.id}_${jour}`;
+                            const absence = absences[absKey];
                             const isWeekend = jour >= 5;
                             const isOver = dragOver?.empId === emp.id && dragOver?.jour === jour;
-                            const canDrop = !!drag && !slot && !(drag.empId === emp.id && drag.fromJour === jour);
+                            const canDrop = !!drag && !slot && !absence && !(drag.empId === emp.id && drag.fromJour === jour);
 
                             return (
                               <td
                                 key={jour}
-                                className={`px-1.5 py-1.5 align-top ${isWeekend ? 'bg-gray-50/50' : ''}`}
+                                className={`px-1.5 py-1.5 align-top border-r border-gray-200 ${isWeekend ? 'bg-gray-50' : ''}`}
                                 onDragOver={e => { if (canDrop) { e.preventDefault(); setDragOver({ empId: emp.id, jour }); } }}
                                 onDragLeave={() => setDragOver(null)}
                                 onDrop={() => onDrop(emp.id, jour)}
                               >
-                                {slot ? (
+                                {/* Cellule avec absence */}
+                                {absence ? (() => {
+                                  const ac = absenceConfig(absence);
+                                  return (
+                                    <div className={`rounded-xl border-2 p-2 flex flex-col items-center justify-center min-h-[4rem] group ${ac.cell}`}>
+                                      <span className={`text-xs font-black ${ac.text}`}>{ac.label}</span>
+                                      <button onClick={() => setAbsenceForDay(emp.id, jour, null)}
+                                        className="mt-1 text-[10px] text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        × retirer
+                                      </button>
+                                    </div>
+                                  );
+                                })() : slot ? (
+                                  /* Cellule avec shift */
                                   <div
                                     draggable
                                     onDragStart={() => setDrag({ empId: emp.id, slot: { ...slot }, fromJour: jour })}
                                     onDragEnd={() => { setDrag(null); setDragOver(null); }}
-                                    className={`${st.cell} rounded-xl p-2 relative group cursor-grab active:cursor-grabbing transition-all ${drag?.empId === emp.id && drag.fromJour === jour ? 'opacity-40 scale-95' : ''}`}
+                                    className={`${empSt.cell} rounded-xl p-2 relative group cursor-grab active:cursor-grabbing transition-all border border-transparent ${drag?.empId === emp.id && drag.fromJour === jour ? 'opacity-40 scale-95' : 'hover:border-gray-300'}`}
                                   >
-                                    {/* X */}
                                     <button onClick={() => removeSlot(emp.id, jour)}
                                       className="absolute top-1 right-1 p-0.5 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity rounded">
                                       <X size={10} />
                                     </button>
-
-                                    {/* Horaires */}
                                     <div className="flex items-center gap-0.5 mb-1">
                                       <Clock size={8} className="text-gray-400 shrink-0" />
                                       <input type="time" value={slot.heure_debut}
@@ -955,8 +879,6 @@ export default function ProductionPersonnelPage() {
                                         onDragStart={e => e.stopPropagation()}
                                         className="text-xs bg-transparent border-none outline-none w-12 text-gray-700 font-semibold cursor-text" />
                                     </div>
-
-                                    {/* Pause */}
                                     <div className="flex items-center gap-1">
                                       <Coffee size={8} className="text-gray-400 shrink-0" />
                                       <input type="number" min={0} max={120} step={5}
@@ -966,19 +888,29 @@ export default function ProductionPersonnelPage() {
                                         placeholder="0"
                                         className="text-xs bg-transparent border-none outline-none w-6 text-gray-500 cursor-text text-center" />
                                       <span className="text-[9px] text-gray-400">min</span>
-                                      <span className={`ml-auto text-[10px] font-black ${st.text}`}>{fmtMin(slotNetMin(slot))}</span>
+                                      <span className={`ml-auto text-[10px] font-black ${empSt.text}`}>{fmtMin(slotNetMin(slot))}</span>
                                     </div>
                                   </div>
                                 ) : (
-                                  <div
-                                    className={`rounded-xl border-2 border-dashed transition-all flex items-center justify-center h-16
-                                      ${isOver && canDrop
-                                        ? 'border-emerald-400 bg-emerald-50'
-                                        : 'border-gray-100 hover:border-gray-200 group cursor-pointer'
-                                      }`}
-                                    onClick={() => addSlot(emp.id, jour)}
-                                  >
-                                    <Plus size={12} className="text-gray-300 group-hover:text-gray-400 transition-colors" />
+                                  /* Cellule vide : + shift ou absence */
+                                  <div className={`rounded-xl border-2 border-dashed transition-all flex flex-col min-h-[4rem] overflow-hidden
+                                    ${isOver && canDrop ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                                    {/* Bouton + shift */}
+                                    <button onClick={() => addSlot(emp.id, jour)}
+                                      className="flex-1 flex items-center justify-center text-gray-300 hover:text-gray-500 hover:bg-gray-50 transition-colors py-1">
+                                      <Plus size={12} />
+                                    </button>
+                                    {/* Boutons absence */}
+                                    <div className="flex border-t border-dashed border-gray-100">
+                                      {ABSENCE_TYPES.map(at => (
+                                        <button key={at.key}
+                                          title={at.label}
+                                          onClick={() => setAbsenceForDay(emp.id, jour, at.key)}
+                                          className={`flex-1 text-[9px] font-black py-1 transition-colors ${at.pill}`}>
+                                          {at.short}
+                                        </button>
+                                      ))}
+                                    </div>
                                   </div>
                                 )}
                               </td>
@@ -986,7 +918,7 @@ export default function ProductionPersonnelPage() {
                           })}
 
                           {/* Total */}
-                          <td className="text-center px-4 py-2">
+                          <td className="text-center px-4 py-2 border-l border-gray-200">
                             <span className={`text-sm font-black ${heures > CIBLE_MIN ? 'text-red-600' : heures === CIBLE_MIN ? 'text-emerald-600' : heures > 0 ? 'text-gray-800' : 'text-gray-200'}`}>
                               {heures > 0 ? fmtMin(heures) : '—'}
                             </span>
