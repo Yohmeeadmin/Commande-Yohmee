@@ -13,6 +13,8 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [emailValue, setEmailValue] = useState('');
+  const [passwordValue, setPasswordValue] = useState('');
 
   useEffect(() => {
     const btn = btnRef.current;
@@ -26,12 +28,10 @@ export default function LoginPage() {
   }, []);
 
   async function handleLogin() {
-    const emailEl = document.getElementById('email') as HTMLInputElement;
-    const passEl = document.getElementById('password') as HTMLInputElement;
-    const emailValue = (emailEl?.value || emailRef.current?.value || '').trim().toLowerCase();
-    const passwordValue = passEl?.value || passwordRef.current?.value || '';
+    const emailFinal = (emailValue || emailRef.current?.value || '').trim().toLowerCase();
+    const passwordFinal = passwordValue || passwordRef.current?.value || '';
 
-    if (!emailValue || !passwordValue) {
+    if (!emailFinal || !passwordFinal) {
       setError('Champs vides — saisissez manuellement.');
       return;
     }
@@ -40,8 +40,8 @@ export default function LoginPage() {
     setError('Connexion…');
     try {
       const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email: emailValue,
-        password: passwordValue,
+        email: emailFinal,
+        password: passwordFinal,
       });
       if (authError) {
         setError(`Erreur: ${authError.message}`);
@@ -103,6 +103,8 @@ export default function LoginPage() {
                 name="email"
                 autoComplete="email"
                 placeholder="votre@email.com"
+                value={emailValue}
+                onChange={e => setEmailValue(e.target.value)}
                 className="w-full px-4 py-3.5 border border-black/20 text-sm focus:outline-none focus:border-black bg-white transition-colors"
               />
             </div>
@@ -119,6 +121,8 @@ export default function LoginPage() {
                   name="password"
                   autoComplete="current-password"
                   placeholder="••••••••"
+                  value={passwordValue}
+                  onChange={e => setPasswordValue(e.target.value)}
                   className="w-full px-4 py-3.5 pr-12 border border-black/20 text-sm focus:outline-none focus:border-black bg-white transition-colors"
                 />
                 <button
