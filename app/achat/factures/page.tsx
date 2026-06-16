@@ -514,7 +514,7 @@ export default function FacturesPage() {
                         <td className="px-3 py-2.5">
                           <div className="flex items-center gap-1.5">
                             <span className="font-medium text-gray-900">{inv.supplier?.nom}</span>
-                            {inv.order_id && <Link2 size={11} className="text-blue-400" title="Lié à un BDC" />}
+                            {inv.order_id && <span title="Lié à un BDC"><Link2 size={11} className="text-blue-400" /></span>}
                           </div>
                         </td>
                         <td className="px-3 py-2.5 text-gray-400 text-xs hidden sm:table-cell">{inv.numero || '—'}</td>
