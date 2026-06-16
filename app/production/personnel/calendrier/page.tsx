@@ -53,7 +53,7 @@ export default function CalendrierPage() {
   useEffect(() => {
     supabase.from('rh_employes').select('id, nom, poste, service').eq('actif', true).order('nom')
       .then((res: { data: Employe[] | null }) => { const emps = res.data ?? []; setEmployes(emps); if (emps.length) setEmpId(emps[0].id); });
-    supabase.from('jours_feries').select('*').then(({ data }) => setFeries((data ?? []) as JourFerie[]));
+    supabase.from('jours_feries').select('*').then(({ data }: { data: JourFerie[] | null }) => setFeries(data ?? []));
   }, []);
 
   useEffect(() => { if (empId) loadData(); }, [year, month, empId]); // eslint-disable-line

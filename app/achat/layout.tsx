@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { ShoppingCart, AlertTriangle, TrendingDown } from 'lucide-react';
@@ -25,9 +25,10 @@ export default function AchatLayout({ children }: { children: React.ReactNode })
       supabase.from('purchase_orders').select('id', { count: 'exact' }).eq('statut', 'en_attente'),
       supabase.from('stock_items').select('stock_actuel, stock_min'),
     ]).then(([{ count }, { data }]) => {
+      const items = (data || []) as { stock_actuel: number | null; stock_min: number | null }[];
       setAlerts({
         pending: count ?? 0,
-        alertes: (data || []).filter(i => (i.stock_actuel ?? 0) <= (i.stock_min ?? 0)).length,
+        alertes: items.filter(i => (i.stock_actuel ?? 0) <= (i.stock_min ?? 0)).length,
       });
     });
   }, [pathname]);
@@ -63,7 +64,7 @@ export default function AchatLayout({ children }: { children: React.ReactNode })
 
         <nav
           className="px-4 lg:px-8 mt-4 overflow-x-auto"
-          style={{ scrollbarWidth: 'none' } as { scrollbarWidth: string }}
+          style={{ scrollbarWidth: 'none' } as React.CSSProperties}
         >
           <div className="flex min-w-max">
             {TABS.map(tab => {

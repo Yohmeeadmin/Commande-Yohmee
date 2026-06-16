@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
-import { Plus, X, Package, Search, ChefHat, CheckCircle, AlertTriangle, ScanLine, ExternalLink } from 'lucide-react';
+import { Plus, X, Package, Search, ChefHat, CheckCircle, AlertTriangle, ScanLine, ExternalLink, Info } from 'lucide-react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase/client';
 import { useUser } from '@/contexts/UserContext';
@@ -547,13 +547,13 @@ export default function ProduitsFinis() {
       .not('product_reference_id', 'is', null);
 
     // Ne supprimer que ceux qui ont stock = 0 (sécurité : garder ceux qui ont du stock réel)
-    const toDelete = (existingPF || []).filter(p => (p.stock_actuel ?? 0) === 0).map(p => p.id);
+    const toDelete = (existingPF || []).filter((p: { stock_actuel: number | null; id: string }) => (p.stock_actuel ?? 0) === 0).map((p: { id: string }) => p.id);
     if (toDelete.length > 0) await supabase.from('stock_items').delete().in('id', toDelete);
 
     // PF encore présents (stock > 0, on ne touche pas)
     const { data: remaining } = await supabase
       .from('stock_items').select('nom').eq('item_type', 'pf');
-    const existingNames = new Set((remaining || []).map(p => p.nom.toLowerCase().trim()));
+    const existingNames = new Set((remaining || []).map((p: { nom: string }) => p.nom.toLowerCase().trim()));
 
     // 4. Créer tous les articles manquants
     const toCreate = articlesWithName.filter(a => !existingNames.has(a.nom.toLowerCase().trim()));

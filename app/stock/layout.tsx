@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Warehouse, TrendingDown, AlertTriangle } from 'lucide-react';
@@ -24,11 +24,12 @@ export default function StockLayout({ children }: { children: React.ReactNode })
   const [alerts, setAlerts] = useState<Alerts>({ ruptures: 0, alertes: 0 });
 
   useEffect(() => {
-    supabase.from('stock_items').select('stock_actuel, stock_min').then(({ data }) => {
+    supabase.from('stock_items').select('stock_actuel, stock_min').then(({ data }: { data: { stock_actuel: number | null; stock_min: number | null }[] | null }) => {
       if (!data) return;
+      const items = data;
       setAlerts({
-        ruptures: data.filter(i => (i.stock_actuel ?? 0) <= 0).length,
-        alertes:  data.filter(i => (i.stock_actuel ?? 0) > 0 && (i.stock_actuel ?? 0) <= (i.stock_min ?? 0)).length,
+        ruptures: items.filter(i => (i.stock_actuel ?? 0) <= 0).length,
+        alertes:  items.filter(i => (i.stock_actuel ?? 0) > 0 && (i.stock_actuel ?? 0) <= (i.stock_min ?? 0)).length,
       });
     });
   }, [pathname]);
@@ -74,7 +75,7 @@ export default function StockLayout({ children }: { children: React.ReactNode })
         {/* Tab navigation */}
         <nav
           className="px-4 lg:px-8 mt-4 overflow-x-auto"
-          style={{ scrollbarWidth: 'none' } as { scrollbarWidth: string }}
+          style={{ scrollbarWidth: 'none' } as React.CSSProperties}
         >
           <div className="flex min-w-max">
             {TABS.map(tab => {

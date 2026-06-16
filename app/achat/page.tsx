@@ -72,8 +72,8 @@ export default function MercurialePage() {
     supabase
       .from('supplier_invoice_lines')
       .select('*, stock_item:stock_items(nom, unite), invoice:supplier_invoices(date_facture, statut, supplier:suppliers(nom))')
-      .then(({ data }) => {
-        const validated = ((data || []) as InvoiceLine[]).filter(l => l.invoice?.statut === 'validee');
+      .then(({ data }: { data: InvoiceLine[] | null }) => {
+        const validated = (data || []).filter(l => l.invoice?.statut === 'validee');
         setLines(validated);
         setLoading(false);
       });

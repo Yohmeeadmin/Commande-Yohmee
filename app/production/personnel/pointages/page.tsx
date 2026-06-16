@@ -66,7 +66,7 @@ export default function PointagesPage() {
   useEffect(() => {
     supabase.from('rh_employes').select('id, nom, poste, service').eq('actif', true).order('service').order('nom')
       .then((res: { data: Employe[] | null }) => setEmployes(res.data ?? []));
-    supabase.from('jours_feries').select('*').then(({ data }) => setFeries((data ?? []) as JourFerie[]));
+    supabase.from('jours_feries').select('*').then(({ data }: { data: JourFerie[] | null }) => setFeries(data ?? []));
   }, []);
 
   useEffect(() => { loadWeek(); }, [weekMonday]); // eslint-disable-line

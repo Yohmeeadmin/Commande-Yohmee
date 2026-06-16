@@ -570,7 +570,7 @@ export default function ProductionPersonnelPage() {
 
   useEffect(() => {
     loadAll();
-    supabase.from('jours_feries').select('*').then(({ data }) => setFeries((data ?? []) as JourFerie[]));
+    supabase.from('jours_feries').select('*').then(({ data }: { data: JourFerie[] | null }) => setFeries(data ?? []));
   }, []);
 
   // Recharge shifts + absences quand la semaine change
@@ -600,7 +600,7 @@ export default function ProductionPersonnelPage() {
     const tpl: Record<number, Slot[]> = {};
     ((dispoData as (Slot & { jour_semaine: number })[]) ?? []).forEach(d => {
       if (!tpl[d.jour_semaine]) tpl[d.jour_semaine] = [];
-      tpl[d.jour_semaine].push({ employe_id: d.employe_id, heure_debut: d.heure_debut, heure_fin: d.heure_fin, pause_min: d.pause_min ?? 0 });
+      tpl[d.jour_semaine].push({ employe_id: d.employe_id, heure_debut: d.heure_debut, heure_fin: d.heure_fin, pause_min: d.pause_min ?? 0, ferie_traitement: null });
     });
     setTemplate(tpl);
     await loadWeekShifts(weekMondayRef.current);
@@ -788,7 +788,7 @@ export default function ProductionPersonnelPage() {
           next[jour] = (next[jour] ?? []).filter(s => s.employe_id !== empId);
         } else {
           const existing = (next[jour] ?? []).filter(s => s.employe_id !== empId);
-          next[jour] = [...existing, { employe_id: empId, heure_debut: shift.debut, heure_fin: shift.fin, pause_min: shift.pause }];
+          next[jour] = [...existing, { employe_id: empId, heure_debut: shift.debut, heure_fin: shift.fin, pause_min: shift.pause, ferie_traitement: null }];
         }
       });
       return next;
