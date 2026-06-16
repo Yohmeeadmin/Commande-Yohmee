@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Save, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
+import { getFerieFromList, JourFerie } from '@/lib/feries-maroc';
 
 interface Employe { id: string; nom: string; poste: string | null; service: string | null; }
 interface Shift { employe_id: string; date: string; heure_debut: string; heure_fin: string; pause_min: number; }
@@ -60,10 +61,12 @@ export default function PointagesPage() {
   const [editing, setEditing]       = useState<Record<string, Pointage>>({});
   const [saving, setSaving]         = useState<string | null>(null);
   const [loading, setLoading]       = useState(true);
+  const [feries, setFeries]         = useState<JourFerie[]>([]);
 
   useEffect(() => {
     supabase.from('rh_employes').select('id, nom, poste, service').eq('actif', true).order('service').order('nom')
       .then((res: { data: Employe[] | null }) => setEmployes(res.data ?? []));
+    supabase.from('jours_feries').select('*').then(({ data }) => setFeries((data ?? []) as JourFerie[]));
   }, []);
 
   useEffect(() => { loadWeek(); }, [weekMonday]); // eslint-disable-line
@@ -164,12 +167,16 @@ export default function PointagesPage() {
                     <thead className="border-b border-gray-200 bg-gray-50">
                       <tr>
                         <th className="text-left px-4 py-2 font-bold text-gray-600 border-r border-gray-200 w-36">Employé</th>
-                        {dates.map((date, i) => (
-                          <th key={date} className={`text-center px-2 py-2 font-bold text-gray-600 border-r border-gray-100 last:border-r-0 ${i >= 5 ? 'bg-gray-100' : ''}`}>
-                            <p>{JOURS[i]}</p>
-                            <p className="text-xs font-normal text-gray-400">{fmtDay(new Date(date))}</p>
-                          </th>
-                        ))}
+                        {dates.map((date, i) => {
+                          const ferie = getFerieFromList(date, feries);
+                          return (
+                            <th key={date} className={`text-center px-2 py-2 font-bold border-r border-gray-100 last:border-r-0 ${ferie ? 'bg-green-100 text-green-700' : i >= 5 ? 'bg-gray-100 text-gray-600' : 'text-gray-600'}`}>
+                              <p>{JOURS[i]}</p>
+                              <p className="text-xs font-normal" style={{ color: ferie ? '#15803d' : '#9ca3af' }}>{fmtDay(new Date(date))}</p>
+                              {ferie && <p className="text-[9px] font-semibold text-green-600 leading-tight max-w-[80px] mx-auto normal-case">{ferie}</p>}
+                            </th>
+                          );
+                        })}
                       </tr>
                     </thead>
                     <tbody>

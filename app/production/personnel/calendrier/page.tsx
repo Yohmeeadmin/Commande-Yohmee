@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
+import { getFerieFromList, JourFerie } from '@/lib/feries-maroc';
 
 interface Employe { id: string; nom: string; poste: string | null; service: string | null; }
 interface Shift { employe_id: string; date: string; heure_debut: string; heure_fin: string; pause_min: number; }
@@ -47,10 +48,12 @@ export default function CalendrierPage() {
   const [shifts, setShifts]     = useState<Shift[]>([]);
   const [absences, setAbsences] = useState<Absence[]>([]);
   const [loading, setLoading]   = useState(true);
+  const [feries, setFeries]     = useState<JourFerie[]>([]);
 
   useEffect(() => {
     supabase.from('rh_employes').select('id, nom, poste, service').eq('actif', true).order('nom')
       .then((res: { data: Employe[] | null }) => { const emps = res.data ?? []; setEmployes(emps); if (emps.length) setEmpId(emps[0].id); });
+    supabase.from('jours_feries').select('*').then(({ data }) => setFeries((data ?? []) as JourFerie[]));
   }, []);
 
   useEffect(() => { if (empId) loadData(); }, [year, month, empId]); // eslint-disable-line
@@ -58,7 +61,8 @@ export default function CalendrierPage() {
   async function loadData() {
     setLoading(true);
     const first = `${year}-${String(month + 1).padStart(2, '0')}-01`;
-    const last  = new Date(year, month + 1, 0).toISOString().split('T')[0];
+    const lastD = new Date(year, month + 1, 0);
+    const last  = `${lastD.getFullYear()}-${String(lastD.getMonth()+1).padStart(2,'0')}-${String(lastD.getDate()).padStart(2,'0')}`;
     const [{ data: sh }, { data: abs }] = await Promise.all([
       supabase.from('planning_shifts').select('*').eq('employe_id', empId).gte('date', first).lte('date', last),
       supabase.from('planning_absences').select('*').eq('employe_id', empId).gte('date', first).lte('date', last),
@@ -70,13 +74,14 @@ export default function CalendrierPage() {
 
   const weeks = useMemo(() => monthCalendar(year, month), [year, month]);
 
-  function shiftOf(d: Date) { const s = d.toISOString().split('T')[0]; return shifts.find(x => x.date === s); }
-  function absOf(d: Date)   { const s = d.toISOString().split('T')[0]; return absences.find(x => x.date === s); }
+  function localDate(d: Date) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+  function shiftOf(d: Date) { const s = localDate(d); return shifts.find(x => x.date === s); }
+  function absOf(d: Date)   { const s = localDate(d); return absences.find(x => x.date === s); }
 
   function prev() { if (month === 0) { setYear(y => y - 1); setMonth(11); } else setMonth(m => m - 1); }
   function next() { if (month === 11) { setYear(y => y + 1); setMonth(0); } else setMonth(m => m + 1); }
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = localDate(new Date());
 
   return (
     <div className="space-y-5">
@@ -117,16 +122,20 @@ export default function CalendrierPage() {
             <div key={wi} className="grid grid-cols-7 border-b border-gray-100 last:border-b-0">
               {week.map((day, di) => {
                 if (!day) return <div key={di} className="border-r border-gray-100 last:border-r-0 min-h-[80px] bg-gray-50/50" />;
-                const dateStr = day.toISOString().split('T')[0];
+                const dateStr = `${day.getFullYear()}-${String(day.getMonth()+1).padStart(2,'0')}-${String(day.getDate()).padStart(2,'0')}`;
                 const shift = shiftOf(day);
                 const absence = absOf(day);
                 const isToday = dateStr === today;
                 const isWe = di >= 5;
+                const ferie = getFerieFromList(dateStr, feries);
                 return (
-                  <div key={di} className={`border-r border-gray-100 last:border-r-0 min-h-[80px] p-2 ${isWe ? 'bg-gray-50' : ''}`}>
-                    <div className={`text-sm font-black mb-1 w-7 h-7 flex items-center justify-center rounded-full ${isToday ? 'bg-amber-500 text-white' : 'text-gray-700'}`}>
+                  <div key={di} className={`border-r border-gray-100 last:border-r-0 min-h-[80px] p-2 ${ferie ? 'bg-green-50' : isWe ? 'bg-gray-50' : ''}`}>
+                    <div className={`text-sm font-black mb-1 w-7 h-7 flex items-center justify-center rounded-full ${isToday ? 'bg-amber-500 text-white' : ferie ? 'bg-green-500 text-white' : 'text-gray-700'}`}>
                       {day.getDate()}
                     </div>
+                    {ferie && (
+                      <div className="text-[9px] font-bold text-green-700 leading-tight mb-1">{ferie}</div>
+                    )}
                     {absence ? (
                       <span className={`inline-block text-[10px] font-bold px-2 py-1 rounded-lg w-full text-center ${ABS_STYLE[absence.type] ?? 'bg-gray-200 text-gray-700'}`}>
                         {ABS_LABEL[absence.type] ?? absence.type}

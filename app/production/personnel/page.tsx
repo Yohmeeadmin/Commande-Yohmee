@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Check, ExternalLink, X, Clock, Coffee, Users, Settings, Printer, Plus, ChevronRight, Zap } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
+import { getFerieFromList, JourFerie } from '@/lib/feries-maroc';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,7 @@ interface Slot {
   heure_debut: string;
   heure_fin: string;
   pause_min: number;
+  ferie_traitement: 'recup' | 'majore' | null;
 }
 
 type AbsenceType = 'conge' | 'recup' | 'maladie' | 'autre' | 'off';
@@ -79,6 +81,18 @@ function slotNetMin(slot: Slot): number {
   let diff = (fh * 60 + fm) - (dh * 60 + dm);
   if (diff < 0) diff += 24 * 60;
   return Math.max(0, diff - slot.pause_min);
+}
+
+// Durée journalière d'un employé : son shift habituel si défini, sinon contrat / 5
+function empDailyMin(emp: Employe): number {
+  if (emp.shift_debut && emp.shift_fin) {
+    const [dh, dm] = emp.shift_debut.split(':').map(Number);
+    const [fh, fm] = emp.shift_fin.split(':').map(Number);
+    let diff = (fh * 60 + fm) - (dh * 60 + dm);
+    if (diff < 0) diff += 24 * 60;
+    return Math.max(0, diff - (emp.shift_pause_min ?? 0));
+  }
+  return Math.round((emp.heures_contrat ?? 35) / 5 * 60);
 }
 
 function fmtMin(min: number): string {
@@ -278,11 +292,12 @@ function printWindow(employes: Employe[], planning: Record<number, Slot[]>, abse
 
 // ─── Vue Équipe ───────────────────────────────────────────────────────────────
 
-function VueEquipe({ employes, planning, absences, weekMonday }: {
+function VueEquipe({ employes, planning, absences, weekMonday, feriesJour }: {
   employes: Employe[];
   planning: Record<number, Slot[]>;
   absences: Record<string, AbsenceType>;
   weekMonday: Date;
+  feriesJour: (string | null)[];
 }) {
   const services = [...new Set(employes.map(e => e.service ?? 'Autre'))].sort();
   const byService = new Map<string, Employe[]>();
@@ -305,12 +320,16 @@ function VueEquipe({ employes, planning, absences, weekMonday }: {
           <thead>
             <tr className="border-b-2 border-gray-300 bg-gray-100">
               <th className="text-left px-4 py-2.5 text-xs font-black text-gray-500 uppercase tracking-wider w-44 border-r border-gray-300">Employé</th>
-              {JOURS.map((j, i) => (
-                <th key={i} className={`text-center px-2 py-2.5 text-xs font-black uppercase tracking-wider border-r border-gray-200 ${i >= 5 ? 'text-gray-400 bg-gray-50' : 'text-gray-600'}`}>
-                  <div>{j.slice(0, 3)}</div>
-                  <div className="text-[10px] font-medium normal-case tracking-normal text-gray-400">{fmtDay(dayDate(weekMonday, i))}</div>
-                </th>
-              ))}
+              {JOURS.map((j, i) => {
+                const ferie = feriesJour[i];
+                return (
+                  <th key={i} className={`text-center px-2 py-2.5 text-xs font-black uppercase tracking-wider border-r border-gray-200 ${ferie ? 'bg-green-100 text-green-700' : i >= 5 ? 'text-gray-400 bg-gray-50' : 'text-gray-600'}`}>
+                    <div>{j.slice(0, 3)}</div>
+                    <div className="text-[10px] font-medium normal-case tracking-normal" style={{ color: ferie ? '#15803d' : '#9ca3af' }}>{fmtDay(dayDate(weekMonday, i))}</div>
+                    {ferie && <div className="text-[9px] font-semibold text-green-600 normal-case leading-tight mt-0.5">{ferie.replace(' ★','')}</div>}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -338,8 +357,9 @@ function VueEquipe({ employes, planning, absences, weekMonday }: {
                         const absence = absences[absKey];
                         const slot = (planning[i] ?? []).find(s => s.employe_id === emp.id);
                         const ac = absence ? absenceConfig(absence) : null;
+                        const ferie = feriesJour[i];
                         return (
-                          <td key={i} className={`text-center px-1 py-2 border-r border-gray-200 ${i >= 5 ? 'bg-gray-50' : ''}`}>
+                          <td key={i} className={`text-center px-1 py-2 border-r border-gray-200 ${ferie && !slot && !absence ? 'bg-green-50' : i >= 5 ? 'bg-gray-50' : ''}`}>
                             {absence && ac ? (
                               <span className={`inline-block text-xs font-black px-2 py-1 rounded-lg ${ac.badge}`}>{ac.label}</span>
                             ) : slot ? (
@@ -347,8 +367,17 @@ function VueEquipe({ employes, planning, absences, weekMonday }: {
                                 <p className="text-xs font-black text-gray-800">{slot.heure_debut.slice(0,5)}–{slot.heure_fin.slice(0,5)}</p>
                                 {slot.pause_min > 0 && <p className="text-[10px] text-gray-400">{slot.pause_min}'</p>}
                                 <p className={`text-[10px] font-bold ${st.text}`}>{fmtMin(slotNetMin(slot))}</p>
+                                {ferie && slot.ferie_traitement && (
+                                  <span className={`inline-block text-[9px] font-black px-1.5 py-0.5 rounded mt-0.5 ${slot.ferie_traitement === 'recup' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
+                                    {slot.ferie_traitement === 'recup' ? 'Récup' : 'Majoré'}
+                                  </span>
+                                )}
                               </div>
-                            ) : <span className="text-gray-300 text-xs">—</span>}
+                            ) : ferie ? (
+                              <span className="inline-block text-[10px] font-black px-2 py-1 rounded-lg bg-green-100 text-green-700">Férié</span>
+                            ) : (
+                              <span className="text-gray-300 text-xs">—</span>
+                            )}
                           </td>
                         );
                       })}
@@ -531,6 +560,7 @@ export default function ProductionPersonnelPage() {
   const [saveError, setSaveError]   = useState<string | null>(null);
   const [view, setView]             = useState<'admin' | 'equipe'>('admin');
   const [profilEmp, setProfilEmp]   = useState<Employe | null>(null);
+  const [feries, setFeries]         = useState<JourFerie[]>([]);
 
   const planningRef     = useRef(planning);
   planningRef.current   = planning;
@@ -538,7 +568,10 @@ export default function ProductionPersonnelPage() {
   const weekMondayRef   = useRef(weekMonday);
   weekMondayRef.current = weekMonday;
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => {
+    loadAll();
+    supabase.from('jours_feries').select('*').then(({ data }) => setFeries((data ?? []) as JourFerie[]));
+  }, []);
 
   // Recharge shifts + absences quand la semaine change
   const isFirstLoad = useRef(true);
@@ -580,14 +613,14 @@ export default function ProductionPersonnelPage() {
     const dates = weekDatesOf(monday);
     const { data } = await supabase
       .from('planning_shifts')
-      .select('employe_id, date, heure_debut, heure_fin, pause_min')
+      .select('employe_id, date, heure_debut, heure_fin, pause_min, ferie_traitement')
       .in('date', dates);
     const plan: Record<number, Slot[]> = {};
     ((data ?? []) as (Slot & { date: string })[]).forEach(s => {
       const jour = dates.indexOf(s.date);
       if (jour >= 0) {
         if (!plan[jour]) plan[jour] = [];
-        plan[jour].push({ employe_id: s.employe_id, heure_debut: s.heure_debut, heure_fin: s.heure_fin, pause_min: s.pause_min ?? 0 });
+        plan[jour].push({ employe_id: s.employe_id, heure_debut: s.heure_debut, heure_fin: s.heure_fin, pause_min: s.pause_min ?? 0, ferie_traitement: s.ferie_traitement ?? null });
       }
     });
     setPlanning(plan);
@@ -640,7 +673,7 @@ export default function ProductionPersonnelPage() {
     const absKey = `${empId}_${jour}`;
     if (absences[absKey]) setAbsenceForDay(empId, jour, null);
     userEditedRef.current = true;
-    setPlanning(p => ({ ...p, [jour]: [...(p[jour] ?? []), { employe_id: empId, heure_debut: '04:00', heure_fin: '12:00', pause_min: 0 }] }));
+    setPlanning(p => ({ ...p, [jour]: [...(p[jour] ?? []), { employe_id: empId, heure_debut: '04:00', heure_fin: '12:00', pause_min: 0, ferie_traitement: null }] }));
   }
 
   function removeSlot(empId: string, jour: number) {
@@ -678,6 +711,7 @@ export default function ProductionPersonnelPage() {
         heure_debut: s.heure_debut,
         heure_fin: s.heure_fin,
         pause_min: s.pause_min,
+        ferie_traitement: s.ferie_traitement ?? null,
       }));
     });
     if (rows.length > 0) {
@@ -720,7 +754,7 @@ export default function ProductionPersonnelPage() {
     const dates = weekDatesOf(prevMonday);
     const { data } = await supabase
       .from('planning_shifts')
-      .select('employe_id, date, heure_debut, heure_fin, pause_min')
+      .select('employe_id, date, heure_debut, heure_fin, pause_min, ferie_traitement')
       .in('date', dates);
     if (!data || data.length === 0) return;
     const plan: Record<number, Slot[]> = {};
@@ -728,7 +762,7 @@ export default function ProductionPersonnelPage() {
       const jour = dates.indexOf(s.date);
       if (jour >= 0) {
         if (!plan[jour]) plan[jour] = [];
-        plan[jour].push({ employe_id: s.employe_id, heure_debut: s.heure_debut, heure_fin: s.heure_fin, pause_min: s.pause_min ?? 0 });
+        plan[jour].push({ employe_id: s.employe_id, heure_debut: s.heure_debut, heure_fin: s.heure_fin, pause_min: s.pause_min ?? 0, ferie_traitement: null });
       }
     });
     userEditedRef.current = true;
@@ -765,10 +799,31 @@ export default function ProductionPersonnelPage() {
   const byService = new Map<string, Employe[]>();
   services.forEach(s => byService.set(s, employes.filter(e => (e.service ?? 'Autre') === s)));
 
+  // Calcul jours fériés de la semaine
+  const feriesJour = JOURS.map((_, i) => {
+    const d = dayDate(weekMonday, i);
+    const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    return getFerieFromList(ds, feries);
+  });
+
   const heuresParEmp = new Map<string, number>();
+  // Heures planifiées
   Object.values(planning).forEach(slots => slots.forEach(s => {
     heuresParEmp.set(s.employe_id, (heuresParEmp.get(s.employe_id) ?? 0) + slotNetMin(s));
   }));
+  // Jours fériés non travaillés → comptés comme heures normales (contrat / 5)
+  employes.forEach(emp => {
+    const dailyMin = empDailyMin(emp);
+    JOURS.forEach((_, jour) => {
+      if (!feriesJour[jour]) return; // pas férié
+      const slot = (planning[jour] ?? []).find(s => s.employe_id === emp.id);
+      const absKey = `${emp.id}_${jour}`;
+      const absence = absences[absKey];
+      if (!slot && !absence) {
+        heuresParEmp.set(emp.id, (heuresParEmp.get(emp.id) ?? 0) + dailyMin);
+      }
+    });
+  });
   const totalSemaineMin = Array.from(heuresParEmp.values()).reduce((a, b) => a + b, 0);
   const heuresParJour = JOURS.map((_, idx) => (planning[idx] ?? []).reduce((sum, s) => sum + slotNetMin(s), 0));
 
@@ -921,7 +976,7 @@ export default function ProductionPersonnelPage() {
       {loading ? (
         <div className="flex justify-center py-20"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-300" /></div>
       ) : view === 'equipe' ? (
-        <VueEquipe employes={employes} planning={planning} absences={absences} weekMonday={weekMonday} />
+        <VueEquipe employes={employes} planning={planning} absences={absences} weekMonday={weekMonday} feriesJour={feriesJour} />
       ) : (
         <div className="overflow-x-auto rounded-2xl border-2 border-gray-300 bg-white">
           <table className="w-full border-collapse" style={{ minWidth: '980px' }}>
@@ -930,17 +985,23 @@ export default function ProductionPersonnelPage() {
                 <th className="text-left px-3 py-3 text-xs font-black text-gray-500 uppercase tracking-wider sticky left-0 bg-gray-100 z-10 w-36 border-r-2 border-gray-300">
                   Employé
                 </th>
-                {JOURS.map((j, i) => (
-                  <th key={i} className={`text-center px-1 py-3 text-xs font-black uppercase tracking-wider border-r border-gray-300 ${i >= 5 ? 'text-gray-400 bg-gray-200' : 'text-gray-600'}`}>
-                    <div>{j.slice(0, 3)}</div>
-                    <div className="text-[10px] font-semibold text-gray-400 mt-0.5 normal-case tracking-normal">
-                      {fmtDay(dayDate(weekMonday, i))}
-                    </div>
-                    {heuresParJour[i] > 0 && (
-                      <div className="text-[10px] font-semibold text-blue-500 mt-0.5 normal-case">{fmtMin(heuresParJour[i])}</div>
-                    )}
-                  </th>
-                ))}
+                {JOURS.map((j, i) => {
+                  const ferie = feriesJour[i];
+                  return (
+                    <th key={i} className={`text-center px-1 py-3 text-xs font-black uppercase tracking-wider border-r border-gray-300 ${ferie ? 'bg-green-100 text-green-700' : i >= 5 ? 'text-gray-400 bg-gray-200' : 'text-gray-600'}`}>
+                      <div>{j.slice(0, 3)}</div>
+                      <div className="text-[10px] font-semibold mt-0.5 normal-case tracking-normal" style={{ color: ferie ? '#15803d' : undefined }}>
+                        {fmtDay(dayDate(weekMonday, i))}
+                      </div>
+                      {ferie && (
+                        <div className="text-[9px] font-semibold text-green-600 mt-0.5 normal-case leading-tight max-w-[80px] mx-auto">{ferie.replace(' ★','')}</div>
+                      )}
+                      {heuresParJour[i] > 0 && (
+                        <div className="text-[10px] font-semibold text-blue-500 mt-0.5 normal-case">{fmtMin(heuresParJour[i])}</div>
+                      )}
+                    </th>
+                  );
+                })}
                 <th className="text-center px-4 py-3 text-xs font-black text-gray-500 uppercase tracking-wider w-28">Total</th>
               </tr>
             </thead>
@@ -1013,6 +1074,8 @@ export default function ProductionPersonnelPage() {
                             const isWeekend = jour >= 5;
                             const isOver = dragOver?.empId === emp.id && dragOver?.jour === jour;
                             const canDrop = !!drag && !slot && !absence && !(drag.empId === emp.id && drag.fromJour === jour);
+                            const ferie = feriesJour[jour];
+                            const dailyMin = empDailyMin(emp);
 
                             return (
                               <td
@@ -1040,12 +1103,16 @@ export default function ProductionPersonnelPage() {
                                     draggable
                                     onDragStart={() => setDrag({ empId: emp.id, slot: { ...slot }, fromJour: jour })}
                                     onDragEnd={() => { setDrag(null); setDragOver(null); }}
-                                    className={`${empSt.cell} rounded-xl p-2 relative group cursor-grab active:cursor-grabbing transition-all border border-transparent ${drag?.empId === emp.id && drag.fromJour === jour ? 'opacity-40 scale-95' : 'hover:border-gray-300'}`}
+                                    className={`${ferie ? 'bg-green-50 border-green-200' : empSt.cell} rounded-xl p-2 relative group cursor-grab active:cursor-grabbing transition-all border ${drag?.empId === emp.id && drag.fromJour === jour ? 'opacity-40 scale-95 border-transparent' : ferie ? '' : 'border-transparent hover:border-gray-300'}`}
                                   >
                                     <button onClick={() => removeSlot(emp.id, jour)}
                                       className="absolute top-1 right-1 p-0.5 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity rounded">
                                       <X size={10} />
                                     </button>
+                                    {/* Badge nom du jour férié */}
+                                    {ferie && (
+                                      <div className="text-[8px] font-black text-green-700 leading-tight mb-1 truncate">{ferie.replace(' ★','')}</div>
+                                    )}
                                     {/* Heures */}
                                     <div className="flex items-center gap-0.5 mb-1.5">
                                       <input type="time" value={slot.heure_debut}
@@ -1067,8 +1134,30 @@ export default function ProductionPersonnelPage() {
                                         <option value={0}>— pause</option>
                                         {[15,30,45,60,90].map(m => <option key={m} value={m}>{m}&apos;</option>)}
                                       </select>
-                                      <span className={`ml-auto text-[11px] font-black ${empSt.text}`}>{fmtMin(slotNetMin(slot))}</span>
+                                      <span className={`ml-auto text-[11px] font-black ${ferie ? 'text-green-700' : empSt.text}`}>{fmtMin(slotNetMin(slot))}</span>
                                     </div>
+                                    {/* Sélecteur récup / majoré sur jour férié */}
+                                    {ferie && (
+                                      <div className="flex gap-1 mt-1.5" onDragStart={e => e.stopPropagation()}>
+                                        <button
+                                          onClick={() => updateSlot(emp.id, jour, { ferie_traitement: slot.ferie_traitement === 'recup' ? null : 'recup' })}
+                                          className={`flex-1 text-[8px] font-black py-0.5 rounded transition-colors ${slot.ferie_traitement === 'recup' ? 'bg-blue-500 text-white' : 'bg-white border border-blue-200 text-blue-400 hover:bg-blue-50'}`}>
+                                          Récup
+                                        </button>
+                                        <button
+                                          onClick={() => updateSlot(emp.id, jour, { ferie_traitement: slot.ferie_traitement === 'majore' ? null : 'majore' })}
+                                          className={`flex-1 text-[8px] font-black py-0.5 rounded transition-colors ${slot.ferie_traitement === 'majore' ? 'bg-orange-500 text-white' : 'bg-white border border-orange-200 text-orange-400 hover:bg-orange-50'}`}>
+                                          Majoré
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : ferie && !absence ? (
+                                  /* Jour férié sans shift → heures comptées automatiquement */
+                                  <div className="rounded-xl border border-green-200 bg-green-50 flex flex-col items-center justify-center min-h-[4rem] px-1 py-2 gap-0.5">
+                                    <span className="text-[8px] font-black text-green-700 text-center leading-tight">{ferie.replace(' ★','')}</span>
+                                    <span className="text-[11px] font-black text-green-600">{fmtMin(dailyMin)}</span>
+                                    <span className="text-[8px] text-green-400">payé</span>
                                   </div>
                                 ) : (
                                   /* Cellule vide : + shift ou absence */
