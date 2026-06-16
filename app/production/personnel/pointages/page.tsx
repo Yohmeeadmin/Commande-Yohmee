@@ -2,12 +2,24 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, ChevronLeft, ChevronRight, Save } from 'lucide-react';
+import { ArrowLeft, Save, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 
 interface Employe { id: string; nom: string; poste: string | null; service: string | null; }
 interface Shift { employe_id: string; date: string; heure_debut: string; heure_fin: string; pause_min: number; }
 interface Pointage { employe_id: string; date: string; heure_entree: string | null; heure_sortie: string | null; pause_min: number; note: string | null; }
+interface AbsenceRow { employe_id: string; date: string; type: string; }
+
+type AbsenceType = 'off' | 'conge' | 'recup' | 'maladie' | 'autre';
+
+const ABSENCE_TYPES: { key: AbsenceType; short: string; label: string; badge: string; pill: string; cell: string }[] = [
+  { key: 'off',     short: 'OFF', label: 'Jour off',       badge: 'bg-red-600 text-white',           pill: 'bg-red-600 text-white hover:bg-red-700',                cell: 'bg-red-50' },
+  { key: 'conge',   short: 'CP',  label: 'Congé payé',     badge: 'bg-emerald-100 text-emerald-800', pill: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200',  cell: 'bg-emerald-50' },
+  { key: 'recup',   short: 'REC', label: 'Récupération',   badge: 'bg-blue-100 text-blue-800',       pill: 'bg-blue-100 text-blue-700 hover:bg-blue-200',           cell: 'bg-blue-50' },
+  { key: 'maladie', short: 'MAL', label: 'Maladie',        badge: 'bg-red-100 text-red-800',         pill: 'bg-red-100 text-red-700 hover:bg-red-200',              cell: 'bg-red-50' },
+  { key: 'autre',   short: 'ABS', label: 'Autre absence',  badge: 'bg-gray-100 text-gray-700',       pill: 'bg-gray-100 text-gray-600 hover:bg-gray-200',           cell: 'bg-gray-50' },
+];
+function absenceConf(type: string) { return ABSENCE_TYPES.find(a => a.key === type) ?? ABSENCE_TYPES[4]; }
 
 const JOURS = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
 
@@ -44,6 +56,7 @@ export default function PointagesPage() {
   const [employes, setEmployes]     = useState<Employe[]>([]);
   const [shifts, setShifts]         = useState<Shift[]>([]);
   const [pointages, setPointages]   = useState<Record<string, Pointage>>({});
+  const [absences, setAbsences]     = useState<Record<string, AbsenceType>>({});
   const [editing, setEditing]       = useState<Record<string, Pointage>>({});
   const [saving, setSaving]         = useState<string | null>(null);
   const [loading, setLoading]       = useState(true);
@@ -58,14 +71,18 @@ export default function PointagesPage() {
   async function loadWeek() {
     setLoading(true);
     const dates = weekDatesOf(weekMonday);
-    const [{ data: sh }, { data: pt }] = await Promise.all([
+    const [{ data: sh }, { data: pt }, { data: abs }] = await Promise.all([
       supabase.from('planning_shifts').select('*').in('date', dates),
       supabase.from('pointages').select('*').in('date', dates),
+      supabase.from('planning_absences').select('employe_id, date, type').in('date', dates),
     ]);
     setShifts((sh ?? []) as Shift[]);
     const ptMap: Record<string, Pointage> = {};
     ((pt ?? []) as Pointage[]).forEach(p => { ptMap[`${p.employe_id}_${p.date}`] = p; });
     setPointages(ptMap);
+    const absMap: Record<string, AbsenceType> = {};
+    ((abs ?? []) as AbsenceRow[]).forEach(a => { absMap[`${a.employe_id}_${a.date}`] = a.type as AbsenceType; });
+    setAbsences(absMap);
     setEditing({});
     setLoading(false);
   }
@@ -84,7 +101,6 @@ export default function PointagesPage() {
     const base = pointages[key] ?? { employe_id: empId, date, heure_entree: null, heure_sortie: null, pause_min: 0, note: null };
     setEditing(prev => ({ ...prev, [key]: { ...base, ...editing[key], ...patch } }));
   }
-
   async function savePointage(empId: string, date: string) {
     const key = `${empId}_${date}`;
     const p = editing[key]; if (!p) return;
@@ -93,6 +109,17 @@ export default function PointagesPage() {
     setPointages(prev => ({ ...prev, [key]: p }));
     setEditing(prev => { const n = { ...prev }; delete n[key]; return n; });
     setSaving(null);
+  }
+
+  async function setAbsenceForDay(empId: string, date: string, type: AbsenceType | null) {
+    const key = `${empId}_${date}`;
+    if (type === null) {
+      await supabase.from('planning_absences').delete().eq('employe_id', empId).eq('date', date);
+      setAbsences(prev => { const n = { ...prev }; delete n[key]; return n; });
+    } else {
+      await supabase.from('planning_absences').upsert({ employe_id: empId, date, type }, { onConflict: 'employe_id,date' });
+      setAbsences(prev => ({ ...prev, [key]: type }));
+    }
   }
 
   const services = useMemo(() => [...new Set(employes.map(e => e.service ?? 'Autre'))].sort(), [employes]);
@@ -104,6 +131,14 @@ export default function PointagesPage() {
           <ArrowLeft size={18} />
         </Link>
         <h1 className="text-xl font-black text-gray-900 flex-1">Pointages</h1>
+
+        {/* Légende */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {ABSENCE_TYPES.map(at => (
+            <span key={at.key} className={`text-[10px] font-bold px-2 py-1 rounded-lg ${at.badge}`}>{at.label}</span>
+          ))}
+        </div>
+
         <div className="flex items-center gap-1 bg-gray-100 rounded-xl px-2 py-1.5">
           <button onClick={() => setWeekMonday(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n; })}
             className="w-7 h-7 flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-200 rounded-lg font-bold transition-colors">‹</button>
@@ -125,12 +160,12 @@ export default function PointagesPage() {
                   <span className="text-xs font-black uppercase tracking-wider text-gray-500">{service}</span>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="border-b border-gray-200">
+                  <table className="w-full text-sm" style={{ minWidth: '900px' }}>
+                    <thead className="border-b border-gray-200 bg-gray-50">
                       <tr>
                         <th className="text-left px-4 py-2 font-bold text-gray-600 border-r border-gray-200 w-36">Employé</th>
                         {dates.map((date, i) => (
-                          <th key={date} className={`text-center px-2 py-2 font-bold text-gray-600 border-r border-gray-100 last:border-r-0 min-w-[130px] ${i >= 5 ? 'bg-gray-50' : ''}`}>
+                          <th key={date} className={`text-center px-2 py-2 font-bold text-gray-600 border-r border-gray-100 last:border-r-0 ${i >= 5 ? 'bg-gray-100' : ''}`}>
                             <p>{JOURS[i]}</p>
                             <p className="text-xs font-normal text-gray-400">{fmtDay(new Date(date))}</p>
                           </th>
@@ -147,32 +182,45 @@ export default function PointagesPage() {
                           {dates.map((date, di) => {
                             const shift = getShift(emp.id, date);
                             const pt = getPointage(emp.id, date);
-                            const key = `${emp.id}_${date}`;
-                            const isDirty = !!editing[key];
+                            const absKey = `${emp.id}_${date}`;
+                            const absence = absences[absKey];
+                            const ptKey = `${emp.id}_${date}`;
+                            const isDirty = !!editing[ptKey];
                             const realMin = pt?.heure_entree && pt?.heure_sortie ? netMin(pt.heure_entree, pt.heure_sortie, pt.pause_min ?? 0) : 0;
                             const plannedMin = shift ? shiftMin(shift) : 0;
                             const diff = realMin - plannedMin;
+                            const ac = absence ? absenceConf(absence) : null;
+
                             return (
-                              <td key={date} className={`px-2 py-1.5 border-r border-gray-100 last:border-r-0 ${di >= 5 ? 'bg-gray-50' : ''}`}>
-                                {shift ? (
+                              <td key={date} className={`px-1.5 py-1.5 border-r border-gray-100 last:border-r-0 align-top ${di >= 5 ? 'bg-gray-50' : ''} ${ac ? ac.cell : ''}`}>
+                                {/* Absence */}
+                                {ac ? (
+                                  <div className="flex flex-col gap-1 min-h-[4rem]">
+                                    <div className="flex items-center justify-between gap-1">
+                                      <span className={`text-[10px] font-black px-2 py-1 rounded-lg flex-1 text-center ${ac.badge}`}>{ac.label}</span>
+                                      <button onClick={() => setAbsenceForDay(emp.id, date, null)}
+                                        className="p-0.5 text-gray-400 hover:text-red-500 transition-colors rounded shrink-0"
+                                        title="Retirer">
+                                        <X size={10} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : shift ? (
+                                  /* Shift planifié → pointage + pills absence */
                                   <div className="space-y-1">
-                                    {/* Planifié */}
-                                    <p className="text-[9px] text-gray-400 font-semibold">Planifié : {shift.heure_debut.slice(0,5)}–{shift.heure_fin.slice(0,5)}</p>
-                                    {/* Entrée */}
+                                    <p className="text-[9px] text-gray-400 font-semibold">{shift.heure_debut.slice(0,5)}–{shift.heure_fin.slice(0,5)}</p>
                                     <div className="flex items-center gap-1">
-                                      <span className="text-[9px] text-gray-400 w-8">Ent.</span>
+                                      <span className="text-[9px] text-gray-400 w-7">Ent.</span>
                                       <input type="time" value={pt?.heure_entree ?? ''}
                                         onChange={e => editPointage(emp.id, date, { heure_entree: e.target.value || null })}
                                         className="text-[11px] border border-gray-200 rounded-lg px-1 py-0.5 w-full focus:outline-none focus:border-amber-400 bg-white" />
                                     </div>
-                                    {/* Sortie */}
                                     <div className="flex items-center gap-1">
-                                      <span className="text-[9px] text-gray-400 w-8">Sort.</span>
+                                      <span className="text-[9px] text-gray-400 w-7">Sort.</span>
                                       <input type="time" value={pt?.heure_sortie ?? ''}
                                         onChange={e => editPointage(emp.id, date, { heure_sortie: e.target.value || null })}
                                         className="text-[11px] border border-gray-200 rounded-lg px-1 py-0.5 w-full focus:outline-none focus:border-amber-400 bg-white" />
                                     </div>
-                                    {/* Résultat */}
                                     {realMin > 0 && (
                                       <div className="flex items-center justify-between">
                                         <span className="text-[10px] font-bold text-gray-700">{fmtMin(realMin)}</span>
@@ -184,15 +232,33 @@ export default function PointagesPage() {
                                       </div>
                                     )}
                                     {isDirty && (
-                                      <button onClick={() => savePointage(emp.id, date)}
-                                        disabled={saving === key}
+                                      <button onClick={() => savePointage(emp.id, date)} disabled={saving === ptKey}
                                         className="w-full flex items-center justify-center gap-1 text-[9px] font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-lg py-0.5 transition-colors disabled:opacity-50">
-                                        <Save size={8} /> {saving === key ? '…' : 'Sauver'}
+                                        <Save size={8} /> {saving === ptKey ? '…' : 'Sauver'}
                                       </button>
                                     )}
+                                    {/* Pills absence sous les inputs */}
+                                    <div className="flex gap-0.5 pt-0.5 border-t border-gray-100">
+                                      {ABSENCE_TYPES.map(at => (
+                                        <button key={at.key} title={at.label}
+                                          onClick={() => setAbsenceForDay(emp.id, date, at.key)}
+                                          className={`flex-1 text-[8px] font-black py-0.5 rounded transition-colors ${at.pill}`}>
+                                          {at.short}
+                                        </button>
+                                      ))}
+                                    </div>
                                   </div>
                                 ) : (
-                                  <div className="text-center text-gray-300 text-xs py-2">—</div>
+                                  /* Pas de shift → pills absence uniquement */
+                                  <div className="flex gap-0.5 min-h-[4rem] items-end">
+                                    {ABSENCE_TYPES.map(at => (
+                                      <button key={at.key} title={at.label}
+                                        onClick={() => setAbsenceForDay(emp.id, date, at.key)}
+                                        className={`flex-1 text-[8px] font-black py-1 rounded transition-colors ${at.pill}`}>
+                                        {at.short}
+                                      </button>
+                                    ))}
+                                  </div>
                                 )}
                               </td>
                             );
