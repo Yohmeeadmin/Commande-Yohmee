@@ -288,7 +288,7 @@ export default function BDCDocumentPage() {
       .select('*, supplier:suppliers(id, nom, telephone, email, ice), lines:purchase_order_lines(*, stock_item:stock_items(nom, unite))')
       .eq('id', id)
       .single()
-      .then(({ data }) => { setBdc(data as BDC); setLoading(false); });
+      .then(({ data }: { data: BDC | null }) => { setBdc(data as BDC); setLoading(false); });
   }, [id]);
 
   useEffect(() => {
